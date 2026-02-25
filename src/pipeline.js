@@ -38,7 +38,7 @@ const { compressAndSegment, probeFormat, verifySegment } = require('./services/v
 const { findDocsRecursive } = require('./utils/fs');
 const { fmtDuration, fmtBytes } = require('./utils/format');
 const { promptUser, promptUserText } = require('./utils/prompt');
-const { parseArgs, showHelp } = require('./utils/cli');
+const { parseArgs, showHelp, selectFolder } = require('./utils/cli');
 const { parallelMap } = require('./utils/retry');
 const Progress = require('./utils/progress');
 const CostTracker = require('./utils/cost-tracker');
@@ -51,6 +51,8 @@ const { loadHistory, saveHistory, buildHistoryEntry, analyzeHistory, printLearni
 const { loadPreviousCompilation, generateDiff, renderDiffMarkdown } = require('./utils/diff-engine');
 const { detectAllChanges, serializeReport } = require('./utils/change-detector');
 const { assessProgressLocal, assessProgressWithAI, mergeProgressIntoAnalysis, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS } = require('./utils/progress-updater');
+const { discoverTopics, generateAllDocuments, writeDeepDiveOutput } = require('./utils/deep-dive');
+const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./utils/dynamic-mode');
 
 // --- Renderers ---
 const { renderResultsMarkdown } = require('./renderers/markdown');
@@ -117,12 +119,21 @@ async function phaseInit() {
     disableFocusedPass: !!flags['no-focused-pass'],
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
+    deepDive: !!flags['deep-dive'],
+    dynamic: !!flags.dynamic,
+    request: typeof flags.request === 'string' ? flags.request : null,
     updateProgress: !!flags['update-progress'],
     repoPath: flags.repo || null,
   };
 
-  const folderArg = positional[0];
-  if (!folderArg) showHelp();
+  // --- Resolve folder: positional arg or interactive selection ---
+  let folderArg = positional[0];
+  if (!folderArg) {
+    folderArg = await selectFolder(PROJECT_ROOT);
+    if (!folderArg) {
+      showHelp();
+    }
+  }
 
   const targetDir = path.resolve(folderArg);
   if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
@@ -1204,6 +1215,109 @@ function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun })
   console.log('');
 }
 
+// ======================== PHASE: DEEP DIVE ========================
+
+/**
+ * Generate explanatory documents for topics discussed in the meeting.
+ * Two-phase: discover topics → generate documents in parallel.
+ */
+async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
+  const timer = phaseTimer('deep_dive');
+  const { ai, callName, userName, costTracker, opts, contextDocs } = ctx;
+
+  console.log('');
+  console.log('══════════════════════════════════════════════');
+  console.log('  DEEP DIVE — Generating Explanatory Documents');
+  console.log('══════════════════════════════════════════════');
+  console.log('');
+
+  const thinkingBudget = parseInt(opts['deep-dive-thinking-budget'], 10) ||
+    require('./config').DEEP_DIVE_THINKING_BUDGET;
+
+  // Gather context snippets from inline text docs (for richer AI context)
+  const contextSnippets = [];
+  for (const doc of (contextDocs || [])) {
+    if (doc.type === 'inlineText' && doc.content) {
+      const snippet = doc.content.length > 3000
+        ? doc.content.slice(0, 3000) + '\n... (truncated)'
+        : doc.content;
+      contextSnippets.push(`[${doc.fileName}]\n${snippet}`);
+    }
+  }
+
+  // Phase 1: Discover topics
+  console.log('  Phase 1: Discovering topics...');
+  let topicResult;
+  try {
+    topicResult = await discoverTopics(ai, compiledAnalysis, {
+      callName, userName, thinkingBudget, contextSnippets,
+    });
+  } catch (err) {
+    console.error(`  ✗ Topic discovery failed: ${err.message}`);
+    log.error(`Deep dive topic discovery failed: ${err.message}`);
+    timer.end();
+    return;
+  }
+
+  const topics = topicResult.topics;
+  if (!topics || topics.length === 0) {
+    console.log('  ℹ No topics identified for deep dive');
+    log.step('Deep dive: no topics discovered');
+    timer.end();
+    return;
+  }
+
+  console.log(`  ✓ Found ${topics.length} topic(s):`);
+  topics.forEach(t => console.log(`    ${t.id} [${t.category}] ${t.title}`));
+  console.log('');
+
+  if (topicResult.tokenUsage) {
+    costTracker.addSegment('deep-dive-discovery', topicResult.tokenUsage, topicResult.durationMs, false);
+  }
+  log.step(`Deep dive: ${topics.length} topics discovered in ${(topicResult.durationMs / 1000).toFixed(1)}s`);
+
+  // Phase 2: Generate documents
+  console.log(`  Phase 2: Generating ${topics.length} document(s)...`);
+  const documents = await generateAllDocuments(ai, topics, compiledAnalysis, {
+    callName,
+    userName,
+    thinkingBudget,
+    contextSnippets,
+    concurrency: Math.min(opts.parallelAnalysis || 2, 3), // match pipeline parallelism
+    onProgress: (done, total, topic) => {
+      console.log(`    [${done}/${total}] ✓ ${topic.title}`);
+    },
+  });
+
+  // Track cost
+  for (const doc of documents) {
+    if (doc.tokenUsage && doc.tokenUsage.totalTokens > 0) {
+      costTracker.addSegment(`deep-dive-${doc.topic.id}`, doc.tokenUsage, doc.durationMs, false);
+    }
+  }
+
+  // Phase 3: Write output
+  const deepDiveDir = path.join(runDir, 'deep-dive');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const { indexPath, stats } = writeDeepDiveOutput(deepDiveDir, documents, {
+    callName,
+    timestamp: ts,
+  });
+
+  console.log('');
+  console.log(`  ✓ Deep dive complete: ${stats.successful}/${stats.total} documents generated`);
+  console.log(`    Output: ${path.relative(PROJECT_ROOT, deepDiveDir)}/`);
+  console.log(`    Index:  ${path.relative(PROJECT_ROOT, indexPath)}`);
+  if (stats.failed > 0) {
+    console.log(`    ⚠ ${stats.failed} document(s) failed`);
+  }
+  console.log(`    Tokens: ${stats.totalTokens.toLocaleString()} | Time: ${(stats.totalDurationMs / 1000).toFixed(1)}s`);
+  console.log('');
+
+  log.step(`Deep dive complete: ${stats.successful} docs, ${stats.totalTokens} tokens, ${(stats.totalDurationMs / 1000).toFixed(1)}s`);
+  timer.end();
+}
+
 // ======================== MAIN PIPELINE ========================
 
 async function run() {
@@ -1214,6 +1328,11 @@ async function run() {
   // --- Smart Change Detection mode ---
   if (initCtx.opts.updateProgress) {
     return await runProgressUpdate(initCtx);
+  }
+
+  // --- Dynamic document-only mode ---
+  if (initCtx.opts.dynamic) {
+    return await runDynamic(initCtx);
   }
 
   // Phase 2: Discover
@@ -1323,8 +1442,228 @@ async function run() {
   // Phase 8: Summary
   phaseSummary(fullCtx, results, { ...outputResult, compilationRun });
 
+  // Phase 9 (optional): Deep Dive — generate explanatory documents
+  if (fullCtx.opts.deepDive && compiledAnalysis && !fullCtx.opts.skipGemini && !fullCtx.opts.dryRun && !shuttingDown) {
+    await phaseDeepDive(fullCtx, compiledAnalysis, outputResult.runDir);
+  }
+
   // Cleanup
   fullCtx.progress.cleanup();
+  log.close();
+}
+
+// ======================== DYNAMIC DOCUMENT-ONLY MODE ========================
+
+/**
+ * Alternative pipeline mode: generate documents from context docs + user request.
+ * No video required — works purely from documents and the user's request.
+ *
+ * Triggered by --dynamic flag.
+ */
+async function runDynamic(initCtx) {
+  const { opts, targetDir } = initCtx;
+  const folderName = path.basename(targetDir);
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+
+  console.log('');
+  console.log('══════════════════════════════════════════════');
+  console.log('  DYNAMIC MODE — AI Document Generation');
+  console.log('══════════════════════════════════════════════');
+  console.log(`  Folder: ${folderName}`);
+  console.log(`  Source: ${targetDir}`);
+  console.log('');
+
+  // 1. Get user request (from --request flag or interactive prompt)
+  let userRequest = opts.request;
+  if (!userRequest) {
+    userRequest = await promptUserText('  What do you want to generate?\n  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n\n  → ');
+  }
+  if (!userRequest || !userRequest.trim()) {
+    console.error('\n  ✗ A request is required for dynamic mode.');
+    console.error('    Use --request "your request" or enter it when prompted.');
+    initCtx.progress.cleanup();
+    log.close();
+    return;
+  }
+  console.log(`\n  Request: "${userRequest}"`);
+  log.step(`Dynamic mode: "${userRequest}"`);
+
+  // 2. Ask for user name (for attribution)
+  let userName = opts.userName;
+  if (!userName) {
+    userName = await promptUserText('\n  Your name (optional, press Enter to skip): ');
+  }
+  if (userName) log.step(`User: ${userName}`);
+
+  // 3. Discover and load documents
+  console.log('');
+  console.log('  Discovering documents...');
+  const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
+  console.log(`  Found ${allDocFiles.length} document(s)`);
+  if (allDocFiles.length > 0) {
+    allDocFiles.forEach(f => console.log(`    - ${f.relPath}`));
+  }
+  log.step(`Discovered ${allDocFiles.length} document(s)`);
+
+  // 4. Initialize Gemini
+  console.log('');
+  console.log('  Initializing AI...');
+  if (opts.skipGemini || opts.dryRun) {
+    console.error('  ✗ Dynamic mode requires Gemini AI. Remove --skip-gemini / --dry-run.');
+    initCtx.progress.cleanup();
+    log.close();
+    return;
+  }
+
+  // Validate config for Gemini
+  const configCheck = validateConfig({ skipFirebase: true, skipGemini: false });
+  if (!configCheck.valid) {
+    console.error('\n  Configuration errors:');
+    configCheck.errors.forEach(e => console.error(`    ✗ ${e}`));
+    initCtx.progress.cleanup();
+    log.close();
+    return;
+  }
+
+  const ai = await initGemini();
+  console.log('  ✓ Gemini AI ready');
+  const costTracker = initCtx.costTracker;
+
+  // 5. Load document contents as snippets for AI
+  const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml', '.html'];
+  const docSnippets = [];
+  for (const { absPath, relPath } of allDocFiles) {
+    if (INLINE_EXTS.includes(path.extname(absPath).toLowerCase())) {
+      try {
+        let content = fs.readFileSync(absPath, 'utf8');
+        if (content.length > 8000) {
+          content = content.slice(0, 8000) + '\n... (truncated)';
+        }
+        docSnippets.push(`[${relPath}]\n${content}`);
+      } catch { /* skip unreadable */ }
+    }
+  }
+  console.log(`  Loaded ${docSnippets.length} document(s) as context for AI`);
+  console.log('');
+
+  const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
+
+  // 6. Phase 1: Plan topics
+  console.log('  Phase 1: Planning documents...');
+  let planResult;
+  try {
+    planResult = await planTopics(ai, userRequest, docSnippets, {
+      folderName, userName, thinkingBudget,
+    });
+  } catch (err) {
+    console.error(`  ✗ Topic planning failed: ${err.message}`);
+    log.error(`Dynamic topic planning failed: ${err.message}`);
+    initCtx.progress.cleanup();
+    log.close();
+    return;
+  }
+
+  const topics = planResult.topics;
+  if (!topics || topics.length === 0) {
+    console.log('  ℹ No documents planned — request may be too vague.');
+    console.log('    Try a more specific request or add context documents to the folder.');
+    initCtx.progress.cleanup();
+    log.close();
+    return;
+  }
+
+  if (planResult.tokenUsage) {
+    costTracker.addSegment('dynamic-planning', planResult.tokenUsage, planResult.durationMs, false);
+  }
+
+  console.log(`  ✓ Planned ${topics.length} document(s) in ${(planResult.durationMs / 1000).toFixed(1)}s:`);
+  topics.forEach(t => console.log(`    ${t.id} [${t.category}] ${t.title}`));
+  if (planResult.projectSummary) {
+    console.log(`\n  Summary: ${planResult.projectSummary}`);
+  }
+  console.log('');
+  log.step(`Dynamic mode: ${topics.length} topics planned in ${(planResult.durationMs / 1000).toFixed(1)}s`);
+
+  // 7. Phase 2: Generate all documents
+  console.log(`  Phase 2: Generating ${topics.length} document(s)...`);
+  const documents = await generateAllDynamicDocuments(ai, topics, userRequest, docSnippets, {
+    folderName,
+    userName,
+    thinkingBudget,
+    concurrency: Math.min(opts.parallelAnalysis || 2, 3),
+    onProgress: (done, total, topic) => {
+      console.log(`    [${done}/${total}] ✓ ${topic.title}`);
+    },
+  });
+
+  // Track cost
+  for (const doc of documents) {
+    if (doc.tokenUsage && doc.tokenUsage.totalTokens > 0) {
+      costTracker.addSegment(`dynamic-${doc.topic.id}`, doc.tokenUsage, doc.durationMs, false);
+    }
+  }
+
+  // 8. Write output
+  const runDir = opts.outputDir
+    ? path.resolve(opts.outputDir)
+    : path.join(targetDir, 'runs', ts);
+  const { indexPath, stats } = writeDynamicOutput(runDir, documents, {
+    folderName,
+    userRequest,
+    projectSummary: planResult.projectSummary,
+    timestamp: ts,
+  });
+
+  console.log('');
+  console.log(`  ✓ Dynamic generation complete: ${stats.successful}/${stats.total} documents`);
+  console.log(`    Output:  ${path.relative(PROJECT_ROOT, runDir)}/`);
+  console.log(`    Index:   ${path.relative(PROJECT_ROOT, indexPath)}`);
+  if (stats.failed > 0) {
+    console.log(`    ⚠ ${stats.failed} document(s) failed`);
+  }
+  console.log(`    Tokens:  ${stats.totalTokens.toLocaleString()} | Time: ${(stats.totalDurationMs / 1000).toFixed(1)}s`);
+
+  // 9. Cost summary
+  const cost = costTracker.getSummary();
+  if (cost.totalTokens > 0) {
+    console.log('');
+    console.log('  Cost estimate (Gemini 2.5 Flash):');
+    console.log(`    Input:    ${cost.inputTokens.toLocaleString()} ($${cost.inputCost.toFixed(4)})`);
+    console.log(`    Output:   ${cost.outputTokens.toLocaleString()} ($${cost.outputCost.toFixed(4)})`);
+    console.log(`    Thinking: ${cost.thinkingTokens.toLocaleString()} ($${cost.thinkingCost.toFixed(4)})`);
+    console.log(`    Total:    ${cost.totalTokens.toLocaleString()} tokens | $${cost.totalCost.toFixed(4)}`);
+  }
+
+  // 10. Firebase upload (optional)
+  if (!opts.skipUpload) {
+    try {
+      const { storage, authenticated } = await initFirebase();
+      if (authenticated && storage) {
+        const storagePath = `calls/${folderName}/dynamic/${ts}`;
+        const { uploadToStorage: upload } = require('./services/firebase');
+        const indexStoragePath = `${storagePath}/INDEX.md`;
+        await upload(storage, indexPath, indexStoragePath);
+        console.log(`  ✓ Uploaded to Firebase: ${storagePath}/`);
+        log.step(`Firebase upload complete: ${storagePath}`);
+      }
+    } catch (fbErr) {
+      console.warn(`  ⚠ Firebase upload failed: ${fbErr.message}`);
+      log.warn(`Firebase upload failed: ${fbErr.message}`);
+    }
+  }
+
+  console.log('');
+  console.log('  ══════════════════════════════════════');
+  console.log('  Dynamic Mode Complete');
+  console.log('  ══════════════════════════════════════');
+  console.log(`  Documents: ${stats.successful}`);
+  console.log(`  Output:    ${path.relative(PROJECT_ROOT, runDir)}/`);
+  console.log(`  Elapsed:   ${log.elapsed()}`);
+  console.log('');
+
+  log.step(`Dynamic mode complete: ${stats.successful} docs, ${stats.totalTokens} tokens`);
+  log.step('DONE');
+  initCtx.progress.cleanup();
   log.close();
 }
 

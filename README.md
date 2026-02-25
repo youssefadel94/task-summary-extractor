@@ -1,18 +1,22 @@
 # Task Summary Extractor
 
-> **v6.1.0** — AI-powered meeting & call analysis pipeline  
-> Record any call or meeting, drop it in a folder, get structured task documents in minutes.
+> **v7.0.0** — AI-powered meeting analysis & dynamic document generation pipeline  
+> Analyze recorded calls OR generate documents from any context — all from the CLI.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-6.1.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-7.0.0-brightgreen" alt="Version" />
 </p>
 
 ---
 
 ## What It Does
+
+Two modes, one tool:
+
+### Video Analysis Mode (default)
 
 You record a call or meeting — any kind. You drop the recording in a folder with supporting docs. The tool:
 
@@ -22,21 +26,39 @@ You record a call or meeting — any kind. You drop the recording in a folder wi
 4. **Extracts** tickets, change requests, action items, blockers, scope changes, decisions
 5. **Scores** confidence on every item, retries weak segments automatically
 6. **Outputs** a structured Markdown task document + JSON data
+7. **Deep Dive** (optional) — generates explanatory documents for every topic discussed
 
 You get a `results.md` with your personalized task list, ready to act on.
 
+### Dynamic Mode (`--dynamic`)
+
+No video needed. Point it at a folder of documents, tell it what you need, and it generates a set of Markdown documents:
+
+1. **Discovers** all documents in the folder
+2. **Plans** a comprehensive document set based on your request
+3. **Generates** 3-15 standalone Markdown documents in parallel
+4. **Outputs** an indexed set of professional documents
+
+Use it for anything: migration plans, learning guides, architecture docs, decision records, onboarding materials, project breakdowns — whatever you describe.
+
 ### Use Cases
 
-| Scenario | What You Get |
-|----------|-------------|
-| **Sprint Planning / Standup** | Tickets discussed, assignments, blockers, scope changes |
-| **Code Review** | Change requests with file-level detail, reviewer feedback, action items |
-| **Client Meeting** | Requirements, decisions, action items per person, agreed scope |
-| **Technical Interview** | Assessment notes, topics covered, follow-up items |
-| **Training / Onboarding** | Key topics, references shared, tasks assigned to trainee |
-| **Incident Review / Post-mortem** | Root causes, action items, owners, deadlines |
-| **Product Discussion** | Feature decisions, scope additions/removals, who owns what |
-| **1-on-1 / Sync** | Personal action items, blockers raised, decisions made |
+| Scenario | Mode | What You Get |
+|----------|------|-------------|
+| **Sprint Planning / Standup** | Video | Tickets discussed, assignments, blockers, scope changes |
+| **Code Review** | Video | Change requests with file-level detail, reviewer feedback, action items |
+| **Client Meeting** | Video | Requirements, decisions, action items per person, agreed scope |
+| **Technical Interview** | Video | Assessment notes, topics covered, follow-up items |
+| **Training / Onboarding** | Video | Key topics, references shared, tasks assigned to trainee |
+| **Incident Review / Post-mortem** | Video | Root causes, action items, owners, deadlines |
+| **Product Discussion** | Video | Feature decisions, scope additions/removals, who owns what |
+| **1-on-1 / Sync** | Video | Personal action items, blockers raised, decisions made |
+| **System Migration Plan** | Dynamic | Migration guide, risk analysis, timelines, checklists |
+| **Codebase Onboarding** | Dynamic | Architecture overview, component guides, getting started |
+| **Learning / Research** | Dynamic | Concept explanations, progressive tutorials, reference material |
+| **Project Planning** | Dynamic | Task breakdown, dependency analysis, resource planning |
+| **Decision Documentation** | Dynamic | ADR-style decision records from context docs |
+| **API Documentation** | Dynamic | Endpoint reference, usage guides, integration examples |
 
 The AI adapts to the meeting content — it extracts whatever structure exists in the conversation.
 
@@ -82,7 +104,14 @@ The pipeline **recursively scans all subfolders** for documents — use any fold
 ### 3. Run
 
 ```bash
+# Interactive folder selection (just run it)
+node process_and_upload.js
+
+# Or specify folder directly
 node process_and_upload.js --name "Your Name" "my-call"
+
+# Dynamic mode (no video needed)
+node process_and_upload.js --dynamic --request "Explain this project for new developers" "my-project"
 ```
 
 ### 4. View Results
@@ -145,6 +174,9 @@ git merge main
 ### Basic
 
 ```bash
+# Interactive mode — shows available folders, lets you pick
+node process_and_upload.js
+
 # Analyze a call
 node process_and_upload.js --name "Jane" "client-kickoff"
 
@@ -169,6 +201,36 @@ node process_and_upload.js --update-progress --repo "C:\my-project" "call 1"
 Outputs `progress.md` with: ✅ done, 🔄 in progress, ⏳ not started — with git evidence.
 
 > Works best when extracted items reference files or ticket IDs that appear in your git history.
+
+### Deep Dive
+
+Generate standalone explanatory documents for every topic discussed:
+
+```bash
+node process_and_upload.js --deep-dive --name "Jane" "client-kickoff"
+```
+
+Outputs a `deep-dive/` folder with an index and individual Markdown files — concepts, decisions, processes, architecture explanations, and more. Great for onboarding docs, decision records, or knowledge capture.
+
+### Dynamic Mode
+
+Generate documents from context alone — no video required:
+
+```bash
+# Interactive (prompts for request)
+node process_and_upload.js --dynamic "my-project"
+
+# With request inline
+node process_and_upload.js --dynamic --request "Plan migration from PostgreSQL to MongoDB" "db-specs"
+
+# Learning materials from docs
+node process_and_upload.js --dynamic --request "Create React hooks tutorial" "react-notes"
+
+# Architecture docs from codebase notes
+node process_and_upload.js --dynamic --request "Explain this system for onboarding" "project-docs"
+```
+
+Document categories generated: overview, guide, analysis, plan, reference, concept, decision, checklist, template, report.
 
 ### Advanced
 
@@ -223,6 +285,9 @@ You also get a **`your_tasks`** section scoped to the `--name` you provide — o
 | **Diff Engine** | Shows what changed between analysis runs |
 | **Confidence Scoring** | Every item rated HIGH / MEDIUM / LOW with evidence |
 | **Git Progress Tracking** | Correlates git commits with extracted items |
+| **Deep Dive Mode** | `--deep-dive` generates explanatory docs per topic discussed |
+| **Dynamic Mode** | `--dynamic` generates docs from context + request — no video needed |
+| **Interactive Selection** | Run without args to browse and select available folders |
 | **Resume / Checkpoint** | `--resume` picks up where you left off |
 | **Firebase Upload** | Team access via cloud storage (optional) |
 | **Structured Logging** | JSONL logs with timing and phase spans |
@@ -309,6 +374,7 @@ Use any folder names and nesting — the pipeline scans everything. `.tasks/` ge
 | `VIDEO_SPEED` | `1.5` | No |
 | `VIDEO_SEGMENT_TIME` | `280` (seconds) | No |
 | `THINKING_BUDGET` | `24576` | No |
+| `DEEP_DIVE_THINKING_BUDGET` | `16384` | No |
 | `LOG_LEVEL` | `info` | No |
 
 > Full variable list + encoding parameters → [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -316,7 +382,15 @@ Use any folder names and nesting — the pipeline scans everything. `.tasks/` ge
 ### CLI Reference
 
 ```
-Usage: node process_and_upload.js [options] <folder>
+Usage: node process_and_upload.js [options] [folder]
+
+If no folder is specified, shows an interactive folder selector.
+
+Modes:
+  (default)                Video analysis — compress, analyze, extract, compile
+  --dynamic                Document-only mode — no video required
+  --update-progress        Track item completion via git
+  --deep-dive              Generate explanatory docs per topic (after video analysis)
 
 Core:
   --name <name>            Your name (skips prompt)
@@ -325,9 +399,16 @@ Core:
   --reanalyze              Force re-analysis
   --dry-run                Show plan without executing
 
+Dynamic Mode:
+  --dynamic                Enable doc-only mode
+  --request <text>         What to generate (prompted if omitted)
+
 Progress:
   --update-progress        Track item completion via git
   --repo <path>            Project git repo path
+
+Deep Dive:
+  --deep-dive              Generate explanatory docs for each topic discussed
 
 Tuning:
   --thinking-budget <n>    Thinking tokens per segment (default: 24576)
@@ -359,6 +440,33 @@ my-call/
         ├── results.md            Human-readable task document
         ├── results.json          Pipeline metadata + per-segment data
         └── compilation.json      All extracted items (JSON)
+```
+
+### After Deep Dive (`--deep-dive`)
+
+```
+my-call/
+└── runs/
+    └── 2026-02-24T16-22-28/
+        └── deep-dive/
+            ├── INDEX.md              Topic index grouped by category
+            ├── dd-01-topic-slug.md   Individual topic document
+            ├── dd-02-topic-slug.md   ...
+            └── deep-dive.json        Metadata + token usage
+```
+
+### After Dynamic Mode (`--dynamic`)
+
+```
+my-project/
+└── runs/
+    └── 2026-02-26T10-30-00/
+        ├── INDEX.md              Document set index with cross-links
+        ├── dm-01-overview.md     Overview document
+        ├── dm-02-guide.md        Step-by-step guide
+        ├── dm-03-analysis.md     Analysis document
+        ├── ...                   More documents per planned topic
+        └── dynamic-run.json      Metadata + token usage
 ```
 
 ### After Progress Update
@@ -394,7 +502,7 @@ task-summary-extractor/
 │   │   └── video.js            ffmpeg compression
 │   ├── renderers/
 │   │   └── markdown.js         Report renderer
-│   └── utils/                  17 utility modules
+│   └── utils/                  19 utility modules
 │
 ├── QUICK_START.md              Getting started guide
 ├── ARCHITECTURE.md             Technical deep dive & diagrams
@@ -418,6 +526,8 @@ task-summary-extractor/
 
 | Version | Theme | Highlights |
 |---------|-------|-----------|
+| **v7.0** | Dynamic Mode | `--dynamic` doc-only mode, interactive folder selection, fully flexible pipeline |
+| **v6.2** | Deep Dive | `--deep-dive` generates explanatory docs per topic, 8 content categories |
 | **v6.1** | Change Detection | Git progress tracking, AI correlation, `--update-progress` |
 | **v6** | Self-Improving | Confidence scoring, focused re-analysis, learning loop, diff engine |
 | **v5** | Smart & Accurate | Quality gate, adaptive budgets, health dashboard |

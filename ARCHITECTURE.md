@@ -1,7 +1,8 @@
 # Architecture & Technical Deep Dive
 
 > Internal reference for the pipeline's architecture, processing flows, and design decisions.  
-> This tool analyzes any recorded meeting or call — see [README.md](README.md) for use cases.  
+> This tool analyzes recorded meetings/calls AND generates documents from context alone.  
+> Two modes: **Video Analysis** (default) and **Dynamic Mode** (`--dynamic`).  
 > For usage instructions, see [README.md](README.md) · [Quick Start](QUICK_START.md)
 
 ---
@@ -18,6 +19,8 @@
 - [Learning Loop](#learning-loop--self-improving-budgets)
 - [Cross-Segment Continuity](#cross-segment-continuity)
 - [Diff Engine](#diff-engine--cross-run-intelligence)
+- [Deep Dive Mode](#deep-dive-mode)
+- [Dynamic Mode](#dynamic-mode)
 - [Document Processing](#document-context-processing)
 - [Skip Logic / Caching](#skip-logic--caching)
 - [Logging](#logging)
@@ -33,9 +36,9 @@ flowchart TB
         EP["process_and_upload.js"]
     end
 
-    subgraph Pipeline["pipeline.js — 8-Phase Orchestrator"]
+    subgraph Pipeline["pipeline.js — Multi-Mode Orchestrator"]
         direction TB
-        P1["Phase 1: Init"]
+        P1["Phase 1: Init + Interactive Selection"]
         P2["Phase 2: Discover"]
         P3["Phase 3: Services"]
         P4["Phase 4: Process Videos"]
@@ -43,12 +46,14 @@ flowchart TB
         P6["Phase 6: Output"]
         P7["Phase 7: Health Dashboard"]
         P8["Phase 8: Summary"]
+        P9["Phase 9: Deep Dive (optional)"]
 
-        P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8
+        P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7 --> P8 --> P9
     end
 
-    subgraph Alt["Alternative Mode"]
+    subgraph AltModes["Alternative Modes"]
         UP["--update-progress"]
+        DYN["--dynamic"]
     end
 
     subgraph Services["Services"]
@@ -58,7 +63,7 @@ flowchart TB
         GIT["git.js"]
     end
 
-    subgraph Utils["Utilities — 17 modules"]
+    subgraph Utils["Utilities — 19 modules"]
         QG["quality-gate"]
         FR["focused-reanalysis"]
         LL["learning-loop"]
@@ -69,6 +74,8 @@ flowchart TB
         JP["json-parser"]
         AB["adaptive-budget"]
         HD["health-dashboard"]
+        DD["deep-dive"]
+        DM["dynamic-mode"]
         OT["+ 7 more"]
     end
 
@@ -77,21 +84,24 @@ flowchart TB
     end
 
     EP --> Pipeline
-    P1 -.->|"--update-progress"| Alt
+    P1 -.->|"--update-progress"| UP
+    P1 -.->|"--dynamic"| DYN
     Pipeline --> Services
     Pipeline --> Utils
     Pipeline --> Renderers
-    Alt --> GIT
-    Alt --> CD
-    Alt --> PU
-    Alt --> GEM
+    UP --> GIT
+    UP --> CD
+    UP --> PU
+    UP --> GEM
+    DYN --> DM
+    DYN --> GEM
 ```
 
 ### Phase Descriptions
 
 | Phase | Name | What Happens |
 |-------|------|-------------|
-| 1 | **Init** | CLI parsing, config validation, logger setup, load learning insights |
+| 1 | **Init** | CLI parsing, interactive folder selection (if no arg), config validation, logger setup, load learning insights, route to dynamic/progress mode |
 | 2 | **Discover** | Find videos, discover documents, resolve user name, check resume state |
 | 3 | **Services** | Firebase auth, Gemini init, prepare document parts |
 | 4 | **Process** | Compress → Upload → Analyze → Quality Gate → Retry → Focused Pass |
@@ -99,6 +109,7 @@ flowchart TB
 | 6 | **Output** | Write JSON, render Markdown, upload to Firebase |
 | 7 | **Health** | Quality metrics dashboard, cost breakdown |
 | 8 | **Summary** | Save learning history, print run summary |
+| 9 | **Deep Dive** | (optional, `--deep-dive`) Topic discovery + explanatory document generation |
 
 ---
 
@@ -379,6 +390,72 @@ When a previous run exists, the diff engine compares:
 | **Stable items** | Unchanged across runs |
 
 This is useful when re-running analysis after updating documents — the diff shows exactly what the AI extracted differently.
+
+---
+
+## Deep Dive Mode
+
+The `--deep-dive` flag triggers an additional phase after the main video analysis pipeline:
+
+```mermaid
+flowchart TB
+    START(["Compiled Analysis"]) --> DISC["Phase 1: Topic Discovery\nAI identifies 3-10 explainable topics"]
+    DISC --> PLAN["Topics with categories:\nconcept, decision, process, system,\nrequirement, guide, context, action-plan"]
+    PLAN --> GEN["Phase 2: Parallel Document Generation\n2-3 concurrent writers"]
+    GEN --> WRITE["Phase 3: Write Output"]
+    WRITE --> INDEX["INDEX.md — grouped by category"]
+    WRITE --> DOCS["dd-01-topic.md, dd-02-topic.md, ..."]
+    WRITE --> META["deep-dive.json — metadata + token usage"]
+```
+
+Deep dive runs AFTER the standard 8-phase pipeline completes, using the compiled analysis as input. Each topic document is self-contained (200-800 words) and written for someone who wasn't on the call.
+
+---
+
+## Dynamic Mode
+
+The `--dynamic` flag routes to an entirely separate pipeline that works without video:
+
+```mermaid
+flowchart TB
+    START(["--dynamic"]) --> REQ["Get User Request\n--request flag or interactive prompt"]
+    REQ --> DOCS["Discover & Load Documents\nRecursive folder scan"]
+    DOCS --> AI["Initialize Gemini AI"]
+    AI --> PLAN["Phase 1: Plan Topics\nAI plans 3-15 documents"]
+    PLAN --> GEN["Phase 2: Generate Documents\nParallel batch generation"]
+    GEN --> WRITE["Write Output"]
+    WRITE --> INDEX["INDEX.md — document set index"]
+    WRITE --> FILES["dm-01-overview.md, dm-02-guide.md, ..."]
+    WRITE --> META["dynamic-run.json — metadata"]
+```
+
+### Dynamic Mode Categories
+
+| Category | Purpose | When Used |
+|----------|---------|-----------|
+| **overview** | High-level summaries, introductions | Always first document |
+| **guide** | Step-by-step instructions, tutorials | How-to requests |
+| **analysis** | Comparisons, evaluations, assessments | Analysis/research requests |
+| **plan** | Roadmaps, timelines, strategies | Planning requests |
+| **reference** | Specifications, API docs, schemas | Documentation requests |
+| **concept** | Explanations, definitions, theory | Learning/teaching requests |
+| **decision** | Decision records, trade-off evaluations | Architecture decisions |
+| **checklist** | Verification lists, audit documents | Process/compliance requests |
+| **template** | Reusable patterns, scaffolds | Template requests |
+| **report** | Status reports, findings summaries | Reporting requests |
+
+Dynamic mode accepts any request — the AI adapts document categories and count to match what's needed:
+
+```bash
+# Migration planning → plan + guide + checklist + risk analysis
+--dynamic --request "Plan migration from MySQL to PostgreSQL"
+
+# Learning → concept + guide + reference (progressive complexity)
+--dynamic --request "Create React hooks tutorial"
+
+# Architecture → overview + system docs + decision records
+--dynamic --request "Document this microservices architecture"
+```
 
 ---
 

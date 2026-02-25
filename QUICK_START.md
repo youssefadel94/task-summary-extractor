@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-> **5 minutes from zero to your first meeting analysis.**
+> **5 minutes from zero to your first analysis or document generation.**
 
 ---
 
@@ -34,13 +34,17 @@ This way you can always `git checkout main && git pull` to get updates, then mer
 
 ---
 
-## Step 3: Prepare a Call Folder
+## Step 3: Prepare a Folder
+
+You can use the tool in two ways:
+
+### Option A: Video Analysis (call/meeting recording)
 
 Create a folder with your recording and any supporting context:
 
 ```
 my-meeting/
-├── Meeting Recording.mp4       ← Your video file (required)
+├── Meeting Recording.mp4       ← Your video file (required for video mode)
 ├── Meeting Recording.vtt       ← Subtitles (recommended — improves quality a lot)
 ├── agenda.md                   ← Loose docs at root work too
 │
@@ -53,14 +57,37 @@ my-meeting/
     └── previous-decisions.md
 ```
 
-> The pipeline **recursively scans all subfolders** for documents — not just `.tasks/`. Use whatever folder structure fits your workflow. See [README.md](README.md#adapting-context-folders-to-your-use-case) for examples by scenario.
+### Option B: Dynamic Mode (docs only — no video)
+
+Create a folder with context documents:
+
+```
+my-project/
+├── architecture.md             ← Your existing docs
+├── requirements.md             ← Any relevant material
+├── api-spec.json               ← Specs, schemas, etc.
+└── notes/
+    └── meeting-notes.md
+```
+
+> Both modes **recursively scan all subfolders** for documents. Use whatever folder structure fits your workflow.
 
 **Supported video formats:** `.mp4`, `.mkv`, `.webm`
 **Supported document formats:** `.vtt`, `.srt`, `.txt`, `.md`, `.csv`, `.pdf`
 
 ---
 
-## Step 4: Run Analysis
+## Step 4: Run
+
+### Interactive Mode (easiest)
+
+```bash
+node process_and_upload.js
+```
+
+Shows available folders in your workspace and lets you pick one. Detects whether a folder has video or just docs.
+
+### Video Analysis
 
 ```bash
 node process_and_upload.js --name "Your Name" "my-meeting"
@@ -76,9 +103,25 @@ The pipeline will:
 
 This takes ~2-5 minutes per segment depending on video length.
 
+### Dynamic Mode (no video)
+
+```bash
+node process_and_upload.js --dynamic --request "Plan migration from MySQL to PostgreSQL" "db-specs"
+```
+
+The pipeline will:
+1. Load all documents in the folder
+2. Plan a document set based on your request
+3. Generate 3-15 Markdown documents in parallel
+4. Output an indexed set
+
+This takes ~1-3 minutes depending on request complexity.
+
 ---
 
 ## Step 5: View Results
+
+### Video Analysis Output
 
 ```
 my-meeting/runs/{timestamp}/
@@ -87,7 +130,18 @@ my-meeting/runs/{timestamp}/
 └── compilation.json      ← All extracted items (JSON)
 ```
 
-`results.md` contains:
+### Dynamic Mode Output
+
+```
+my-project/runs/{timestamp}/
+├── INDEX.md              ← Open this — document set index
+├── dm-01-overview.md     ← Individual topic documents
+├── dm-02-guide.md
+├── dm-03-analysis.md
+└── dynamic-run.json      ← Metadata + token usage
+```
+
+`results.md` (video mode) contains:
 - Your personalized task list (owned items, TODOs, blockers)
 - All topics discussed with assignees and status
 - Change requests / requirements with detail
@@ -103,10 +157,14 @@ my-meeting/runs/{timestamp}/
 
 | What You Want | Command |
 |---------------|---------|
+| Interactive folder selection | `node process_and_upload.js` |
 | Skip cloud upload | `node process_and_upload.js --skip-upload "my-meeting"` |
 | Resume interrupted run | `node process_and_upload.js --resume "my-meeting"` |
 | Force re-analysis | `node process_and_upload.js --reanalyze "my-meeting"` |
 | Preview without running | `node process_and_upload.js --dry-run "my-meeting"` |
+| Deep dive docs | `node process_and_upload.js --deep-dive "my-meeting"` |
+| Dynamic mode (no video) | `node process_and_upload.js --dynamic "my-project"` |
+| Dynamic with inline request | `node process_and_upload.js --dynamic --request "Plan X" "my-project"` |
 | Track progress via git | `node process_and_upload.js --update-progress --repo "C:\project" "my-meeting"` |
 | Debug mode | `node process_and_upload.js --log-level debug "my-meeting"` |
 

@@ -73,6 +73,7 @@ const RETRY_BASE_DELAY_MS = envInt('RETRY_BASE_DELAY_MS', 2000);
 // Gemini thinking budget (tokens allocated for model reasoning)
 const THINKING_BUDGET = envInt('THINKING_BUDGET', 24576);           // per-segment analysis
 const COMPILATION_THINKING_BUDGET = envInt('COMPILATION_THINKING_BUDGET', 10240); // final compilation
+const DEEP_DIVE_THINKING_BUDGET = envInt('DEEP_DIVE_THINKING_BUDGET', 16384);    // deep-dive document generation
 
 // Gemini file API polling timeout (ms) — prevents indefinite hanging
 const GEMINI_POLL_TIMEOUT_MS = envInt('GEMINI_POLL_TIMEOUT_MS', 300000); // 5 min
@@ -169,6 +170,7 @@ module.exports = {
   RETRY_BASE_DELAY_MS,
   THINKING_BUDGET,
   COMPILATION_THINKING_BUDGET,
+  DEEP_DIVE_THINKING_BUDGET,
   GEMINI_POLL_TIMEOUT_MS,
   validateConfig,
 };
