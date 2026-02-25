@@ -1,0 +1,25 @@
+{
+  "name": "video-compress-upload-ai",
+  "version": "6.1.0",
+  "description": "Compress videos, upload to Firebase Storage, process with Gemini AI — confidence scoring, focused re-analysis, learning loop, diff engine, structured logging, smart change detection & progress tracking",
+  "main": "process_and_upload.js",
+  "scripts": {
+    "setup": "node setup.js",
+    "check": "node setup.js --check",
+    "start": "node process_and_upload.js",
+    "process": "node process_and_upload.js",
+    "process:local": "node process_and_upload.js --skip-upload",
+    "process:resume": "node process_and_upload.js --resume",
+    "process:dry-run": "node process_and_upload.js --dry-run",
+    "help": "node process_and_upload.js --help",
+    "version": "node process_and_upload.js --version"
+  },
+  "dependencies": {
+    "@google/genai": "^1.42.0",
+    "dotenv": "^17.3.1",
+    "firebase": "^11.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

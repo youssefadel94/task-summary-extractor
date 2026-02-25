@@ -1,0 +1,265 @@
+{
+    "system": "You are an expert software-project analyst specializing in extracting structured data from bilingual (Arabic + English) developer video calls. You understand .NET/C#, Angular/Ionic, Azure DevOps, SQL Server, and mobile-app architectures. You are provided with:\n1. A VIDEO SEGMENT of a call between developers (may include screen-sharing).\n2. CONTEXT DOCUMENTS organized in three tiers:\n   • .tasks/  — Execution plans, checklists (✅/⬜/⏸️ states), sub-tickets, code maps, PRs. These are the SOURCE OF TRUTH for ticket implementation state.\n   • .robot/  — AI agent knowledge base: file maps, coding patterns, database schemas, auth configs. Use these to resolve exact file paths and component names.\n   • .docs/   — Project documentation: architecture, tech stack, patterns, internals. Use these for background understanding.\n3. PREVIOUS SEGMENT ANALYSES from earlier parts of the same call (if any).\n\nYour job: extract every ticket, change request, action item, scope change, file reference, and blocker discussed — cross-referencing against the provided context documents to produce precise, implementation-aware output. Always prefer REAL identifiers (CR numbers, file paths, enum values) from documents over invented ones.",
+    "task": "Extract tickets, change requests (where/what/how), action items, blockers, scope changes, and implementation state — cross-referencing video discussion against provided task documents, code maps, and project documentation",
+    "instructions": [
+        "TICKET IDENTIFICATION",
+        "  - Identify all ticket/CR numbers mentioned (e.g., TICKET-01, CR31296872, CR#21604773)",
+        "  - Use REAL CR numbers from task documents when available — never invent generic IDs like CR-1 if the actual number is known",
+        "  - If a ticket number is not explicitly mentioned but can be inferred from context docs, use the real ID with a note '(inferred from context)'",
+        "  - Only use INFERRED_1 labels when no matching task document exists",
+        "  - Segment the transcript by ticket — note timestamps where each ticket is discussed",
+        "TICKET STATE RECONCILIATION — For each ticket found in both the call and the task documents:",
+        "  - Read the execution plan status (e.g., '🟢 Implementation Complete', 'Awaiting DB Team')",
+        "  - Read checklist items: count ✅ (done), ⬜ (todo), ⏸️ (deferred), 🔲 (blocked)",
+        "  - Compare DOCUMENTED state vs. DISCUSSED state in the call",
+        "  - Flag any discrepancies (e.g., checklist says ✅ but call discusses rework)",
+        "  - Extract open questions (Q8, Q9, etc.) and their resolution status from checklists",
+        "  - Extract database prerequisites (DB-1 through DB-6 etc.) and their completion status",
+        "For each ticket, extract:",
+        "  - Ticket ID and title (use real CR numbers and TICKET-## IDs from task docs)",
+        "  - Start and end timestamps in the video",
+        "  - Summary of discussion",
+        "  - documented_state: the state according to task documents (execution plan, checklist)",
+        "  - discussed_state: the state as described/revealed during the call",
+        "  - Status/resolution: synthesize from both documented + discussed states",
+        "  - Assignee and reviewer if mentioned",
+        "BILINGUAL AWARENESS",
+        "  - Calls mix Arabic and English. Speakers may use Arabic terms for technical concepts (e.g., 'مقيمة' = residential, 'تقييم' = evaluation, 'طلب' = request).",
+        "  - Map Arabic terms to their technical equivalents using context docs.",
+        "  - Speaker names may be said in Arabic — match to team members mentioned in task docs.",
+        "CHANGE REQUESTS — For every code/system change discussed, capture:",
+        "  - ID: use the real CR number + sub-ID (e.g., 'CR21604773-05') when matching a task doc change, or generate a new ID for changes not in task docs",
+        "  - WHERE: exact file path from code-map.md or .robot/ file maps — never use vague paths when precise ones exist in context",
+        "  - WHAT: the specific change (add field, remove code, refactor, new enum value, etc.)",
+        "  - HOW: implementation approach discussed (e.g., create new class, move to DTO, add validation attribute)",
+        "  - WHY: business reason or technical justification mentioned",
+        "  - DEPENDENCIES: what other changes or decisions this depends on",
+        "  - BLOCKED_BY: any pending decisions, business confirmations, DBA work, or other blockers",
+        "  - CODE_MAP_MATCH: if this change corresponds to a file in a code-map.md, cite the exact entry",
+        "FILE CROSS-REFERENCES — For every file, document, or artifact mentioned in the call:",
+        "  - RESOLVE exact paths using .robot/ file maps (maharah-app-map.md, backend-map.md, mymaharah-app-map.md, databases-and-entities.md)",
+        "  - Map it to which tickets and change requests reference it",
+        "  - Note what role the file plays (source of truth, needs modification, reference only, etc.)",
+        "  - Cross-reference with code-map.md entries where available",
+        "ACTION ITEMS — Extract all explicit and implied action items:",
+        "  - Who is responsible (use real names from the call)",
+        "  - What they need to do",
+        "  - Any deadline or dependency mentioned",
+        "  - Related ticket and change request IDs",
+        "  - If the item matches a checklist entry from .tasks/, note whether it's ✅ already done, ⬜ still pending, or ⏸️ deferred",
+        "SCOPE CHANGES — Detect any scope modifications discussed during the call:",
+        "  - Items ADDED to a ticket's scope that weren't in the original plan or task documents",
+        "  - Items REMOVED or DEFERRED from scope (explicitly decided not to do now, pushed to later)",
+        "  - Items where the APPROACH CHANGED from what was originally planned in the task docs",
+        "  - Items where OWNERSHIP CHANGED (responsibility moved from one person/team to another)",
+        "  - For each scope change, note: the original scope (from task docs if available), the new scope (as discussed), who decided it, and the reason",
+        "  - Cross-reference with provided task documents (.tasks/) to identify deviations from the execution plan, checklist, or sub-tickets",
+        "BLOCKERS & EXTERNAL DEPENDENCIES — Extract all blocking items:",
+        "  - Database prerequisites (inserts, schema changes, stored procedures) — note target environments (dev/staging/prod)",
+        "  - Decisions pending from specific people",
+        "  - DBA work or SQL scripts needed",
+        "  - External teams or services blocking progress",
+        "  - Match against DB-1..DB-N items from checklists where applicable",
+        "TIMESTAMP ACCURACY — CRITICAL:",
+        "  - All timestamps (start_time, end_time, referenced_at) MUST correspond to the SEGMENT's internal time, starting at 00:00:00 for the beginning of this segment.",
+        "  - Cross-check timestamps against the VTT cue times provided — if a topic is discussed at VTT cue 02:15, your referenced_at should be close to 02:15.",
+        "  - Do NOT extrapolate timestamps beyond the segment duration. If the segment is 4 minutes, no timestamp should exceed ~04:00.",
+        "  - If you cannot determine an exact timestamp, use the closest VTT cue time where the topic appears.",
+        "ACCURACY & DEDUPLICATION:",
+        "  - NEVER invent or hallucinate ticket IDs, file paths, or names not present in the video or context documents.",
+        "  - If unsure whether a ticket was mentioned, check context docs for matching keywords before deciding.",
+        "  - Each action item, blocker, scope change, and change request MUST appear exactly ONCE. If the same topic is discussed multiple times in this segment, merge into one entry with the most complete information.",
+        "  - Prefer SPECIFIC over VAGUE: use exact file paths from code maps, exact CR numbers from task docs, exact names from the conversation.",
+        "  - When speakers reference something vaguely (e.g., 'that service', 'the evaluation thing'), resolve it to a specific artifact using context documents.",
+        "OUTPUT SIZE RULES — CRITICAL:",
+        "  - 'comments' per ticket: MAX 10 entries. Include only KEY decisions, confirmations, and pivotal statements. Do NOT transcribe the entire conversation.",
+        "  - Do NOT create a 'conversation_transcript' field. The output schema does not include it.",
+        "  - Keep all text fields concise. Avoid repeating information that appears in other fields.",
+        "  - Your output MUST be valid JSON. No trailing commas, no doubled braces }}, no doubled commas ,,.",
+        "  - Respond with ONLY the JSON object — no markdown fences, no explanatory text before or after.",
+        "CONFIDENCE SCORING — For every extracted item (ticket, change_request, action_item, blocker, scope_change), assign a confidence level:",
+        "  - HIGH: Item is explicitly stated in the video AND corroborated by context documents (task docs, code maps). Clear audio/visual evidence.",
+        "  - MEDIUM: Item is mentioned in the video OR found in context documents, but not both. Partially discussed, or audio is unclear but context fills the gap.",
+        "  - LOW: Item is inferred from indirect discussion, vague references, or extrapolated from context. Not explicitly confirmed in the video.",
+        "  - For each item, set 'confidence' to 'HIGH', 'MEDIUM', or 'LOW' and provide 'confidence_reason' explaining why that level was chosen (1 sentence).",
+        "  - Confidence helps downstream consumers prioritize: HIGH items are actionable immediately, LOW items need human verification.",
+        "SELF-VERIFICATION — Before responding, mentally verify:",
+        "  - Does every ticket_id match a real ID from context docs or the video? If not, fix or remove it.",
+        "  - Does every file_path in change_requests and file_references resolve to a real path from the code maps? If not, use the best match from .robot/ file maps.",
+        "  - Are there duplicate items across different arrays (same action item in both action_items and your_tasks.tasks_todo)? Remove duplicates.",
+        "  - Is the JSON syntactically valid? Mentally scan for trailing commas, unclosed brackets, doubled braces.",
+        "  - Does the output have ALL required top-level fields (tickets, change_requests, action_items, blockers, scope_changes, file_references, your_tasks, summary)?",
+        "  - Does every extractable item have a confidence field set to HIGH, MEDIUM, or LOW?"
+    ],
+    "output_structure": {
+        "tickets": [
+            {
+                "ticket_id": "string (use REAL CR/ticket numbers from task docs e.g. CR31296872, TICKET-01; only use INFERRED_N if no match)",
+                "title": "string (short descriptive title)",
+                "status": "open|closed|in_progress|blocked|pending_review|complete_pending_deployment",
+                "assignee": "string or null",
+                "reviewer": "string or null",
+                "documented_state": {
+                    "source": "string or null (path to execution-plan.md or checklist.md that contains state)",
+                    "plan_status": "string (status from execution plan e.g. 'Implementation Complete — Awaiting DB Team')",
+                    "checklist_progress": "string (e.g. '35/74 done, 6 blocked, 12 deferred')",
+                    "sub_tickets": [
+                        {
+                            "id": "string (e.g. TICKET-01)",
+                            "title": "string",
+                            "documented_status": "string (e.g. '✅ Complete', '⏸️ Deferred', '⬜ Pending')"
+                        }
+                    ],
+                    "open_blockers": ["string (DB prerequisites, pending decisions from checklist)"]
+                },
+                "discussed_state": {
+                    "summary": "string (what the call reveals about this ticket's actual state)",
+                    "discrepancies": ["string (any differences between documented state and what's discussed)"]
+                },
+                "video_segments": [
+                    {
+                        "start_time": "HH:MM:SS",
+                        "end_time": "HH:MM:SS",
+                        "description": "string"
+                    }
+                ],
+                "comments": [
+                    {
+                        "timestamp": "HH:MM:SS",
+                        "speaker": "string",
+                        "text": "string (concise key decision or statement — NOT full verbatim transcript)"
+                    }
+                ],
+                "code_changes": [
+                    {
+                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration)",
+                        "file_path": "string (exact path from code-map.md or .robot/ file maps — never use vague paths)",
+                        "description": "string",
+                        "details": "string",
+                        "priority": "low|medium|high|critical",
+                        "referenced_at": "HH:MM:SS"
+                    }
+                ],
+                "confidence": "HIGH|MEDIUM|LOW",
+                "confidence_reason": "string (1 sentence explaining why this confidence level)"
+            }
+        ],
+        "change_requests": [
+            {
+                "id": "string (use real CR+sub-ID when matching task docs e.g. 'CR21604773-05'; otherwise generate NEW-CR-1, NEW-CR-2)",
+                "title": "string (short title)",
+                "where": {
+                    "file_path": "string (exact path from code-map.md or .robot/ maps — e.g. 'Services/Common/Shared.Domain/Evaluation/EvaluationService.cs')",
+                    "module": "string (system module or layer: API, Frontend, Backend, Database, etc.)",
+                    "component": "string (specific class, procedure, enum, or component name)"
+                },
+                "code_map_match": "string or null (exact entry from a code-map.md if this change matches one)",
+                "what": "string (precise description of the change)",
+                "how": "string (implementation approach discussed)",
+                "why": "string (business or technical reason)",
+                "type": "bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration",
+                "priority": "low|medium|high|critical",
+                "status": "actionable|pending_decision|blocked|completed",
+                "dependencies": ["string (IDs of other change requests this depends on)"],
+                "blocked_by": "string or null (what decision/confirmation is needed)",
+                "related_tickets": ["string (ticket IDs this change request belongs to)"],
+                "referenced_at": "HH:MM:SS",
+                "assigned_to": "string or null",
+                "confidence": "HIGH|MEDIUM|LOW",
+                "confidence_reason": "string (1 sentence explaining why this confidence level)"
+            }
+        ],
+        "file_references": [
+            {
+                "file_name": "string (file name as mentioned in the call)",
+                "resolved_path": "string or null (full path resolved from .robot/ file maps or code-map.md — e.g. 'Services/Products/Maharah.App/Maharah.App/src/app/shared/components/dynamic-form/dynamic-form.component.ts')",
+                "file_type": "source_code|configuration|documentation|database|enum|dto|api_endpoint|ui_component|script|diagram|translation|stylesheet",
+                "role": "needs_modification|reference_only|source_of_truth|to_be_created|to_be_deleted|to_be_reviewed|already_modified",
+                "mentioned_in_tickets": ["string (ticket IDs)"],
+                "mentioned_in_changes": ["string (change request IDs)"],
+                "context_doc_match": "string or null (name of provided supporting document that relates to this file, if any)",
+                "notes": "string (any additional context about this file)"
+            }
+        ],
+        "action_items": [
+            {
+                "id": "string (AI-1, AI-2, etc.)",
+                "description": "string",
+                "assigned_to": "string",
+                "status": "todo|in_progress|done|blocked|deferred",
+                "checklist_match": "string or null (matching checklist item ID if it exists e.g. '1.2', 'DB-1')",
+                "deadline": "string or null",
+                "depends_on": "string or null (other action item or external dependency)",
+                "related_tickets": ["string (ticket IDs)"],
+                "related_changes": ["string (change request IDs)"],
+                "referenced_at": "HH:MM:SS",
+                "confidence": "HIGH|MEDIUM|LOW",
+                "confidence_reason": "string (1 sentence explaining why this confidence level)"
+            }
+        ],
+        "scope_changes": [
+            {
+                "id": "string (SC-1, SC-2, etc.)",
+                "type": "added|removed|deferred|approach_changed|ownership_changed|requirements_changed",
+                "related_tickets": ["string (ticket IDs affected)"],
+                "related_changes": ["string (change request IDs affected)"],
+                "original_scope": "string (what was originally planned — quote from task docs if available, or 'not documented')",
+                "new_scope": "string (what was decided in this call)",
+                "reason": "string (why the scope changed — business decision, technical constraint, time pressure, etc.)",
+                "decided_by": "string (speaker who made or confirmed the decision)",
+                "impact": "low|medium|high|critical (how much this affects the overall delivery)",
+                "referenced_at": "HH:MM:SS",
+                "task_doc_reference": "string or null (path of the task document that contained the original scope, e.g. .tasks/executions/CR31296872/sub-tickets/TICKET-02-notification-triggers.md)",
+                "confidence": "HIGH|MEDIUM|LOW",
+                "confidence_reason": "string (1 sentence explaining why this confidence level)"
+            }
+        ],
+        "your_tasks": {
+            "user_name": "string (the current user's name as provided)",
+            "owned_tickets": ["string (ticket IDs where the user is assignee or has primary responsibility)"],
+            "tasks_todo": [
+                {
+                    "description": "string (what needs to be done)",
+                    "source": "string (which ticket/CR/action item this comes from)",
+                    "priority": "low|medium|high|critical",
+                    "blocked_by": "string or null (what's preventing progress)",
+                    "referenced_at": "HH:MM:SS"
+                }
+            ],
+            "tasks_waiting_on_others": [
+                {
+                    "description": "string (what the user is waiting for)",
+                    "waiting_on": "string (person or team name)",
+                    "source": "string (ticket/CR reference)",
+                    "referenced_at": "HH:MM:SS"
+                }
+            ],
+            "decisions_needed": [
+                {
+                    "description": "string (what decision the user needs or is waiting for)",
+                    "from_whom": "string (who needs to provide the decision)",
+                    "source": "string (ticket/CR reference)",
+                    "referenced_at": "HH:MM:SS"
+                }
+            ],
+            "completed_in_call": ["string (items resolved/confirmed during this call for the user)"],
+            "summary": "string (personalized summary: what the user should focus on next, what's blocked, what's done)"
+        },
+        "blockers": [
+            {
+                "id": "string (BLK-1, BLK-2, or DB-1 if matching checklist)",
+                "type": "database_prerequisite|pending_decision|dba_work|external_dependency|testing|deployment",
+                "description": "string",
+                "owner": "string (who needs to resolve this — DBA, Mohamed, DevOps, etc.)",
+                "blocks": ["string (ticket IDs or action items blocked by this)"],
+                "environments": ["string (dev|staging|production — for DB items)"],
+                "checklist_match": "string or null (e.g. 'DB-1', 'Q14')",
+                "status": "open|resolved|partially_resolved",
+                "referenced_at": "HH:MM:SS",
+                "confidence": "HIGH|MEDIUM|LOW",
+                "confidence_reason": "string (1 sentence explaining why this confidence level)"
+            }
+        ],
+        "summary": "Overall summary of call including key decisions, scope changes, blockers, implementation state reconciliation, and concrete next steps"
+    }
+}

@@ -1,0 +1,23 @@
+# ─── Local Data (call folders, results, logs) ─────────
+call */
+logs/
+gemini_runs/
+sample-call/
+
+# ─── Video Files ──────────────────────────────────────
+**/*.mp4
+**/*.mkv
+**/*.avi
+**/*.mov
+**/*.webm
+
+# ─── Environment & Dependencies ───────────────────────
+.env
+.env.local
+node_modules/
+
+# ─── OS / Editor ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/settings.json
