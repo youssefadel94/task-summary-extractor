@@ -32,14 +32,16 @@ You get a `results.md` with your personalized task list, ready to act on.
 
 ### Dynamic Mode (`--dynamic`)
 
-No video needed. Point it at a folder of documents, tell it what you need, and it generates a set of Markdown documents:
+Point it at any folder — with videos, documents, or both — and tell it what you need. It automatically detects and processes all content:
 
-1. **Discovers** all documents in the folder
-2. **Plans** a comprehensive document set based on your request
-3. **Generates** 3-15 standalone Markdown documents in parallel
-4. **Outputs** an indexed set of professional documents
+1. **Discovers** all videos and documents in the folder
+2. **Compresses & segments** video files (any format: mp4, mkv, avi, mov, webm)
+3. **Analyzes** video content with AI to extract comprehensive summaries
+4. **Plans** a document set based on video content + documents + your request
+5. **Generates** 3-15 standalone Markdown documents in parallel
+6. **Outputs** an indexed set of professional documents
 
-Use it for anything: migration plans, learning guides, architecture docs, decision records, onboarding materials, project breakdowns — whatever you describe.
+Works with video-only folders, doc-only folders, or both. Use it for anything: meeting summaries, migration plans, learning guides, architecture docs, decision records, onboarding materials — whatever you describe.
 
 ### Use Cases
 
@@ -286,7 +288,7 @@ You also get a **`your_tasks`** section scoped to the `--name` you provide — o
 | **Confidence Scoring** | Every item rated HIGH / MEDIUM / LOW with evidence |
 | **Git Progress Tracking** | Correlates git commits with extracted items |
 | **Deep Dive Mode** | `--deep-dive` generates explanatory docs per topic discussed |
-| **Dynamic Mode** | `--dynamic` generates docs from context + request — no video needed |
+| **Dynamic Mode** | `--dynamic` generates docs from any content — videos + documents |
 | **Interactive Selection** | Run without args to browse and select available folders |
 | **Resume / Checkpoint** | `--resume` picks up where you left off |
 | **Firebase Upload** | Team access via cloud storage (optional) |
@@ -388,7 +390,7 @@ If no folder is specified, shows an interactive folder selector.
 
 Modes:
   (default)                Video analysis — compress, analyze, extract, compile
-  --dynamic                Document-only mode — no video required
+  --dynamic                Dynamic mode — auto-detect videos + docs
   --update-progress        Track item completion via git
   --deep-dive              Generate explanatory docs per topic (after video analysis)
 
@@ -400,7 +402,7 @@ Core:
   --dry-run                Show plan without executing
 
 Dynamic Mode:
-  --dynamic                Enable doc-only mode
+  --dynamic                Enable dynamic mode (videos + docs)
   --request <text>         What to generate (prompted if omitted)
 
 Progress:
@@ -526,6 +528,7 @@ task-summary-extractor/
 
 | Version | Theme | Highlights |
 |---------|-------|-----------|
+| **v7.1** | Dynamic + Video | `--dynamic` now processes videos: compress, segment, analyze — works with any content |
 | **v7.0** | Dynamic Mode | `--dynamic` doc-only mode, interactive folder selection, fully flexible pipeline |
 | **v6.2** | Deep Dive | `--deep-dive` generates explanatory docs per topic, 8 content categories |
 | **v6.1** | Change Detection | Git progress tracking, AI correlation, `--update-progress` |

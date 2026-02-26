@@ -31,7 +31,7 @@ const {
 
 // --- Services ---
 const { initFirebase, uploadToStorage, storageExists } = require('./services/firebase');
-const { initGemini, prepareDocsForGemini, processWithGemini, compileFinalResult } = require('./services/gemini');
+const { initGemini, prepareDocsForGemini, processWithGemini, compileFinalResult, analyzeVideoForContext } = require('./services/gemini');
 const { compressAndSegment, probeFormat, verifySegment } = require('./services/video');
 
 // --- Utils ---
@@ -1471,6 +1471,7 @@ async function runDynamic(initCtx) {
   console.log('══════════════════════════════════════════════');
   console.log(`  Folder: ${folderName}`);
   console.log(`  Source: ${targetDir}`);
+  console.log(`  Mode:   Video + Documents (auto-detect)`);
   console.log('');
 
   // 1. Get user request (from --request flag or interactive prompt)
@@ -1495,15 +1496,26 @@ async function runDynamic(initCtx) {
   }
   if (userName) log.step(`User: ${userName}`);
 
-  // 3. Discover and load documents
+  // 3. Discover documents AND video files
   console.log('');
-  console.log('  Discovering documents...');
+  console.log('  Discovering content...');
   const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
+  const videoFiles = fs.readdirSync(targetDir)
+    .filter(f => {
+      const stat = fs.statSync(path.join(targetDir, f));
+      return stat.isFile() && VIDEO_EXTS.includes(path.extname(f).toLowerCase());
+    })
+    .map(f => path.join(targetDir, f));
+
   console.log(`  Found ${allDocFiles.length} document(s)`);
   if (allDocFiles.length > 0) {
     allDocFiles.forEach(f => console.log(`    - ${f.relPath}`));
   }
-  log.step(`Discovered ${allDocFiles.length} document(s)`);
+  console.log(`  Found ${videoFiles.length} video file(s)`);
+  if (videoFiles.length > 0) {
+    videoFiles.forEach(f => console.log(`    - ${path.basename(f)}`));
+  }
+  log.step(`Discovered ${allDocFiles.length} document(s), ${videoFiles.length} video(s)`);
 
   // 4. Initialize Gemini
   console.log('');
@@ -1529,7 +1541,81 @@ async function runDynamic(initCtx) {
   console.log('  ✓ Gemini AI ready');
   const costTracker = initCtx.costTracker;
 
-  // 5. Load document contents as snippets for AI
+  // 5. Process video files (compress → segment → analyze for context)
+  const videoSummaries = [];
+  if (videoFiles.length > 0) {
+    console.log('');
+    console.log(`  ── Video Processing (${videoFiles.length} file${videoFiles.length > 1 ? 's' : ''}) ──`);
+    const compressedDir = path.join(targetDir, 'compressed');
+
+    for (let vi = 0; vi < videoFiles.length; vi++) {
+      const videoPath = videoFiles[vi];
+      const baseName = path.basename(videoPath, path.extname(videoPath));
+      const segmentDir = path.join(compressedDir, baseName);
+
+      console.log(`\n  [${vi + 1}/${videoFiles.length}] ${path.basename(videoPath)}`);
+
+      // Compress & segment (reuse existing if available)
+      let segments;
+      const existingSegments = fs.existsSync(segmentDir)
+        ? fs.readdirSync(segmentDir).filter(f => f.startsWith('segment_') && f.endsWith('.mp4')).sort()
+        : [];
+
+      if (existingSegments.length > 0) {
+        segments = existingSegments.map(f => path.join(segmentDir, f));
+        console.log(`  ✓ Using ${segments.length} existing segment(s)`);
+        log.step(`SKIP compression — ${segments.length} segment(s) already on disk for "${baseName}"`);
+      } else {
+        console.log('  Compressing & segmenting...');
+        segments = compressAndSegment(videoPath, segmentDir);
+        console.log(`  → ${segments.length} segment(s) created`);
+        log.step(`Compressed "${baseName}" → ${segments.length} segment(s)`);
+      }
+
+      // Validate segments
+      const validSegments = segments.filter(s => verifySegment(s));
+      if (validSegments.length < segments.length) {
+        console.warn(`  ⚠ ${segments.length - validSegments.length} corrupt segment(s) skipped`);
+      }
+
+      // Analyze each segment with Gemini to extract context
+      console.log(`  Analyzing ${validSegments.length} segment(s) for content...`);
+      for (let si = 0; si < validSegments.length; si++) {
+        const segPath = validSegments[si];
+        const segName = path.basename(segPath);
+        const displayName = `${baseName}/${segName}`;
+
+        try {
+          const result = await analyzeVideoForContext(ai, segPath, displayName, {
+            thinkingBudget: 8192,
+            segmentIndex: si,
+            totalSegments: validSegments.length,
+          });
+
+          videoSummaries.push({
+            videoFile: path.basename(videoPath),
+            segment: segName,
+            segmentIndex: si,
+            totalSegments: validSegments.length,
+            summary: result.summary,
+          });
+
+          if (result.tokenUsage) {
+            costTracker.addSegment(`dynamic-video-${baseName}-${segName}`, result.tokenUsage, result.durationMs, false);
+          }
+        } catch (err) {
+          console.error(`    ✗ Failed to analyze ${segName}: ${err.message}`);
+          log.error(`Dynamic video analysis failed for ${displayName}: ${err.message}`);
+        }
+      }
+    }
+
+    console.log('');
+    console.log(`  ✓ Video analysis complete: ${videoSummaries.length} segment summary(ies)`);
+    log.step(`Dynamic video analysis: ${videoSummaries.length} segment summaries extracted`);
+  }
+
+  // 6. Load document contents as snippets for AI
   const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml', '.html'];
   const docSnippets = [];
   for (const { absPath, relPath } of allDocFiles) {
@@ -1544,16 +1630,19 @@ async function runDynamic(initCtx) {
     }
   }
   console.log(`  Loaded ${docSnippets.length} document(s) as context for AI`);
+  if (videoSummaries.length > 0) {
+    console.log(`  Plus ${videoSummaries.length} video segment summary(ies) as context`);
+  }
   console.log('');
 
   const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
 
-  // 6. Phase 1: Plan topics
+  // 7. Phase 1: Plan topics
   console.log('  Phase 1: Planning documents...');
   let planResult;
   try {
     planResult = await planTopics(ai, userRequest, docSnippets, {
-      folderName, userName, thinkingBudget,
+      folderName, userName, thinkingBudget, videoSummaries,
     });
   } catch (err) {
     console.error(`  ✗ Topic planning failed: ${err.message}`);
@@ -1584,12 +1673,13 @@ async function runDynamic(initCtx) {
   console.log('');
   log.step(`Dynamic mode: ${topics.length} topics planned in ${(planResult.durationMs / 1000).toFixed(1)}s`);
 
-  // 7. Phase 2: Generate all documents
+  // 8. Phase 2: Generate all documents
   console.log(`  Phase 2: Generating ${topics.length} document(s)...`);
   const documents = await generateAllDynamicDocuments(ai, topics, userRequest, docSnippets, {
     folderName,
     userName,
     thinkingBudget,
+    videoSummaries,
     concurrency: Math.min(opts.parallelAnalysis || 2, 3),
     onProgress: (done, total, topic) => {
       console.log(`    [${done}/${total}] ✓ ${topic.title}`);
@@ -1603,7 +1693,7 @@ async function runDynamic(initCtx) {
     }
   }
 
-  // 8. Write output
+  // 9. Write output
   const runDir = opts.outputDir
     ? path.resolve(opts.outputDir)
     : path.join(targetDir, 'runs', ts);
@@ -1623,7 +1713,7 @@ async function runDynamic(initCtx) {
   }
   console.log(`    Tokens:  ${stats.totalTokens.toLocaleString()} | Time: ${(stats.totalDurationMs / 1000).toFixed(1)}s`);
 
-  // 9. Cost summary
+  // 10. Cost summary
   const cost = costTracker.getSummary();
   if (cost.totalTokens > 0) {
     console.log('');
@@ -1634,7 +1724,7 @@ async function runDynamic(initCtx) {
     console.log(`    Total:    ${cost.totalTokens.toLocaleString()} tokens | $${cost.totalCost.toFixed(4)}`);
   }
 
-  // 10. Firebase upload (optional)
+  // 11. Firebase upload (optional)
   if (!opts.skipUpload) {
     try {
       const { storage, authenticated } = await initFirebase();
@@ -1656,6 +1746,9 @@ async function runDynamic(initCtx) {
   console.log('  ══════════════════════════════════════');
   console.log('  Dynamic Mode Complete');
   console.log('  ══════════════════════════════════════');
+  if (videoSummaries.length > 0) {
+    console.log(`  Videos:    ${videoFiles.length} (${videoSummaries.length} segments analyzed)`);
+  }
   console.log(`  Documents: ${stats.successful}`);
   console.log(`  Output:    ${path.relative(PROJECT_ROOT, runDir)}/`);
   console.log(`  Elapsed:   ${log.elapsed()}`);

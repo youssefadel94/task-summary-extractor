@@ -1,23 +1,19 @@
 /**
- * Dynamic Mode — AI-powered document generation from context documents + user request.
+ * Dynamic Mode — AI-powered document generation from video + documents + user request.
  *
- * This mode does NOT require video. The user provides:
- *  - A folder with context documents (specs, notes, code maps, etc.)
- *  - A request/goal describing what they want generated
+ * This mode automatically detects and processes ALL content in a folder:
+ *  - Video files: compressed, segmented, analyzed for content summaries
+ *  - Documents: loaded as text context
  *
  * The pipeline then:
- *  1. Discovers and loads all documents
- *  2. Sends docs + request to Gemini for topic planning
- *  3. Generates a set of Markdown documents — one per topic
+ *  1. Discovers all videos and documents
+ *  2. Compresses and segments videos, analyzes each segment
+ *  3. Sends video summaries + docs + request to Gemini for topic planning
+ *  4. Generates a set of Markdown documents — one per topic
  *
- * Use cases:
- *  - "Plan migration from PostgreSQL to MongoDB" → migration guide, risk analysis, timeline
- *  - "Explain this codebase for onboarding" → architecture docs, component guides
- *  - "Create learning materials for React hooks" → concept explanations, examples, exercises
- *  - "Break down this requirement into tasks" → task breakdown, dependencies, estimates
- *  - "Analyze these meeting notes" → summaries, action items, decision records
+ * Works with any type of video (mp4, mkv, avi, mov, webm) and any documents.
  *
- * Fully backward-compatible — the existing video pipeline is untouched.
+ * Fully backward-compatible — works with docs-only folders too.
  */
 
 'use strict';
@@ -31,7 +27,7 @@ const { withRetry } = require('../utils/retry');
 // ======================== TOPIC PLANNING ========================
 
 /**
- * Ask Gemini to plan a set of documents based on context docs and user request.
+ * Ask Gemini to plan a set of documents based on video + docs + user request.
  *
  * @param {object} ai - GoogleGenAI instance
  * @param {string} userRequest - What the user wants generated
@@ -40,22 +36,46 @@ const { withRetry } = require('../utils/retry');
  * @param {string} [options.folderName] - Name of the source folder
  * @param {string} [options.userName] - User's name
  * @param {number} [options.thinkingBudget] - Thinking tokens
+ * @param {Array} [options.videoSummaries] - Video segment summaries from analyzeVideoForContext
  * @returns {Promise<{topics: Array, raw: string, durationMs: number, tokenUsage: object}>}
  */
 async function planTopics(ai, userRequest, docSnippets, options = {}) {
-  const { folderName = 'project', userName = '', thinkingBudget = 16384 } = options;
+  const { folderName = 'project', userName = '', thinkingBudget = 16384, videoSummaries = [] } = options;
+
+  // Build video context section
+  const videoSection = videoSummaries.length > 0
+    ? `\n\nVIDEO CONTENT ANALYZED (${videoSummaries.length} segment${videoSummaries.length > 1 ? 's' : ''}):\n` +
+      videoSummaries.map((vs, i) => {
+        const label = vs.totalSegments > 1
+          ? `--- Video: ${vs.videoFile} — Segment ${vs.segmentIndex + 1}/${vs.totalSegments} ---`
+          : `--- Video: ${vs.videoFile} ---`;
+        return `${label}\n${vs.summary}`;
+      }).join('\n\n')
+    : '';
 
   const docsSection = docSnippets.length > 0
     ? `\n\nCONTEXT DOCUMENTS PROVIDED:\n${docSnippets.join('\n\n---\n\n')}`
-    : '\n\n(No context documents provided — generate based on the request alone)';
+    : '';
 
-  const prompt = `You are an expert knowledge architect and technical writer. A user has a request and optionally provided context documents. Your job is to plan a set of Markdown documents that fully address their request.
+  const hasVideo = videoSummaries.length > 0;
+  const hasDocs = docSnippets.length > 0;
+  const sourceDescription = hasVideo && hasDocs
+    ? '(Video recordings + context documents provided — use BOTH as source material)'
+    : hasVideo
+    ? '(Video recordings provided — use the video content as your primary source material)'
+    : hasDocs
+    ? '(Context documents provided — use them as source material)'
+    : '(No context provided — generate based on the request alone)';
+
+  const prompt = `You are an expert knowledge architect and technical writer. A user has a request and optionally provided context — which may include video recordings, documents, or both. Your job is to plan a set of Markdown documents that fully address their request.
 
 USER REQUEST:
 "${userRequest}"
 
 SOURCE FOLDER: "${folderName}"
 ${userName ? `USER: "${userName}"` : ''}
+${sourceDescription}
+${videoSection}
 ${docsSection}
 
 YOUR TASK:
@@ -80,10 +100,11 @@ RULES:
 4. First document should always be an overview/index of the entire set.
 5. Order by logical reading sequence — overview first, then foundational, then detailed.
 6. Each topic should have clear value — don't pad with trivial docs.
-7. Use the context documents to ground your planning in reality.
-8. If the request is about learning/teaching, include progressive complexity.
-9. If the request is about planning/migration, include risk analysis and timelines.
-10. Be creative but practical — generate what would actually help someone.
+7. Use ALL provided context (video content + documents) to ground your planning in reality.
+8. If video recordings are provided, extract insights, discussions, decisions, and details from them.
+9. If the request is about learning/teaching, include progressive complexity.
+10. If the request is about planning/migration, include risk analysis and timelines.
+11. Be creative but practical — generate what would actually help someone.
 
 RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
 
@@ -146,10 +167,11 @@ RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
  * @param {string} userRequest - Original user request
  * @param {string[]} docSnippets - Context document content
  * @param {object} options
+ * @param {Array} [options.videoSummaries] - Video segment summaries
  * @returns {Promise<{markdown: string, raw: string, durationMs: number, tokenUsage: object}>}
  */
 async function generateDynamicDocument(ai, topic, userRequest, docSnippets, options = {}) {
-  const { folderName = 'project', userName = '', thinkingBudget = 16384, allTopics = [] } = options;
+  const { folderName = 'project', userName = '', thinkingBudget = 16384, allTopics = [], videoSummaries = [] } = options;
 
   // Build the list of related documents for cross-references
   const otherDocs = allTopics
@@ -159,6 +181,21 @@ async function generateDynamicDocument(ai, topic, userRequest, docSnippets, opti
 
   const contextSection = docSnippets.length > 0
     ? `\nCONTEXT DOCUMENTS:\n${docSnippets.slice(0, 5).join('\n---\n')}`
+    : '';
+
+  // Build video context for this document
+  const videoContextSection = videoSummaries.length > 0
+    ? `\nVIDEO CONTENT (from ${videoSummaries.length} analyzed segment${videoSummaries.length > 1 ? 's' : ''}):\n` +
+      videoSummaries.map((vs, i) => {
+        const label = vs.totalSegments > 1
+          ? `--- ${vs.videoFile} — Segment ${vs.segmentIndex + 1}/${vs.totalSegments} ---`
+          : `--- ${vs.videoFile} ---`;
+        // Truncate very long summaries per segment to manage token budget
+        const summary = vs.summary.length > 6000
+          ? vs.summary.slice(0, 6000) + '\n... (truncated for token budget)'
+          : vs.summary;
+        return `${label}\n${summary}`;
+      }).join('\n\n')
     : '';
 
   const categoryGuidance = getDynamicCategoryGuidance(topic.category);
@@ -182,6 +219,7 @@ DOCUMENT TO WRITE:
 
 OTHER DOCUMENTS IN THE SET (for cross-references):
 ${otherDocs || '(This is the only document)'}
+${videoContextSection}
 ${contextSection}
 
 ${categoryGuidance}
@@ -192,7 +230,8 @@ WRITING RULES:
 3. Target ${topic.estimated_length === 'long' ? '800-1500' : topic.estimated_length === 'medium' ? '400-800' : '200-400'} words.
 4. Write for the specified target audience — adjust technical depth accordingly.
 5. Reference other documents in the set using their titles where relevant (e.g., "See [Document Title]").
-6. Ground content in the provided context documents when available.
+6. Ground content in ALL provided context — video recordings AND documents when available.
+7. If video content is provided, use specific details, quotes, and decisions from the video.
 7. Be practical and actionable — include concrete examples, steps, or recommendations.
 8. DO NOT include YAML frontmatter or metadata blocks.
 9. Start with a level-1 heading (# Title) followed by a brief introduction.

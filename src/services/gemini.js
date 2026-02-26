@@ -586,6 +586,120 @@ ${segmentDumps}`;
   };
 }
 
+// ======================== DYNAMIC MODE — VIDEO CONTEXT EXTRACTION ========================
+
+/**
+ * Analyze a video segment for dynamic mode — produces a comprehensive text summary
+ * instead of structured JSON. Used as context for dynamic document generation.
+ *
+ * @param {object} ai - GoogleGenAI instance
+ * @param {string} filePath - Path to video segment on disk
+ * @param {string} displayName - Display name (e.g. "segment_00.mp4")
+ * @param {object} [opts] - { thinkingBudget, segmentIndex, totalSegments }
+ * @returns {Promise<{summary: string, durationMs: number, tokenUsage: object}>}
+ */
+async function analyzeVideoForContext(ai, filePath, displayName, opts = {}) {
+  const { thinkingBudget = 8192, segmentIndex = 0, totalSegments = 1 } = opts;
+
+  // 1. Upload video to Gemini File API
+  console.log(`    Uploading ${displayName} to Gemini File API...`);
+  let file = await withRetry(
+    () => ai.files.upload({
+      file: filePath,
+      config: { mimeType: 'video/mp4', displayName },
+    }),
+    { label: `Gemini video upload (${displayName})`, maxRetries: 3 }
+  );
+
+  // 2. Poll until processing complete
+  let waited = 0;
+  const pollStart = Date.now();
+  while (file.state === 'PROCESSING') {
+    if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
+      throw new Error(`Gemini file processing timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s for ${displayName}`);
+    }
+    process.stdout.write(`    Processing${'.'.repeat((waited % 3) + 1)}   \r`);
+    await new Promise(r => setTimeout(r, 5000));
+    waited++;
+    file = await withRetry(
+      () => ai.files.get({ name: file.name }),
+      { label: 'Gemini file status check', maxRetries: 2, baseDelay: 1000 }
+    );
+  }
+  console.log('    Processing complete.        ');
+
+  if (file.state === 'FAILED') {
+    throw new Error(`Gemini file processing failed for ${displayName}`);
+  }
+
+  // 3. Build prompt for comprehensive summary
+  const segmentLabel = totalSegments > 1
+    ? `This is segment ${segmentIndex + 1} of ${totalSegments} from a longer video.`
+    : 'This is the complete video.';
+
+  const prompt = `You are an expert analyst. Watch this video carefully and produce a COMPREHENSIVE summary.
+
+${segmentLabel}
+
+Your summary must capture ALL of the following (where applicable):
+1. **Transcript / Dialog**: Who said what — capture all speakers and their statements as accurately as possible. Use speaker names if visible/mentioned, otherwise "Speaker 1", "Speaker 2", etc.
+2. **Topics Discussed**: Every topic, subject, or theme covered — with detail, not just labels.
+3. **Decisions Made**: Any decisions, agreements, or conclusions reached.
+4. **Action Items**: Any tasks assigned, commitments made, or next steps discussed.
+5. **Technical Details**: Code, architecture, configurations, APIs, tools, or technologies mentioned.
+6. **Problems / Blockers**: Issues raised, bugs discussed, challenges identified.
+7. **Key Information**: Numbers, dates, names, URLs, file paths, or any specific data mentioned.
+8. **Visual Content**: Screen shares, presentations, diagrams, code on screen — describe what is shown.
+9. **Context & Background**: Any background information or context provided in the discussion.
+
+FORMAT:
+- Write in clear, detailed prose with section headers.
+- Include direct quotes for important statements.
+- Be thorough — capture everything, even seemingly minor details.
+- This summary will be used as context for generating documents, so completeness is critical.
+- Do NOT use JSON. Write natural language with Markdown formatting.`;
+
+  const contentParts = [
+    { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
+    { text: prompt },
+  ];
+
+  // 4. Send to Gemini
+  console.log(`    Analyzing with ${GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
+  const requestPayload = {
+    model: GEMINI_MODEL,
+    contents: [{ role: 'user', parts: contentParts }],
+    config: {
+      systemInstruction: 'You are a meticulous video analyst. Produce comprehensive, detailed summaries that capture everything in the video. Write in clear Markdown prose.',
+      maxOutputTokens: 32768,
+      temperature: 0.1,
+      thinkingConfig: { thinkingBudget },
+    },
+  };
+
+  const t0 = Date.now();
+  const response = await withRetry(
+    () => ai.models.generateContent(requestPayload),
+    { label: `Dynamic video analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+  );
+  const durationMs = Date.now() - t0;
+
+  const summary = (response.text || '').trim();
+
+  const usage = response.usageMetadata || {};
+  const tokenUsage = {
+    inputTokens: usage.promptTokenCount || 0,
+    outputTokens: usage.candidatesTokenCount || 0,
+    totalTokens: usage.totalTokenCount || 0,
+    thoughtTokens: usage.thoughtsTokenCount || 0,
+  };
+
+  console.log(`    Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()}`);
+  console.log(`    ✓ Summary: ${summary.length.toLocaleString()} chars in ${(durationMs / 1000).toFixed(1)}s`);
+
+  return { summary, durationMs, tokenUsage };
+}
+
 module.exports = {
   initGemini,
   prepareDocsForGemini,
@@ -593,4 +707,5 @@ module.exports = {
   processWithGemini,
   compileFinalResult,
   buildDocBridgeText,
+  analyzeVideoForContext,
 };
