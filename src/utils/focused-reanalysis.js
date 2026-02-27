@@ -13,7 +13,6 @@
 
 const { extractJson } = require('./json-parser');
 const { withRetry } = require('./retry');
-const { estimateTokens } = require('./context-manager');
 const config = require('../config');
 // Access config.GEMINI_MODEL / config.GEMINI_CONTEXT_WINDOW at call time for runtime model changes.
 

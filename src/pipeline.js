@@ -1185,7 +1185,7 @@ function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun })
   const cost = costTracker.getSummary();
   if (cost.totalTokens > 0) {
     console.log('');
-    console.log('  Cost estimate (Gemini 2.5 Flash):');
+    console.log(`  Cost estimate (${config.GEMINI_MODEL}):`);
     console.log(`    Input tokens  : ${cost.inputTokens.toLocaleString()} ($${cost.inputCost.toFixed(4)})`);
     console.log(`    Output tokens : ${cost.outputTokens.toLocaleString()} ($${cost.outputCost.toFixed(4)})`);
     console.log(`    Thinking tokens: ${cost.thinkingTokens.toLocaleString()} ($${cost.thinkingCost.toFixed(4)})`);
@@ -1731,7 +1731,7 @@ async function runDynamic(initCtx) {
   const cost = costTracker.getSummary();
   if (cost.totalTokens > 0) {
     console.log('');
-    console.log('  Cost estimate (Gemini 2.5 Flash):');
+    console.log(`  Cost estimate (${config.GEMINI_MODEL}):`);
     console.log(`    Input:    ${cost.inputTokens.toLocaleString()} ($${cost.inputCost.toFixed(4)})`);
     console.log(`    Output:   ${cost.outputTokens.toLocaleString()} ($${cost.outputCost.toFixed(4)})`);
     console.log(`    Thinking: ${cost.thinkingTokens.toLocaleString()} ($${cost.thinkingCost.toFixed(4)})`);

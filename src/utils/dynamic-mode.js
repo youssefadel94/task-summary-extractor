@@ -22,8 +22,8 @@ const fs = require('fs');
 const path = require('path');
 const config = require('../config');
 // Access config.GEMINI_MODEL at call time (not destructured) for runtime model changes.
-const { extractJson } = require('../utils/json-parser');
-const { withRetry } = require('../utils/retry');
+const { extractJson } = require('./json-parser');
+const { withRetry } = require('./retry');
 
 // ======================== TOPIC PLANNING ========================
 

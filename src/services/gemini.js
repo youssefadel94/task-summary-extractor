@@ -434,7 +434,6 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
  * @param {string} userName - Current user's name
  * @param {string} callName - Name of the call
  * @param {string} scriptDir - Directory where prompt.json lives
- * @param {string} scriptDir - Directory where prompt.json lives
  * @param {object} [opts] - Options { thinkingBudget }
  * @returns {{ compiled: object, run: object }} - The compiled analysis + run metadata
  */
@@ -529,7 +528,7 @@ ${segmentDumps}`;
       systemInstruction: `${systemInstruction}\n\nYou are now in COMPILATION MODE — your job is to merge multiple segment analyses into one final unified output. Deduplicate, reconcile conflicts, and produce the definitive analysis. Output valid JSON only — no markdown fences.`,
       maxOutputTokens: 65536,
       temperature: 0,
-      // Thinking tokens share the maxOutputTokens pool in Gemini 2.5 Flash.
+      // Thinking tokens share the maxOutputTokens pool in Gemini 2.5+ models.
       // Default 10240 leaves ~55K for output — enough for full structured merge.
       // Too low (4096) → model hits ceiling and produces minimal output.
       // Too high (16384) → eats into output budget causing truncation.
