@@ -418,12 +418,6 @@ function getConfidenceStats(analysis) {
 module.exports = {
   assessQuality,
   formatQualityLine,
-  buildRetryHints,
   getConfidenceStats,
   THRESHOLDS,
-  // Expose for testing
-  scoreStructure,
-  scoreDensity,
-  scoreIntegrity,
-  scoreCrossReferences,
 };

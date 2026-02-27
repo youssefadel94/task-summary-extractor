@@ -3,11 +3,17 @@
  *
  * Used for Gemini API calls and Firebase operations that may fail
  * due to rate limits, network issues, or temporary outages.
+ *
+ * Defaults are self-contained (no upward dependency on config).
+ * Callers can override via opts.maxRetries and opts.baseDelay.
  */
 
 'use strict';
 
-const { MAX_RETRIES, RETRY_BASE_DELAY_MS } = require('../config');
+/** Default retry attempts — overridable via opts.maxRetries */
+const DEFAULT_MAX_RETRIES = 3;
+/** Default base delay in ms — overridable via opts.baseDelay */
+const DEFAULT_BASE_DELAY_MS = 2000;
 
 /**
  * Known transient error patterns that should be retried.
@@ -63,8 +69,8 @@ function isTransientError(err) {
  * @returns {Promise<any>} Result of fn()
  */
 async function withRetry(fn, opts = {}) {
-  const maxRetries = opts.maxRetries ?? MAX_RETRIES;
-  const baseDelay = opts.baseDelay ?? RETRY_BASE_DELAY_MS;
+  const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const baseDelay = opts.baseDelay ?? DEFAULT_BASE_DELAY_MS;
   const label = opts.label || 'operation';
   const shouldRetry = opts.shouldRetry || isTransientError;
   const onRetry = opts.onRetry || null;
@@ -126,4 +132,4 @@ async function parallelMap(items, fn, concurrency = 3) {
   return results;
 }
 
-module.exports = { withRetry, parallelMap, isTransientError };
+module.exports = { withRetry, parallelMap };

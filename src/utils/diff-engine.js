@@ -309,7 +309,4 @@ module.exports = {
   loadPreviousCompilation,
   generateDiff,
   renderDiffMarkdown,
-  // Expose for testing
-  diffArray,
-  detectFieldChanges,
 };

@@ -297,5 +297,4 @@ module.exports = {
   buildHistoryEntry,
   analyzeHistory,
   printLearningInsights,
-  MAX_HISTORY_ENTRIES,
 };

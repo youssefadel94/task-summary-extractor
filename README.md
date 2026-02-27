@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v8.1.0** — AI-powered meeting analysis & document generation CLI. Install globally, run anywhere.
+> **v8.2.0** — AI-powered meeting analysis & document generation CLI. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-8.1.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-8.2.0-brightgreen" alt="Version" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -468,7 +468,7 @@ Your call folders, `.env`, logs, and videos are all `.gitignore`d — nothing ge
 task-summary-extractor/
 ├── bin/
 │   └── taskex.js               Global CLI entry point
-├── process_and_upload.js       Backward-compatible entry point
+├── process_and_upload.js       Backward-compatible entry (delegates to bin/taskex)
 ├── setup.js                    First-time setup & validation
 ├── package.json                Dependencies, scripts, bin config
 ├── prompt.json                 Gemini extraction prompt
@@ -476,15 +476,21 @@ task-summary-extractor/
 ├── src/
 │   ├── config.js               Config, model registry, env vars
 │   ├── logger.js               Structured JSONL logger (triple output)
-│   ├── pipeline.js             Multi-mode orchestrator (1,985 lines)
+│   ├── pipeline.js             Multi-mode orchestrator (~2,000 lines)
 │   ├── services/
 │   │   ├── gemini.js           Gemini AI — 3-strategy file resolution + External URL support
 │   │   ├── firebase.js         Firebase Storage (async I/O)
 │   │   ├── video.js            ffmpeg compression
 │   │   └── git.js              Git CLI wrapper
+│   ├── modes/                  AI-heavy pipeline phase modules
+│   │   ├── deep-dive.js        Topic discovery & deep-dive doc generation
+│   │   ├── dynamic-mode.js     Dynamic document planning & generation
+│   │   ├── focused-reanalysis.js  Targeted reanalysis of weak segments
+│   │   ├── progress-updater.js Git-based progress assessment
+│   │   └── change-detector.js  Git change correlation engine
 │   ├── renderers/
 │   │   └── markdown.js         Report renderer
-│   └── utils/                  21 modules — see ARCHITECTURE.md
+│   └── utils/                  Pure utilities — parsing, retry, budget, config
 │
 ├── QUICK_START.md              Step-by-step setup guide
 ├── ARCHITECTURE.md             Technical deep dive
@@ -512,6 +518,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v8.2.0** | **Architecture cleanup** — `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.1.0** | **Smart global config** — `taskex config` persistent setup (`~/.taskexrc`), first-run prompting, 5-level config resolution, production audit fixes, shared CLI flag injection, boolean flag parser fix |
 | **v8.0.0** | **npm package** — `npm i -g task-summary-extractor`, `taskex` global CLI, `--gemini-key` / `--firebase-*` config flags, run from anywhere, CWD-first `.env` resolution |
 | **v7.2.3** | Production hardening — cross-platform ffmpeg, shell injection fix, auto git init for progress tracking, `runs/` excluded from doc discovery |

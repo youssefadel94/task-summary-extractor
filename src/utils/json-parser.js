@@ -242,4 +242,4 @@ function extractJson(rawText) {
   return null;
 }
 
-module.exports = { extractJson, sanitizeJsonEscapes, sanitizeMalformedJson, fixDoubledClosers, tryParse, tryParseWithSanitize, repairTruncatedJson, repairDoubledClosers };
+module.exports = { extractJson };

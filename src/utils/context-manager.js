@@ -486,12 +486,8 @@ function detectBoundaryContext(vttContent, segmentStartSec, segmentEndSec, segme
 }
 
 module.exports = {
-  PRIORITY,
   estimateTokens,
-  estimateDocTokens,
-  classifyDocPriority,
   selectDocsByBudget,
-  parseVttCues,
   sliceVttForSegment,
   buildProgressiveContext,
   buildSegmentFocus,

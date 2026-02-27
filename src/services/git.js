@@ -254,34 +254,6 @@ function getDiffSummary(repoPath, sinceISO) {
   return output || 'No stat available';
 }
 
-/**
- * Get actual diff content, truncated to maxBytes.
- * Used for keyword matching, NOT sent to Gemini directly.
- *
- * @param {string} repoPath
- * @param {string} sinceISO
- * @param {number} [maxBytes=100000]
- * @returns {string} Diff content (may be truncated)
- */
-function getDiffContent(repoPath, sinceISO, maxBytes = 100000) {
-  const commits = getCommitsSince(repoPath, sinceISO);
-  if (commits.length === 0) return '';
-
-  const oldestHash = commits[commits.length - 1].hash;
-  let output = execGit(
-    ['diff', '--no-color', '-U2', `${oldestHash}~1`, 'HEAD'],
-    repoPath,
-  );
-  if (!output) {
-    output = execGit(['diff', '--no-color', '-U2', oldestHash, 'HEAD'], repoPath);
-  }
-  if (!output) return '';
-
-  return output.length > maxBytes
-    ? output.slice(0, maxBytes) + '\n... (truncated at ' + Math.round(maxBytes / 1024) + ' KB)'
-    : output;
-}
-
 // ======================== WORKING TREE ========================
 
 /**
@@ -322,7 +294,6 @@ module.exports = {
   getCommitsWithFiles,
   getChangedFilesSince,
   getDiffSummary,
-  getDiffContent,
   getWorkingTreeChanges,
   getCurrentBranch,
   normPath,

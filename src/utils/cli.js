@@ -1,5 +1,5 @@
 /**
- * CLI argument parser — simple, zero-dependency flag parser.
+ * CLI utilities — argument parser, interactive prompts, folder/model selection.
  *
  * Supports:
  *   --flag              Boolean flag
@@ -7,7 +7,7 @@
  *   --key value         Key-value (next arg)
  *   positional args     Collected separately
  *
- * Also includes interactive folder selection for when no folder arg is provided.
+ * Also includes interactive prompts, folder selection, and model selection.
  *
  * Usage:
  *   const { flags, positional } = parseArgs(process.argv.slice(2));
@@ -412,4 +412,31 @@ function showHelp() {
   throw Object.assign(new Error('HELP_SHOWN'), { code: 'HELP_SHOWN' });
 }
 
-module.exports = { parseArgs, showHelp, discoverFolders, selectFolder, selectModel };
+module.exports = { parseArgs, showHelp, discoverFolders, selectFolder, selectModel, promptUser, promptUserText };
+
+// ======================== INTERACTIVE PROMPTS ========================
+
+/** Prompt user for a yes/no question on stdin. Returns true for yes. */
+function promptUser(question) {
+  const readline = require('readline');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question(question, answer => {
+      rl.close();
+      const a = (answer || '').trim().toLowerCase();
+      resolve(a === 'y' || a === 'yes');
+    });
+  });
+}
+
+/** Prompt user for free text input. Returns trimmed string. */
+function promptUserText(question) {
+  const readline = require('readline');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question(question, answer => {
+      rl.close();
+      resolve((answer || '').trim());
+    });
+  });
+}

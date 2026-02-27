@@ -39,23 +39,24 @@ const { isGitAvailable, isGitRepo, initRepo } = require('./services/git');
 // --- Utils ---
 const { findDocsRecursive } = require('./utils/fs');
 const { fmtDuration, fmtBytes } = require('./utils/format');
-const { promptUser, promptUserText } = require('./utils/prompt');
-const { parseArgs, showHelp, selectFolder, selectModel } = require('./utils/cli');
+const { promptUser, promptUserText, parseArgs, showHelp, selectFolder, selectModel } = require('./utils/cli');
 const { parallelMap } = require('./utils/retry');
-const Progress = require('./utils/progress');
+const Progress = require('./utils/checkpoint');
 const CostTracker = require('./utils/cost-tracker');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('./utils/quality-gate');
 const { calculateThinkingBudget, calculateCompilationBudget } = require('./utils/adaptive-budget');
 const { detectBoundaryContext, sliceVttForSegment } = require('./utils/context-manager');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
-const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('./utils/focused-reanalysis');
 const { loadHistory, saveHistory, buildHistoryEntry, analyzeHistory, printLearningInsights } = require('./utils/learning-loop');
 const { loadPreviousCompilation, generateDiff, renderDiffMarkdown } = require('./utils/diff-engine');
-const { detectAllChanges, serializeReport } = require('./utils/change-detector');
-const { assessProgressLocal, assessProgressWithAI, mergeProgressIntoAnalysis, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS } = require('./utils/progress-updater');
-const { discoverTopics, generateAllDocuments, writeDeepDiveOutput } = require('./utils/deep-dive');
-const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./utils/dynamic-mode');
 const { promptForKey } = require('./utils/global-config');
+
+// --- Modes ---
+const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('./modes/focused-reanalysis');
+const { detectAllChanges, serializeReport } = require('./modes/change-detector');
+const { assessProgressLocal, assessProgressWithAI, mergeProgressIntoAnalysis, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS } = require('./modes/progress-updater');
+const { discoverTopics, generateAllDocuments, writeDeepDiveOutput } = require('./modes/deep-dive');
+const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./modes/dynamic-mode');
 
 // --- Renderers ---
 const { renderResultsMarkdown } = require('./renderers/markdown');

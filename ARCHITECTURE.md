@@ -76,20 +76,23 @@ flowchart TB
         GIT["git.js"]
     end
 
-    subgraph Utils["Utilities — 19 modules"]
+    subgraph Utils["Utilities"]
         QG["quality-gate"]
-        FR["focused-reanalysis"]
         LL["learning-loop"]
         DE["diff-engine"]
-        CD["change-detector"]
-        PU["progress-updater"]
         CM["context-manager"]
         JP["json-parser"]
         AB["adaptive-budget"]
         HD["health-dashboard"]
+        OT["+ 7 more"]
+    end
+
+    subgraph Modes["Modes — AI pipeline phases"]
+        FR["focused-reanalysis"]
+        CD["change-detector"]
+        PU["progress-updater"]
         DD["deep-dive"]
         DM["dynamic-mode"]
-        OT["+ 7 more"]
     end
 
     subgraph Renderers["Renderers"]
@@ -101,6 +104,7 @@ flowchart TB
     P1 -.->|"--dynamic"| DYN
     Pipeline --> Services
     Pipeline --> Utils
+    Pipeline --> Modes
     Pipeline --> Renderers
     UP --> GIT
     UP --> CD

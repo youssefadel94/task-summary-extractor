@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { extractJson } = require('./json-parser');
+const { extractJson } = require('../utils/json-parser');
 const config = require('../config');
 // Access config.GEMINI_MODEL at call time for runtime model changes.
 

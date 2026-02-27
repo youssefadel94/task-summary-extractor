@@ -270,36 +270,38 @@ src/
 ├── config.js                277 ln  Central config, env vars, model registry, validation
 ├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
 ├── pipeline.js            1,985 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic, auto git init
+├── modes/                          ★ v8.2.0 — AI-heavy pipeline phase modules
+│   ├── change-detector.js   417 ln  Git-based change correlation engine
+│   ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
+│   ├── dynamic-mode.js      494 ln  ★ v7.0 — Context-only doc generation, topic planning, parallel writing
+│   ├── focused-reanalysis.js 268 ln ★ v6 — Weakness detection, targeted second pass, intelligent merge
+│   └── progress-updater.js  402 ln  ★ v6.1 — AI-powered progress assessment, status report generation
 ├── renderers/
 │   └── markdown.js          879 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
 ├── services/
 │   ├── firebase.js           92 ln  Init, upload, exists check (with retry, async I/O)
 │   ├── gemini.js            677 ln  ★ v7.2.1 — 3-strategy file resolution, External URL support, cleanup, doc prep, analysis, compilation
-│   ├── git.js               330 ln  ★ v7.2.3 — Git CLI wrapper: log, diff, status, changed files, auto-init
+│   ├── git.js               310 ln  ★ v7.2.3 — Git CLI wrapper: log, diff, status, changed files, auto-init
 │   └── video.js             285 ln  ★ v7.2.3 — ffmpeg compress, segment, probe (cross-platform, spawnSync)
-└── utils/
+└── utils/                          Pure utilities — parsing, retry, budget, config
     ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
-    ├── change-detector.js   417 ln  ★ v6.1 — Git-based change correlation engine
-    ├── cli.js               391 ln  ★ v8.0.0 — Interactive prompts, model selector, folder picker, config flags, taskex help
+    ├── checkpoint.js        145 ln  Checkpoint/resume persistence (renamed from progress.js in v8.2.0)
+    ├── cli.js               415 ln  ★ v8.0.0 — Interactive prompts, model selector, folder picker, config flags, taskex help
     ├── context-manager.js   424 ln  4-tier priority, VTT slicing, progressive context, boundary detection
     ├── cost-tracker.js      140 ln  Token counting, USD cost estimation (+ focused pass tracking)
-    ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
     ├── diff-engine.js       280 ln  ★ v6 — Cross-run delta: new/removed/changed items, Markdown rendering
-    ├── dynamic-mode.js      494 ln  ★ v7.0 — Context-only doc generation, topic planning, parallel writing
-    ├── focused-reanalysis.js 268 ln ★ v6 — Weakness detection, targeted second pass, intelligent merge
     ├── format.js             27 ln  Duration, bytes formatting
     ├── fs.js                 40 ln  Recursive doc finder (skips runs/)
+    ├── global-config.js     320 ln  ★ v8.1.0 — ~/.taskexrc persistent config, interactive setup
     ├── health-dashboard.js  191 ln  ★ v5 — Quality report, density bars, efficiency metrics
+    ├── inject-cli-flags.js   58 ln  ★ v8.1.0 — CLI flag → env var injection
     ├── json-parser.js       216 ln  5-strategy JSON extraction + repair
     ├── learning-loop.js     270 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
-    ├── progress.js          145 ln  Checkpoint/resume persistence
-    ├── progress-updater.js  402 ln  ★ v6.1 — AI-powered progress assessment, status report generation
-    ├── prompt.js             28 ln  Interactive user prompts
     ├── quality-gate.js      372 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
-    └── retry.js             112 ln  Exponential backoff, parallel map
+    └── retry.js             112 ln  Exponential backoff, parallel map (self-contained defaults)
 
 prompt.json                  265 ln  ★ v6 — Confidence scoring instructions, evidence-based schema
-process_and_upload.js        115 ln  Backward-compatible entry point with config flag injection (v8.0.0)
+process_and_upload.js         14 ln  Backward-compatible shim — delegates to bin/taskex.js
 setup.js                     505 ln  Automated first-time setup & environment validation (v8.0.0)
 ```
 
@@ -314,14 +316,14 @@ The following features from the original exploration have been **fully implement
 | Feature | Status | Implemented In |
 |---------|--------|----------------|
 | 📊 Confidence Scoring Per Extracted Item | ✅ Done | `prompt.json`, `quality-gate.js`, `markdown.js` |
-| 🔄 Multi-Pass Analysis (Focused Re-extraction) | ✅ Done | `focused-reanalysis.js` (268 ln), pipeline integration |
+| 🔄 Multi-Pass Analysis (Focused Re-extraction) | ✅ Done | `modes/focused-reanalysis.js` (268 ln), pipeline integration |
 | 🧠 Learning & Improvement Loop | ✅ Done | `learning-loop.js` (270 ln), pipeline init + save |
 | 📝 Diff-Aware Compilation | ✅ Done | `diff-engine.js` (280 ln), pipeline output + MD |
 | 🔍 Structured Logging & Observability | ✅ Done | `logger.js` rewritten (303 ln), JSONL + spans + metrics |
 | Parallel segment analysis (via CLI) | ✅ Done | `--parallel-analysis` flag, pipeline batching |
-| 🔎 Smart Change Detection & Progress Tracking | ✅ Done | `git.js` (258 ln), `change-detector.js` (417 ln), `progress-updater.js` (402 ln), pipeline `--update-progress` mode |
-| 🗓️ Deep Dive Document Generation | ✅ Done | `deep-dive.js` (473 ln), pipeline phase 9 |
-| 📝 Dynamic Mode (doc-only generation) | ✅ Done | `dynamic-mode.js` (494 ln), pipeline `--dynamic` route |
+| 🔎 Smart Change Detection & Progress Tracking | ✅ Done | `git.js` (310 ln), `modes/change-detector.js` (417 ln), `modes/progress-updater.js` (402 ln), pipeline `--update-progress` mode |
+| 🗓️ Deep Dive Document Generation | ✅ Done | `modes/deep-dive.js` (473 ln), pipeline phase 9 |
+| 📝 Dynamic Mode (doc-only generation) | ✅ Done | `modes/dynamic-mode.js` (494 ln), pipeline `--dynamic` route |
 | 🤖 Runtime Model Selection | ✅ Done | `config.js` model registry, `cli.js` selector, `--model` flag |
 
 ---

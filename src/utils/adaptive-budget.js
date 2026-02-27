@@ -259,8 +259,6 @@ function calculateCompilationBudget(allSegmentAnalyses, baseBudget = BUDGET.COMP
 }
 
 module.exports = {
-  analyzeTranscriptComplexity,
   calculateThinkingBudget,
   calculateCompilationBudget,
-  BUDGET,
 };
