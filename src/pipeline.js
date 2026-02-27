@@ -34,6 +34,7 @@ const {
 const { initFirebase, uploadToStorage, storageExists } = require('./services/firebase');
 const { initGemini, prepareDocsForGemini, processWithGemini, compileFinalResult, analyzeVideoForContext, cleanupGeminiFiles } = require('./services/gemini');
 const { compressAndSegment, probeFormat, verifySegment } = require('./services/video');
+const { isGitAvailable, isGitRepo, initRepo } = require('./services/git');
 
 // --- Utils ---
 const { findDocsRecursive } = require('./utils/fs');
@@ -1824,6 +1825,20 @@ async function runProgressUpdate(initCtx) {
   console.log(`  Call:   ${callName}`);
   console.log(`  Folder: ${targetDir}`);
   console.log('');
+
+  // 0. Ensure a git repo exists for change tracking
+  if (isGitAvailable() && !isGitRepo(opts.repoPath || targetDir)) {
+    try {
+      const { root, created } = initRepo(targetDir);
+      if (created) {
+        console.log(`  ✓ Initialized git repository in ${root}`);
+        log.step(`Git repo initialized: ${root}`);
+      }
+    } catch (gitErr) {
+      console.warn(`  ⚠ Could not initialize git: ${gitErr.message}`);
+      log.warn(`Git init failed: ${gitErr.message}`);
+    }
+  }
 
   // 1. Load previous compilation
   const prev = loadPreviousCompilation(targetDir);

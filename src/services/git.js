@@ -84,6 +84,42 @@ function isGitRepo(dir) {
   return findGitRoot(dir) !== null;
 }
 
+/**
+ * Initialize a new git repository in the given directory.
+ *
+ * Creates the repo, stages all existing files, and makes an initial commit.
+ * If the directory is already a git repo, does nothing and returns the existing root.
+ *
+ * @param {string} dir - Directory to initialize
+ * @returns {{ root: string, created: boolean }} Repo root path and whether it was newly created
+ * @throws {Error} If git is not available or init fails
+ */
+function initRepo(dir) {
+  if (!isGitAvailable()) {
+    throw new Error('git is not installed. Install git to use progress tracking.');
+  }
+
+  // Already a repo — return existing root
+  const existing = findGitRoot(dir);
+  if (existing) return { root: existing, created: false };
+
+  // Initialize
+  const initResult = execGit(['init'], dir);
+  if (initResult === null) {
+    throw new Error(`Failed to initialize git repository in "${dir}". Check directory permissions.`);
+  }
+
+  // Stage all existing files and create initial commit
+  execGit(['add', '-A'], dir);
+  execGit(['commit', '-m', 'Initial commit — baseline for progress tracking', '--allow-empty'], dir);
+
+  const root = findGitRoot(dir);
+  if (!root) {
+    throw new Error(`git init succeeded but repository root could not be resolved in "${dir}".`);
+  }
+  return { root, created: true };
+}
+
 // ======================== COMMIT LOG ========================
 
 /**
@@ -281,6 +317,7 @@ module.exports = {
   isGitAvailable,
   findGitRoot,
   isGitRepo,
+  initRepo,
   getCommitsSince,
   getCommitsWithFiles,
   getChangedFilesSince,

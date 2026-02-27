@@ -10,37 +10,65 @@
  *   npm run process -- "C:\path\to\call folder"
  *
  * Options:
- *   --name <name>         Your name (skips interactive prompt)
- *   --skip-upload         Skip Firebase Storage uploads
- *   --skip-compression    Skip video compression (use existing segments)
- *   --skip-gemini         Skip Gemini AI analysis
- *   --resume              Resume from last checkpoint
- *   --reanalyze           Force re-analysis of all segments
- *   --parallel <n>        Max parallel uploads (default: 3)
- *   --log-level <level>   Log level: debug, info, warn, error
- *   --dry-run             Show what would be done without executing
- *   --help, -h            Show help
+ *   --name <name>              Your name (skips interactive prompt)
+ *   --model <id>               Gemini model (default: gemini-2.5-flash)
+ *   --skip-upload              Skip Firebase Storage uploads
+ *   --force-upload             Upload even if remote file exists
+ *   --no-storage-url           Disable Storage URL strategy for Gemini
+ *   --skip-compression         Skip video compression (use existing segments)
+ *   --skip-gemini              Skip Gemini AI analysis
+ *   --resume                   Resume from last checkpoint
+ *   --reanalyze                Force re-analysis of all segments
+ *   --parallel <n>             Max parallel uploads (default: 3)
+ *   --parallel-analysis <n>    Max concurrent Gemini analyses (default: 2)
+ *   --thinking-budget <n>      Gemini thinking token budget
+ *   --compilation-thinking-budget <n>  Compilation thinking budget
+ *   --log-level <level>        Log level: debug, info, warn, error
+ *   --output <dir>             Custom output directory
+ *   --dry-run                  Show what would be done without executing
+ *   --dynamic                  Document-only mode (no video required)
+ *   --deep-dive                Generate deep-dive documents after analysis
+ *   --request <text>           Custom research prompt for deep-dive/dynamic
+ *   --update-progress          Smart change detection & progress update
+ *   --repo <path>              Git repo path for progress tracking
+ *   --no-focused-pass          Disable focused re-analysis pass
+ *   --no-learning              Disable learning loop
+ *   --no-diff                  Disable diff against previous run
+ *   --help, -h                 Show help
+ *   --version, -v              Show version
  *
  * Project structure:
  *   src/
- *     config.js          — Environment-based config with validation
- *     logger.js          — Buffered dual-file logger with levels
- *     pipeline.js        — Main orchestrator with CLI flags & progress
+ *     config.js               — Environment-based config with validation
+ *     logger.js               — Buffered dual-file logger with levels
+ *     pipeline.js             — Main orchestrator with CLI flags & progress
  *     services/
- *       firebase.js      — Firebase init, upload with retry, exists checks
- *       gemini.js        — Gemini init, segment analysis with retry
- *       video.js         — ffmpeg compression, segmentation, probing
+ *       firebase.js           — Firebase init, upload with retry, exists checks
+ *       gemini.js             — Gemini init, segment analysis with retry
+ *       git.js                — Git CLI wrapper for change detection
+ *       video.js              — ffmpeg compression, segmentation, probing
  *     renderers/
- *       markdown.js      — Action-focused Markdown renderer (from compiled result)
+ *       markdown.js           — Action-focused Markdown renderer
  *     utils/
- *       cli.js           — CLI argument parser
- *       fs.js            — Recursive file discovery
- *       format.js        — Duration/size formatting helpers
- *       json-parser.js   — Robust JSON extraction from AI output
- *       progress.js      — Pipeline checkpoint/resume persistence
- *       prompt.js        — Interactive CLI prompts (stdin/stdout)
- *       retry.js         — Exponential backoff retry with parallelMap
- *       context-manager.js — Smart context prioritization for Gemini
+ *       adaptive-budget.js    — Transcript complexity → thinking budget
+ *       change-detector.js    — Git + document change correlation engine
+ *       cli.js                — CLI argument parser & interactive prompts
+ *       context-manager.js    — Smart context prioritization for Gemini
+ *       cost-tracker.js       — Model-specific token cost tracking
+ *       deep-dive.js          — AI topic discovery & document generation
+ *       diff-engine.js        — Compilation diff between runs
+ *       dynamic-mode.js       — Document-only analysis mode
+ *       focused-reanalysis.js — Second-pass extraction for weak dimensions
+ *       format.js             — Duration/size formatting helpers
+ *       fs.js                 — Recursive file discovery
+ *       health-dashboard.js   — Quality report builder
+ *       json-parser.js        — Robust JSON extraction from AI output
+ *       learning-loop.js      — Cross-run history & trend analysis
+ *       progress.js           — Pipeline checkpoint/resume persistence
+ *       progress-updater.js   — Smart progress assessment & rendering
+ *       prompt.js             — Interactive CLI prompts (stdin/stdout)
+ *       quality-gate.js       — Multi-dimension confidence scoring
+ *       retry.js              — Exponential backoff retry with parallelMap
  */
 
 'use strict';

@@ -196,6 +196,8 @@ my-project/runs/{timestamp}/
 | **Deep dive docs** | `node process_and_upload.js --deep-dive "my-meeting"` |
 | **Generate docs (no video)** | `node process_and_upload.js --dynamic "my-project"` |
 | **Track progress via git** | `node process_and_upload.js --update-progress --repo "C:\project" "my-meeting"` |
+
+> **Tip:** If the call folder isn't already a git repo, `--update-progress` auto-initializes one for baseline tracking.
 | **Debug mode** | `node process_and_upload.js --log-level debug "my-meeting"` |
 
 > Full CLI reference with all flags → [README.md — CLI Flags](README.md#cli-flags)

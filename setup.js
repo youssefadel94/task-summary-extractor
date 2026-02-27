@@ -452,7 +452,7 @@ function validate() {
 async function main() {
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
-  console.log('  ║   Task Summary Extractor — Setup v7.2   ║');
+  console.log('  ║  Task Summary Extractor — Setup v7.2.3  ║');
   console.log('  ╚══════════════════════════════════════════╝');
 
   if (CHECK_ONLY) {

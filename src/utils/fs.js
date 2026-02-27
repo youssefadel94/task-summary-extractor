@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 /** Directories to always skip when scanning recursively */
-const SKIP_DIRS = new Set(['node_modules', '.git', 'compressed', 'logs', 'gemini_runs']);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'compressed', 'logs', 'gemini_runs', 'runs']);
 
 /**
  * Recursively find all files matching given extensions under a directory.

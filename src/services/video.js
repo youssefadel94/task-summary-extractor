@@ -22,15 +22,25 @@ let _ffprobe = null;
 
 /** Auto-detect a binary from PATH or common locations. Throws if not found. */
 function findBin(name) {
+  // Cross-platform PATH lookup: 'where' on Windows, 'which' on Linux/Mac
+  const lookupCmd = process.platform === 'win32' ? 'where' : 'which';
+  const suppressStderr = process.platform === 'win32' ? '2>nul' : '2>/dev/null';
   try {
-    const where = execSync(`where ${name} 2>nul`, { encoding: 'utf8' }).trim().split('\n')[0];
-    if (where) return where.trim();
+    const found = execSync(`${lookupCmd} ${name} ${suppressStderr}`, { encoding: 'utf8' }).trim().split('\n')[0];
+    if (found) return found.trim();
   } catch { /* ignore */ }
-  const common = `C:\\ffmpeg\\bin\\${name}.exe`;
-  if (fs.existsSync(common)) return common;
+
+  // Windows-specific fallback location
+  if (process.platform === 'win32') {
+    const common = `C:\\ffmpeg\\bin\\${name}.exe`;
+    if (fs.existsSync(common)) return common;
+  }
+
+  const installHint = process.platform === 'win32'
+    ? `Install ffmpeg from https://www.gyan.dev/ffmpeg/builds/ and add to PATH, or place in C:\\ffmpeg\\bin\\`
+    : `Install ffmpeg: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)`;
   throw new Error(
-    `${name} not found in PATH or C:\\ffmpeg\\bin. ` +
-    `Install ffmpeg from https://ffmpeg.org/download.html and add it to your PATH.`
+    `${name} not found in PATH. ${installHint}`
   );
 }
 
@@ -48,19 +58,30 @@ function getFFprobe() {
 
 // ======================== PROBING ========================
 
-/** Run ffprobe and return a single value from a stream */
+/** Run ffprobe and return a single value from a stream (safe: no shell interpolation) */
 function probe(filePath, streamSelect, entry) {
   try {
-    const cmd = `"${getFFprobe()}" -v error -select_streams ${streamSelect} -show_entries stream=${entry} -of csv=p=0 "${filePath}"`;
-    return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    const result = spawnSync(getFFprobe(), [
+      '-v', 'error',
+      '-select_streams', streamSelect,
+      '-show_entries', `stream=${entry}`,
+      '-of', 'csv=p=0',
+      filePath,
+    ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return result.status === 0 ? (result.stdout || '').trim() || null : null;
   } catch { return null; }
 }
 
-/** Run ffprobe for format-level entries */
+/** Run ffprobe for format-level entries (safe: no shell interpolation) */
 function probeFormat(filePath, entry) {
   try {
-    const cmd = `"${getFFprobe()}" -v error -show_entries format=${entry} -of csv=p=0 "${filePath}"`;
-    return execSync(cmd, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    const result = spawnSync(getFFprobe(), [
+      '-v', 'error',
+      '-show_entries', `format=${entry}`,
+      '-of', 'csv=p=0',
+      filePath,
+    ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return result.status === 0 ? (result.stdout || '').trim() || null : null;
   } catch { return null; }
 }
 

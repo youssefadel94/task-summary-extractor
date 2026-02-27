@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v7.2.2** — AI-powered meeting analysis & document generation from the CLI.
+> **v7.2.3** — AI-powered meeting analysis & document generation from the CLI.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-7.2.2-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-7.2.3-brightgreen" alt="Version" />
 </p>
 
 **Record a meeting → get a structured task document.** Or point it at any folder and generate docs from context.
@@ -57,6 +57,8 @@ Check which items from a previous analysis have been completed, using git eviden
 ```bash
 node process_and_upload.js --update-progress --repo "C:\my-project" "my-meeting"
 ```
+
+> **v7.2.3**: If the call folder isn't a git repo, the tool auto-initializes one for baseline tracking.
 
 > See all modes explained with diagrams → [ARCHITECTURE.md](ARCHITECTURE.md#pipeline-phases)
 
@@ -386,7 +388,7 @@ task-summary-extractor/
 ├── src/
 │   ├── config.js               Config, model registry, env vars
 │   ├── logger.js               Structured JSONL logger (triple output)
-│   ├── pipeline.js             Multi-mode orchestrator (1,738 lines)
+│   ├── pipeline.js             Multi-mode orchestrator (1,985 lines)
 │   ├── services/
 │   │   ├── gemini.js           Gemini AI — 3-strategy file resolution + External URL support
 │   │   ├── firebase.js         Firebase Storage (async I/O)
@@ -420,6 +422,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v7.2.3** | Production hardening — cross-platform ffmpeg, shell injection fix, auto git init for progress tracking, `runs/` excluded from doc discovery |
 | **v7.2.2** | Upload control flags (`--force-upload`, `--no-storage-url`), production-ready docs |
 | **v7.2.1** | Storage URL optimization, 3-strategy file resolution, Gemini file cleanup, codebase audit fixes |
 | **v7.2** | Interactive model selector, `--model` flag, 5-model registry |

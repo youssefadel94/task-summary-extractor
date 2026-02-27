@@ -231,7 +231,8 @@ The `--update-progress` mode tracks which extracted items have been addressed:
 
 ```mermaid
 flowchart TB
-    START(["--update-progress"]) --> LOAD["Load latest\ncompilation.json"]
+    START(["--update-progress"]) --> INIT["Auto-init git repo\nif call folder has no repo"]
+    INIT --> LOAD["Load latest\ncompilation.json"]
     LOAD --> GIT["Git: commits, changed files,\nworking tree, diff summary"]
     LOAD --> DOCS["Doc changes:\nfile mtime comparison"]
 
@@ -487,7 +488,7 @@ Dynamic mode accepts any request — the AI adapts document categories and count
 | `.pdf` | Gemini File API | Uploaded as binary, Gemini processes natively |
 | `.docx` `.doc` | Firebase only | Uploaded for archival, not processable by Gemini |
 
-Directories skipped during recursive discovery: `node_modules`, `.git`, `compressed`, `logs`, `gemini_runs`
+Directories skipped during recursive discovery: `node_modules`, `.git`, `compressed`, `logs`, `gemini_runs`, `runs`
 
 ---
 
@@ -529,7 +530,7 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 30 files · ~10,076 lines**
+**Codebase: 30 files · ~10,140 lines**
 
 ---
 

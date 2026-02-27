@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 7.2.2** — February 2026  
+> **Version 7.2.3** — February 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -59,15 +59,15 @@
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Pipeline orchestrator | 1 | 1,738 |
-| Services (Gemini, Firebase, Video, Git) | 4 | 1,281 |
+| Pipeline orchestrator | 1 | 1,985 |
+| Services (Gemini, Firebase, Video, Git) | 4 | 1,330 |
 | Utilities (19 modules) | 19 | 4,566 |
-| Renderers | 1 | 879 |
-| Config + Logger | 2 | 583 |
-| Entry point | 1 | 62 |
-| Setup script | 1 | 417 |
+| Renderers | 1 | 969 |
+| Config + Logger | 2 | 578 |
+| Entry point | 1 | 79 |
+| Setup script | 1 | 505 |
 | Prompt (JSON) | 1 | 265 |
-| **Total** | **30 files** | **~10,076 lines** |
+| **Total** | **30 files** | **~10,140 lines** |
 
 ### Version History
 
@@ -84,6 +84,7 @@
 | **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 | **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
 | **v7.2.2** | Upload Control | `--force-upload` to re-upload existing files, `--no-storage-url` to force Gemini File API, production-ready docs |
+| **v7.2.3** | Production Hardening | Cross-platform ffmpeg detection, shell injection fix (spawnSync), auto git init for `--update-progress`, `runs/` excluded from doc discovery, entry point docs updated |
 
 ### What v6 Delivers
 
@@ -254,14 +255,14 @@ Info:
 src/
 ├── config.js                277 ln  Central config, env vars, model registry, validation
 ├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
-├── pipeline.js            1,738 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic
+├── pipeline.js            1,985 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic, auto git init
 ├── renderers/
 │   └── markdown.js          879 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
 ├── services/
 │   ├── firebase.js           92 ln  Init, upload, exists check (with retry, async I/O)
 │   ├── gemini.js            677 ln  ★ v7.2.1 — 3-strategy file resolution, External URL support, cleanup, doc prep, analysis, compilation
-│   ├── git.js               258 ln  ★ v6.1 — Git CLI wrapper: log, diff, status, changed files
-│   └── video.js             254 ln  ffmpeg compress, segment, probe, verify
+│   ├── git.js               330 ln  ★ v7.2.3 — Git CLI wrapper: log, diff, status, changed files, auto-init
+│   └── video.js             285 ln  ★ v7.2.3 — ffmpeg compress, segment, probe (cross-platform, spawnSync)
 └── utils/
     ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
     ├── change-detector.js   417 ln  ★ v6.1 — Git-based change correlation engine
@@ -273,7 +274,7 @@ src/
     ├── dynamic-mode.js      494 ln  ★ v7.0 — Context-only doc generation, topic planning, parallel writing
     ├── focused-reanalysis.js 268 ln ★ v6 — Weakness detection, targeted second pass, intelligent merge
     ├── format.js             27 ln  Duration, bytes formatting
-    ├── fs.js                 34 ln  Recursive doc finder
+    ├── fs.js                 40 ln  Recursive doc finder (skips runs/)
     ├── health-dashboard.js  191 ln  ★ v5 — Quality report, density bars, efficiency metrics
     ├── json-parser.js       216 ln  5-strategy JSON extraction + repair
     ├── learning-loop.js     270 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
@@ -284,8 +285,8 @@ src/
     └── retry.js             112 ln  Exponential backoff, parallel map
 
 prompt.json                  265 ln  ★ v6 — Confidence scoring instructions, evidence-based schema
-process_and_upload.js         62 ln  Entry point, HELP_SHOWN handler
-setup.js                     417 ln  Automated first-time setup & environment validation (v7.2)
+process_and_upload.js         79 ln  Entry point, HELP_SHOWN handler
+setup.js                     505 ln  Automated first-time setup & environment validation (v7.2.3)
 ```
 
 ---
@@ -424,7 +425,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v7.2.2 codebase — 30 files, ~10,090 lines of self-improving pipeline intelligence.*
+*Generated from the v7.2.3 codebase — 30 files, ~10,140 lines of self-improving pipeline intelligence.*
 
 ---
 
