@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 7.2.1** — February 2026  
+> **Version 7.2.2** — February 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -18,7 +18,7 @@
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
-│                       pipeline.js (1,728 lines)                     │
+│                       pipeline.js (1,738 lines)                     │
 │                    8-Phase Orchestrator                              │
 │                                                                     │
 │  Init ──────► Discover ──► Services ──► ProcessVideo ──► Compile    │
@@ -59,7 +59,7 @@
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Pipeline orchestrator | 1 | 1,728 |
+| Pipeline orchestrator | 1 | 1,738 |
 | Services (Gemini, Firebase, Video, Git) | 4 | 1,281 |
 | Utilities (19 modules) | 19 | 4,566 |
 | Renderers | 1 | 879 |
@@ -83,6 +83,7 @@
 | **v7.1** | Dynamic + Video | `--dynamic` now processes videos: compress, segment, analyze — works with any content |
 | **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 | **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
+| **v7.2.2** | Upload Control | `--force-upload` to re-upload existing files, `--no-storage-url` to force Gemini File API, production-ready docs |
 
 ### What v6 Delivers
 
@@ -180,8 +181,8 @@ The logger now writes **three parallel outputs**:
 |------------|--------|-------------|
 | Video compression | ✅ Mature | ffmpeg-based, CRF, configurable speed/preset |
 | Video segmentation | ✅ Mature | Time-based splitting, segment pre-validation |
-| Firebase upload | ✅ Mature | Parallel, retry, skip-existing, anonymous auth, async I/O |
-| Storage URL optimization | ✅ v7.2.1 New | Firebase download URLs used as Gemini External URLs — skips File API upload |
+| Firebase upload | ✅ Mature | Parallel, retry, skip-existing, anonymous auth, async I/O, `--force-upload` re-upload |
+| Storage URL optimization | ✅ v7.2.1 New | Firebase download URLs used as Gemini External URLs — skips File API upload, `--no-storage-url` to disable |
 | Gemini segment analysis | ✅ Premium | 1M context, VTT slicing, progressive context, adaptive budget, 3-strategy file resolution |
 | Gemini file cleanup | ✅ v7.2.1 New | Auto-delete File API uploads after all passes complete |
 | Quality gate + retry | ✅ Enhanced | 4-dimension scoring + confidence coverage dimension, auto-retry with hints |
@@ -195,7 +196,7 @@ The logger now writes **three parallel outputs**:
 | Markdown rendering | ✅ Enhanced | Name clustering, ID dedup, confidence badges, diff section |
 | Cost tracking | ✅ Mature | Per-segment + compilation + focused passes, long-context tier pricing |
 | Progress persistence | ✅ Mature | Checkpoint/resume after crashes |
-| CLI | ✅ Complete | 16 flags, help, version, output dir |
+| CLI | ✅ Complete | 18 flags, help, version, output dir |
 | Logging | ✅ v6 Rewritten | Triple output: detailed + minimal + structured JSONL |
 | Health dashboard | ✅ Mature | Quality, density, retries, efficiency |
 
@@ -215,7 +216,9 @@ Modes:
 Core Options:
   --name <name>                     Your name (skips interactive prompt)
   --model <id>                      Gemini model to use (skips interactive selector)
-  --skip-upload                     Skip Firebase Storage uploads
+  --skip-upload                     Skip all Firebase Storage uploads
+  --force-upload                    Re-upload files even if they already exist in Storage
+  --no-storage-url                  Disable Storage URL optimization (force Gemini File API)
   --skip-compression                Skip video compression (use existing segments)
   --skip-gemini                     Skip Gemini AI analysis
   --resume                          Resume from last checkpoint
@@ -251,7 +254,7 @@ Info:
 src/
 ├── config.js                277 ln  Central config, env vars, model registry, validation
 ├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
-├── pipeline.js            1,728 ln  Multi-mode orchestrator with Storage URL optimization, learning loop, focused re-analysis, diff engine, deep-dive, dynamic
+├── pipeline.js            1,738 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic
 ├── renderers/
 │   └── markdown.js          879 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
 ├── services/
@@ -262,7 +265,7 @@ src/
 └── utils/
     ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
     ├── change-detector.js   417 ln  ★ v6.1 — Git-based change correlation engine
-    ├── cli.js               336 ln  ★ v7.2 — Interactive prompts, model selector, folder picker, 20+ flags
+    ├── cli.js               340 ln  ★ v7.2 — Interactive prompts, model selector, folder picker, 22+ flags
     ├── context-manager.js   424 ln  4-tier priority, VTT slicing, progressive context, boundary detection
     ├── cost-tracker.js      140 ln  Token counting, USD cost estimation (+ focused pass tracking)
     ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
@@ -421,7 +424,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v7.2.1 codebase — 30 files, ~10,076 lines of self-improving pipeline intelligence.*
+*Generated from the v7.2.2 codebase — 30 files, ~10,090 lines of self-improving pipeline intelligence.*
 
 ---
 

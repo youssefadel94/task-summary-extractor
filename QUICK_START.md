@@ -134,6 +134,8 @@ The pipeline will:
 6. **Compile** results across all segments
 7. **Output** `results.md` + `results.json`
 
+> **Tip:** Use `--force-upload` to re-upload files that already exist in Storage. Use `--no-storage-url` to bypass Storage URL optimization and force Gemini File API uploads.
+
 This takes **~2-5 minutes** depending on video length.
 
 ---
@@ -188,6 +190,8 @@ my-project/runs/{timestamp}/
 | **Run without Firebase** | `node process_and_upload.js --skip-upload "my-meeting"` |
 | **Resume interrupted run** | `node process_and_upload.js --resume "my-meeting"` |
 | **Force re-analysis** | `node process_and_upload.js --reanalyze "my-meeting"` |
+| **Re-upload to Storage** | `node process_and_upload.js --force-upload "my-meeting"` |
+| **Force Gemini File API** | `node process_and_upload.js --no-storage-url "my-meeting"` |
 | **Preview without running** | `node process_and_upload.js --dry-run "my-meeting"` |
 | **Deep dive docs** | `node process_and_upload.js --deep-dive "my-meeting"` |
 | **Generate docs (no video)** | `node process_and_upload.js --dynamic "my-project"` |

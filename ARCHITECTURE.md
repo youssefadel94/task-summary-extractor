@@ -182,7 +182,7 @@ flowchart TB
     UPLOAD_FB --> RESOLVE{"File Resolution\n3-Strategy Hierarchy"}
 
     RESOLVE -->|"Strategy A\nRetry/Focused pass"| REUSE["Reuse existing\nGemini File API URI"]
-    RESOLVE -->|"Strategy B\nFirebase URL available"| EXTURL["Use Firebase download URL\nas Gemini External URL\n(skip File API upload)"]
+    RESOLVE -->|"Strategy B\nFirebase URL available"| EXTURL["Use Firebase download URL\nas Gemini External URL\n(skip File API upload)\n(disabled by --no-storage-url)"]
     RESOLVE -->|"Strategy C\nFallback"| UPLOAD_GEM["Upload to Gemini File API"]
     UPLOAD_GEM --> WAIT["Poll until ACTIVE"]
 
@@ -209,9 +209,11 @@ The pipeline uses a 3-strategy hierarchy to avoid redundant uploads:
 |----------|-----------|-------------|---------|
 | **A: Reuse URI** | Retry or focused re-analysis pass | Uses the Gemini File API URI or External URL from the first analysis | Zero upload — instant |
 | **B: Storage URL** | Firebase upload succeeded, segment available via HTTPS | Uses the Firebase Storage download URL directly as a Gemini External URL | Skips Gemini File API upload + polling entirely |
-| **C: File API Upload** | Fallback (no Firebase, `--skip-upload`, etc.) | Uploads to Gemini File API, polls until ACTIVE | Full upload + processing wait |
+| **C: File API Upload** | Fallback (no Firebase, `--skip-upload`, `--no-storage-url`, etc.) | Uploads to Gemini File API, polls until ACTIVE | Full upload + processing wait |
 
 After all passes complete, any Gemini File API uploads are cleaned up (fire-and-forget delete). When Strategy B was used, no cleanup is needed since no Gemini file was created.
+
+> **Upload control flags:** Use `--force-upload` to re-upload segments/documents even if they already exist in Firebase Storage. Use `--no-storage-url` to disable Strategy B and force Gemini File API uploads (Strategy C).
 
 ### Quality Gate Decision Table
 
@@ -494,7 +496,8 @@ Directories skipped during recursive discovery: `node_modules`, `.git`, `compres
 | Stage | Skip Condition |
 |-------|----------------|
 | **Compression** | `compressed/{video}/segment_*.mp4` exist on disk |
-| **Firebase upload** | File already exists at `calls/{name}/segments/{video}/` |
+| **Firebase upload** | File already exists at `calls/{name}/segments/{video}/` (bypassed by `--force-upload`) |
+| **Storage URL → Gemini** | Firebase download URL available (bypassed by `--no-storage-url`) |
 | **Gemini analysis** | Run file exists in `gemini_runs/` AND user chooses not to re-analyze |
 
 ---

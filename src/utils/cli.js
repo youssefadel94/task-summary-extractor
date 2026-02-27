@@ -337,7 +337,9 @@ function showHelp() {
     --model <id>                      Gemini model to use (skips interactive selector)
                                       Models: gemini-3.1-pro-preview, gemini-3-flash-preview,
                                       gemini-2.5-pro, gemini-2.5-flash (default), gemini-2.5-flash-lite
-    --skip-upload                     Skip Firebase Storage uploads
+    --skip-upload                     Skip all Firebase Storage uploads
+    --force-upload                    Re-upload files even if they already exist in Storage
+    --no-storage-url                  Disable Storage URL optimization (force Gemini File API)
     --skip-compression                Skip video compression (use existing segments)
     --skip-gemini                     Skip Gemini AI analysis
     --resume                          Resume from last checkpoint (skip completed steps)
@@ -373,6 +375,8 @@ function showHelp() {
     node process_and_upload.js --name "Jane" --skip-upload "call 1"         Skip Firebase, set name
     node process_and_upload.js --model gemini-2.5-pro "call 1"              Use Gemini 2.5 Pro model
     node process_and_upload.js --resume "call 1"                            Resume interrupted run
+    node process_and_upload.js --force-upload "call 1"                      Re-upload all files to Storage
+    node process_and_upload.js --no-storage-url "call 1"                    Force Gemini File API upload
     node process_and_upload.js --deep-dive "call 1"                         Video analysis + deep dive docs
     node process_and_upload.js --dynamic "my-project"                       Doc-only mode (prompted for request)
     node process_and_upload.js --dynamic --request "Plan API migration" "specs"

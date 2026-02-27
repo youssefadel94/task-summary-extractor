@@ -105,6 +105,8 @@ async function phaseInit() {
 
   const opts = {
     skipUpload: !!flags['skip-upload'],
+    forceUpload: !!flags['force-upload'],
+    noStorageUrl: !!flags['no-storage-url'],
     skipCompression: !!flags['skip-compression'],
     skipGemini: !!flags['skip-gemini'],
     resume: !!flags.resume,
@@ -227,6 +229,8 @@ async function phaseDiscover(ctx) {
   // Show active flags
   const activeFlags = [];
   if (opts.skipUpload) activeFlags.push('skip-upload');
+  if (opts.forceUpload) activeFlags.push('force-upload');
+  if (opts.noStorageUrl) activeFlags.push('no-storage-url');
   if (opts.skipCompression) activeFlags.push('skip-compression');
   if (opts.skipGemini) activeFlags.push('skip-gemini');
   if (opts.resume) activeFlags.push('resume');
@@ -382,15 +386,17 @@ async function phaseServices(ctx) {
       if (shuttingDown) return;
       const docStoragePath = `calls/${callName}/documents/${relPath}`;
       try {
-        const existingUrl = await storageExists(storage, docStoragePath);
-        if (existingUrl) {
-          docStorageUrls[relPath] = existingUrl;
-          console.log(`  ✓ Document already in Storage → ${docStoragePath}`);
-        } else {
-          const url = await uploadToStorage(storage, docPath, docStoragePath);
-          docStorageUrls[relPath] = url;
-          console.log(`  ✓ Document → ${docStoragePath}`);
+        if (!opts.forceUpload) {
+          const existingUrl = await storageExists(storage, docStoragePath);
+          if (existingUrl) {
+            docStorageUrls[relPath] = existingUrl;
+            console.log(`  ✓ Document already in Storage → ${docStoragePath}`);
+            return;
+          }
         }
+        const url = await uploadToStorage(storage, docPath, docStoragePath);
+        docStorageUrls[relPath] = url;
+        console.log(`  ✓ Document ${opts.forceUpload ? '(re-uploaded)' : '→'} ${docStoragePath}`);
       } catch (err) {
         console.warn(`  ⚠ Document upload failed (${relPath}): ${err.message}`);
       }
@@ -507,17 +513,20 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       }
 
       try {
-        const existingUrl = await storageExists(storage, meta.storagePath);
-        if (existingUrl) {
-          meta.storageUrl = existingUrl;
-          log.step(`SKIP upload — ${meta.segName} already in Storage`);
-          console.log(`    ✓ Already in Storage → ${meta.storagePath}`);
-        } else {
-          console.log(`    Uploading to Firebase Storage...`);
-          meta.storageUrl = await uploadToStorage(storage, meta.segPath, meta.storagePath);
-          console.log(`    ✓ Uploaded → ${meta.storagePath}`);
-          log.step(`Upload OK: ${meta.segName} → ${meta.storagePath}`);
+        if (!opts.forceUpload) {
+          const existingUrl = await storageExists(storage, meta.storagePath);
+          if (existingUrl) {
+            meta.storageUrl = existingUrl;
+            log.step(`SKIP upload — ${meta.segName} already in Storage`);
+            console.log(`    ✓ Already in Storage → ${meta.storagePath}`);
+            progress.markUploaded(meta.storagePath, meta.storageUrl);
+            return;
+          }
         }
+        console.log(`    ${opts.forceUpload ? 'Re-uploading' : 'Uploading'} to Firebase Storage...`);
+        meta.storageUrl = await uploadToStorage(storage, meta.segPath, meta.storagePath);
+        console.log(`    ✓ ${opts.forceUpload ? 'Re-uploaded' : 'Uploaded'} → ${meta.storagePath}`);
+        log.step(`Upload OK: ${meta.segName} → ${meta.storagePath}`);
         progress.markUploaded(meta.storagePath, meta.storageUrl);
       } catch (err) {
         console.error(`    ✗ Firebase upload failed: ${err.message}`);
@@ -740,7 +749,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             segmentEndSec: segmentMeta[j].endTimeSec,
             thinkingBudget: adaptiveBudget,
             boundaryContext: boundaryCtx,
-            storageDownloadUrl: storageUrl || null,
+            storageDownloadUrl: opts.noStorageUrl ? null : (storageUrl || null),
           }
         );
 
@@ -1156,6 +1165,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
   if (firebaseReady && !opts.skipUpload && !opts.dryRun) {
     try {
       const resultsStoragePath = `calls/${callName}/runs/${runTs}/results.json`;
+      // Results always upload fresh (never skip-existing) — they change every run
       const url = await uploadToStorage(storage, jsonPath, resultsStoragePath);
       results.storageUrl = url;
       fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');

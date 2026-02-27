@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v7.2.1** — AI-powered meeting analysis & document generation from the CLI.
+> **v7.2.2** — AI-powered meeting analysis & document generation from the CLI.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-7.2.1-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-7.2.2-brightgreen" alt="Version" />
 </p>
 
 **Record a meeting → get a structured task document.** Or point it at any folder and generate docs from context.
@@ -123,6 +123,7 @@ These are the ones you'll actually use:
 | `--name <name>` | Set your name (skips prompt) | `--name "Jane"` |
 | `--model <id>` | Pick a Gemini model (skips selector) | `--model gemini-2.5-pro` |
 | `--skip-upload` | Don't upload to Firebase (local only) | `--skip-upload` |
+| `--force-upload` | Re-upload files even if they already exist | `--force-upload` |
 | `--resume` | Continue an interrupted run | `--resume` |
 | `--reanalyze` | Force fresh analysis (ignore cache) | `--reanalyze` |
 | `--dry-run` | Preview what would run, without running | `--dry-run` |
@@ -170,6 +171,8 @@ Skip parts of the pipeline you don't need:
 | Flag | What It Skips | When to Use |
 |------|--------------|-------------|
 | `--skip-upload` | Firebase upload | Running locally, no Firebase configured |
+| `--force-upload` | Skip-existing checks | Re-upload files that already exist in Storage |
+| `--no-storage-url` | Storage URL optimization | Force Gemini File API upload (debugging) |
 | `--skip-compression` | Video compression | You already compressed/segmented the video |
 | `--skip-gemini` | AI analysis entirely | You just want to compress & upload |
 
@@ -208,6 +211,7 @@ node process_and_upload.js [flags] [folder]
 
 MODES      --dynamic  --deep-dive  --update-progress
 CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
+UPLOAD     --force-upload  --no-storage-url
 SKIP       --skip-compression  --skip-gemini
 DYNAMIC    --request <text>
 PROGRESS   --repo <path>
@@ -327,6 +331,7 @@ GEMINI_API_KEY=your-key-here
 | **Cross-Segment Continuity** | Ticket IDs, names, and context carry forward |
 | **Document Discovery** | Auto-finds docs in all subfolders |
 | **Storage URL Optimization** | Firebase download URLs reused as Gemini External URLs — skips separate File API upload |
+| **Upload Control Flags** | `--force-upload` to re-upload, `--no-storage-url` to force File API — full control over upload behavior |
 | **3-Strategy File Resolution** | Reuse URI → Storage URL → File API upload (zero redundant uploads) |
 | **Gemini File Cleanup** | Auto-deletes File API uploads after analysis completes |
 | **Quality Gate** | 4-dimension scoring with auto-retry |
@@ -381,7 +386,7 @@ task-summary-extractor/
 ├── src/
 │   ├── config.js               Config, model registry, env vars
 │   ├── logger.js               Structured JSONL logger (triple output)
-│   ├── pipeline.js             Multi-mode orchestrator (1,728 lines)
+│   ├── pipeline.js             Multi-mode orchestrator (1,738 lines)
 │   ├── services/
 │   │   ├── gemini.js           Gemini AI — 3-strategy file resolution + External URL support
 │   │   ├── firebase.js         Firebase Storage (async I/O)
@@ -415,6 +420,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v7.2.2** | Upload control flags (`--force-upload`, `--no-storage-url`), production-ready docs |
 | **v7.2.1** | Storage URL optimization, 3-strategy file resolution, Gemini file cleanup, codebase audit fixes |
 | **v7.2** | Interactive model selector, `--model` flag, 5-model registry |
 | **v7.1** | `--dynamic` processes videos too — any content mix |
