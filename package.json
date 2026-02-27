@@ -4,7 +4,7 @@
   "description": "AI-powered meeting analysis & document generation CLI — video + document processing, deep dive docs, dynamic mode, interactive CLI with model selection, confidence scoring, learning loop, git progress tracking",
   "main": "process_and_upload.js",
   "bin": {
-    "taskex": "./bin/taskex.js"
+    "taskex": "bin/taskex.js"
   },
   "files": [
     "bin/",
