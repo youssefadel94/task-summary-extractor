@@ -55,6 +55,7 @@ const { detectAllChanges, serializeReport } = require('./utils/change-detector')
 const { assessProgressLocal, assessProgressWithAI, mergeProgressIntoAnalysis, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS } = require('./utils/progress-updater');
 const { discoverTopics, generateAllDocuments, writeDeepDiveOutput } = require('./utils/deep-dive');
 const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./utils/dynamic-mode');
+const { promptForKey } = require('./utils/global-config');
 
 // --- Renderers ---
 const { renderResultsMarkdown } = require('./renderers/markdown');
@@ -103,7 +104,7 @@ async function phaseInit() {
   if (flags.version || flags.v) {
     const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
     process.stdout.write(`v${pkg.version}\n`);
-    return null; // signal early exit
+    throw Object.assign(new Error('VERSION_SHOWN'), { code: 'VERSION_SHOWN' });
   }
 
   const opts = {
@@ -147,15 +148,31 @@ async function phaseInit() {
     throw new Error(`"${targetDir}" is not a valid folder. Check the path and try again.`);
   }
 
-  // --- Validate configuration ---
-  const configCheck = validateConfig({
+  // --- Validate configuration (with first-run recovery) ---
+  let configCheck = validateConfig({
     skipFirebase: opts.skipUpload,
     skipGemini: opts.skipGemini,
   });
+
+  // First-run experience: if GEMINI_API_KEY is missing, prompt interactively
+  if (!configCheck.valid && !opts.skipGemini && !config.GEMINI_API_KEY) {
+    const key = await promptForKey('GEMINI_API_KEY');
+    if (key) {
+      // Re-validate after user provided the key
+      configCheck = validateConfig({
+        skipFirebase: opts.skipUpload,
+        skipGemini: opts.skipGemini,
+      });
+    }
+  }
+
   if (!configCheck.valid) {
     console.error('\n  Configuration errors:');
     configCheck.errors.forEach(e => console.error(`    ✗ ${e}`));
-    console.error('\n  Fix these in .env or environment variables. See .env.example for reference.\n');
+    console.error('\n  Fix these via:');
+    console.error('    • taskex config          (save globally for all projects)');
+    console.error('    • .env file              (project-specific config)');
+    console.error('    • --gemini-key <key>     (one-time inline)\n');
     throw new Error('Invalid configuration. See errors above.');
   }
 

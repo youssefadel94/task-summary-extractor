@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v8.0.0** — AI-powered meeting analysis & document generation CLI. Install globally, run anywhere.
+> **v8.1.0** — AI-powered meeting analysis & document generation CLI. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-8.0.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-8.1.0-brightgreen" alt="Version" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -117,7 +117,15 @@ taskex --name "Your Name" "my-meeting"
 
 Or just run `taskex` inside a folder — it'll walk you through everything interactively.
 
-**Pass your API key inline (no .env needed):**
+**First time? Save your API key globally (one time):**
+
+```bash
+taskex config
+```
+
+This saves your Gemini key to `~/.taskexrc` — you'll never need to pass it again.
+
+**Or pass it inline (no setup needed):**
 
 ```bash
 taskex --gemini-key "YOUR_KEY" --name "Your Name" "my-meeting"
@@ -335,7 +343,31 @@ The tool **recursively scans all subfolders**. `.tasks/` gets highest priority w
 
 ## Configuration
 
-### CLI Config Flags (recommended for global install)
+### Global Config (recommended)
+
+Save your API keys once — they persist across all projects:
+
+```bash
+taskex config              # Interactive setup — saves to ~/.taskexrc
+taskex config --show       # View saved config (secrets masked)
+taskex config --clear      # Delete saved config
+```
+
+**First-run experience:** If no Gemini key is found anywhere, the tool prompts you to enter one and offers to save it globally.
+
+### Config Resolution Priority
+
+Highest wins:
+
+1. **CLI flags** — `--gemini-key`, `--firebase-key`, etc.
+2. **Environment variables** — `export GEMINI_API_KEY=...`
+3. **CWD `.env` file** — project-specific config
+4. **`~/.taskexrc`** — global persistent config
+5. **Package root `.env`** — development fallback
+
+All methods are fully backward-compatible.
+
+### CLI Config Flags
 
 Pass keys directly — no files needed:
 
@@ -422,7 +454,7 @@ Your call folders, `.env`, logs, and videos are all `.gitignore`d — nothing ge
 | Problem | Fix |
 |---------|-----|
 | `ffmpeg not found` | [Download](https://www.gyan.dev/ffmpeg/builds/) → add to PATH |
-| `GEMINI_API_KEY not set` | Edit `.env` → paste key from [AI Studio](https://aistudio.google.com/apikey) |
+| `GEMINI_API_KEY not set` | Run `taskex config` to save globally, or edit `.env` → paste key from [AI Studio](https://aistudio.google.com/apikey) |
 | `ECONNREFUSED` | Check your internet — Gemini API needs network |
 | Videos are slow | Normal — ~30-60s per 5-min segment |
 | JSON parse warnings | Expected — the parser has 5 fallback strategies |
@@ -452,7 +484,7 @@ task-summary-extractor/
 │   │   └── git.js              Git CLI wrapper
 │   ├── renderers/
 │   │   └── markdown.js         Report renderer
-│   └── utils/                  19 modules — see ARCHITECTURE.md
+│   └── utils/                  21 modules — see ARCHITECTURE.md
 │
 ├── QUICK_START.md              Step-by-step setup guide
 ├── ARCHITECTURE.md             Technical deep dive
@@ -480,6 +512,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v8.1.0** | **Smart global config** — `taskex config` persistent setup (`~/.taskexrc`), first-run prompting, 5-level config resolution, production audit fixes, shared CLI flag injection, boolean flag parser fix |
 | **v8.0.0** | **npm package** — `npm i -g task-summary-extractor`, `taskex` global CLI, `--gemini-key` / `--firebase-*` config flags, run from anywhere, CWD-first `.env` resolution |
 | **v7.2.3** | Production hardening — cross-platform ffmpeg, shell injection fix, auto git init for progress tracking, `runs/` excluded from doc discovery |
 | **v7.2.2** | Upload control flags (`--force-upload`, `--no-storage-url`), production-ready docs |

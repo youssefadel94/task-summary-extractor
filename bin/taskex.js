@@ -6,65 +6,59 @@
  * Install: npm i -g task-summary-extractor
  * Usage:   taskex [options] [folder]
  *
- * Config flags (override .env):
+ * Subcommands:
+ *   taskex config              Interactive global config setup (~/.taskexrc)
+ *   taskex config --show       Show saved config (masked secrets)
+ *   taskex config --clear      Remove global config file
+ *
+ * Config flags (override .env and global config):
  *   --gemini-key <key>          Gemini API key
  *   --firebase-key <key>        Firebase API key
  *   --firebase-project <id>     Firebase project ID
  *   --firebase-bucket <bucket>  Firebase storage bucket
  *   --firebase-domain <domain>  Firebase auth domain
  *
- * These are injected into process.env before config loads,
- * so all downstream modules see them transparently.
+ * Config resolution (highest wins):
+ *   CLI flags → process.env → CWD .env → ~/.taskexrc → package .env
  */
 
 'use strict';
 
-// ── Inject CLI config flags into process.env ──────────────────────────────
-// Must run BEFORE any require() that touches config.js / dotenv
-const configFlagMap = {
-  'gemini-key':        'GEMINI_API_KEY',
-  'firebase-key':      'FIREBASE_API_KEY',
-  'firebase-project':  'FIREBASE_PROJECT_ID',
-  'firebase-bucket':   'FIREBASE_STORAGE_BUCKET',
-  'firebase-domain':   'FIREBASE_AUTH_DOMAIN',
-};
-
-const argv = process.argv.slice(2);
-for (let i = 0; i < argv.length; i++) {
-  if (argv[i].startsWith('--')) {
-    const eqIdx = argv[i].indexOf('=');
-    let key, val;
-    if (eqIdx !== -1) {
-      key = argv[i].slice(2, eqIdx);
-      val = argv[i].slice(eqIdx + 1);
-    } else {
-      key = argv[i].slice(2);
-      if (configFlagMap[key] && i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
-        val = argv[i + 1];
-      }
-    }
-    if (key && val && configFlagMap[key]) {
-      process.env[configFlagMap[key]] = val;
-    }
-  }
-}
-
-// ── Delegate to pipeline ──────────────────────────────────────────────────
-const { run, getLog } = require('../src/pipeline');
-
-run().catch(err => {
-  if (err.code === 'HELP_SHOWN') {
+// ── Handle `taskex config` subcommand before anything else ────────────────
+const rawArgs = process.argv.slice(2);
+if (rawArgs[0] === 'config') {
+  const hasShow  = rawArgs.includes('--show');
+  const hasClear = rawArgs.includes('--clear');
+  const { interactiveSetup } = require('../src/utils/global-config');
+  interactiveSetup({ showOnly: hasShow, clear: hasClear }).then(() => {
     process.exit(0);
-  }
+  }).catch(err => {
+    process.stderr.write(`\nError: ${err.message}\n`);
+    process.exit(1);
+  });
+} else {
+  // ── Inject CLI config flags into process.env ────────────────────────────
+  // Must run BEFORE any require() that touches config.js / dotenv
+  const { injectCliFlags } = require('../src/utils/inject-cli-flags');
+  injectCliFlags();
 
-  const log = getLog();
-  if (log) {
-    log.error(`FATAL: ${err.message || err}`);
-    log.error(err.stack || '');
-    log.step('FAILED');
-    log.close();
-  }
-  process.stderr.write(`\nFATAL: ${err.message || err}\n`);
-  process.stderr.write(`${err.stack || ''}\n`);
-  process.exit(1);
-});
+  // ── Delegate to pipeline ────────────────────────────────────────────────
+  const { run, getLog } = require('../src/pipeline');
+
+  run().catch(err => {
+    if (err.code === 'HELP_SHOWN' || err.code === 'VERSION_SHOWN') {
+      process.exit(0);
+    }
+
+    const log = getLog();
+    if (log) {
+      log.error(`FATAL: ${err.message || err}`);
+      log.error(err.stack || '');
+      log.step('FAILED');
+      log.close();
+    }
+    process.stderr.write(`\nFATAL: ${err.message || err}\n`);
+    process.stderr.write(`${err.stack || ''}\n`);
+    process.exit(1);
+  });
+}

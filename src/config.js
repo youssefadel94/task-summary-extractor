@@ -1,22 +1,31 @@
 /**
  * Central configuration — all constants, API keys, and settings.
  *
- * Loads secrets from .env file (via dotenv) and falls back to defaults
- * for non-sensitive settings. Validates required keys at load time.
+ * Resolution priority (highest wins):
+ *   1. CLI flags (--gemini-key etc. — injected in bin/taskex.js before require)
+ *   2. process.env (set by user shell or CI)
+ *   3. CWD .env file (project-specific)
+ *   4. ~/.taskexrc (global persistent config)
+ *   5. Package root .env (development fallback)
  */
 
 'use strict';
 
 const path = require('path');
+const fs_ = require('fs');
 
-// Load .env from the current working directory (where the user runs from).
-// When installed globally, this picks up .env from the project being analyzed.
-// Falls back to package root .env for backward compatibility.
+// ── Step 1: Load .env (CWD first, then package root — both with override: false) ──
+// dotenv's default: only sets vars that aren't already set.
+// Load CWD .env first (higher priority), then package root .env (fills gaps).
 const cwd = process.cwd();
 const cwdEnv = path.join(cwd, '.env');
 const pkgEnv = path.resolve(__dirname, '..', '.env');
-const fs_ = require('fs');
-require('dotenv').config({ path: fs_.existsSync(cwdEnv) ? cwdEnv : pkgEnv });
+if (fs_.existsSync(cwdEnv)) require('dotenv').config({ path: cwdEnv });
+if (fs_.existsSync(pkgEnv)) require('dotenv').config({ path: pkgEnv });
+
+// ── Step 2: Inject global config (~/.taskexrc) for keys still missing ─────
+const { injectGlobalConfig } = require('./utils/global-config');
+injectGlobalConfig();
 
 // ======================== HELPERS ========================
 

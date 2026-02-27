@@ -14,7 +14,9 @@ sample-call/
 # ─── Environment & Dependencies ───────────────────────
 .env
 .env.local
+.taskexrc
 node_modules/
+history.json
 
 # ─── OS / Editor ──────────────────────────────────────
 .DS_Store

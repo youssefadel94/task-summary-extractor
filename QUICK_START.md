@@ -50,6 +50,14 @@ npm install -g task-summary-extractor
 
 That's it. `taskex` is now available system-wide.
 
+Save your API key globally (one time):
+
+```bash
+taskex config
+```
+
+This saves to `~/.taskexrc` — works across all projects.
+
 **Option B — Clone the repo (development):**
 
 ```bash
@@ -202,7 +210,8 @@ my-project/runs/{timestamp}/
 |---------------|---------|
 | **Interactive mode** | `taskex` |
 | **Analyze a meeting** | `taskex --name "Jane" "my-meeting"` |
-| **Pass API key directly** | `taskex --gemini-key "AIza..." "my-meeting"` |
+| **Save API key globally** | `taskex config` |
+| **Pass API key inline** | `taskex --gemini-key "AIza..." "my-meeting"` |
 | **Pick a specific model** | `taskex --model gemini-2.5-pro "my-meeting"` |
 | **Run without Firebase** | `taskex --skip-upload "my-meeting"` |
 | **Resume interrupted run** | `taskex --resume "my-meeting"` |
@@ -226,7 +235,7 @@ my-project/runs/{timestamp}/
 | Problem | Fix |
 |---------|-----|
 | `ffmpeg not found` | [Download](https://www.gyan.dev/ffmpeg/builds/) → add `bin` folder to PATH → restart terminal |
-| `GEMINI_API_KEY not set` | Edit `.env` → paste your key from [AI Studio](https://aistudio.google.com/apikey) |
+| `GEMINI_API_KEY not set` | Run `taskex config` to save globally, or edit `.env` → paste from [AI Studio](https://aistudio.google.com/apikey) |
 | `Cannot find module` | Run `npm install` |
 | `ECONNREFUSED` | Check internet — Gemini API needs network access |
 | Videos are slow | Normal — about 30-60 seconds per 5-minute segment |

@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 8.0.0** — February 2026  
+> **Version 8.1.0** — February 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -61,13 +61,13 @@
 |----------|-------|-------|
 | Pipeline orchestrator | 1 | 1,985 |
 | Services (Gemini, Firebase, Video, Git) | 4 | 1,330 |
-| Utilities (19 modules) | 19 | 4,566 |
+| Utilities (21 modules) | 21 | 4,890 |
 | Renderers | 1 | 969 |
 | Config + Logger | 2 | 578 |
 | Entry points (taskex + legacy) | 2 | 165 |
 | Setup script | 1 | 505 |
 | Prompt (JSON) | 1 | 265 |
-| **Total** | **31 files** | **~10,300 lines** |
+| **Total** | **33 files** | **~10,600 lines** |
 
 ### Version History
 
@@ -84,6 +84,7 @@
 | **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 | **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
 | **v7.2.2** | Upload Control | `--force-upload` to re-upload existing files, `--no-storage-url` to force Gemini File API, production-ready docs |
+| **v8.1.0** | Smart Global Config | Persistent `~/.taskexrc` config, `taskex config` subcommand, first-run API key prompting, 5-level config resolution, production audit (14 fixes), shared CLI flag injection, boolean flag parser fix |
 | **v8.0.0** | npm Package | Global CLI (`taskex`), `--gemini-key`/`--firebase-*` config flags, CWD-based path resolution, CWD-first `.env`, `bin/taskex.js` entry point, npm publish-ready `package.json` |
 | **v7.2.3** | Production Hardening | Cross-platform ffmpeg detection, shell injection fix (spawnSync), auto git init for `--update-progress`, `runs/` excluded from doc discovery, entry point docs updated |
 

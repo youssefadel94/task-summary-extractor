@@ -82,40 +82,15 @@
 
 // ── Inject CLI config flags into process.env ──────────────────────────────
 // Must run BEFORE any require() that touches config.js / dotenv
-const configFlagMap = {
-  'gemini-key':        'GEMINI_API_KEY',
-  'firebase-key':      'FIREBASE_API_KEY',
-  'firebase-project':  'FIREBASE_PROJECT_ID',
-  'firebase-bucket':   'FIREBASE_STORAGE_BUCKET',
-  'firebase-domain':   'FIREBASE_AUTH_DOMAIN',
-};
-
-const argv = process.argv.slice(2);
-for (let i = 0; i < argv.length; i++) {
-  if (argv[i].startsWith('--')) {
-    const eqIdx = argv[i].indexOf('=');
-    let key, val;
-    if (eqIdx !== -1) {
-      key = argv[i].slice(2, eqIdx);
-      val = argv[i].slice(eqIdx + 1);
-    } else {
-      key = argv[i].slice(2);
-      if (configFlagMap[key] && i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
-        val = argv[i + 1];
-      }
-    }
-    if (key && val && configFlagMap[key]) {
-      process.env[configFlagMap[key]] = val;
-    }
-  }
-}
+const { injectCliFlags } = require('./src/utils/inject-cli-flags');
+injectCliFlags();
 
 // ── Delegate to pipeline ──────────────────────────────────────────────────
 const { run, getLog } = require('./src/pipeline');
 
 run().catch(err => {
   // showHelp() throws with code HELP_SHOWN — clean exit, not an error
-  if (err.code === 'HELP_SHOWN') {
+  if (err.code === 'HELP_SHOWN' || err.code === 'VERSION_SHOWN') {
     process.exit(0);
   }
 

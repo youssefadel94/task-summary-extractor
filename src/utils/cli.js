@@ -28,6 +28,16 @@ function parseArgs(argv) {
   const flags = {};
   const positional = [];
 
+  // Boolean flags that should never consume the next argument as a value
+  const BOOLEAN_FLAGS = new Set([
+    'help', 'h', 'version', 'v',
+    'skip-upload', 'force-upload', 'no-storage-url',
+    'skip-compression', 'skip-gemini',
+    'resume', 'reanalyze', 'dry-run',
+    'dynamic', 'deep-dive', 'update-progress',
+    'no-focused-pass', 'no-learning', 'no-diff',
+  ]);
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
 
@@ -39,8 +49,11 @@ function parseArgs(argv) {
         flags[key] = arg.slice(eqIdx + 1);
       } else {
         const key = arg.slice(2);
-        // Check if next arg is a value (not another flag)
-        if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+        // Boolean flags never consume the next argument
+        if (BOOLEAN_FLAGS.has(key)) {
+          flags[key] = true;
+        } else if (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+          // Value flag: consume next argument
           flags[key] = argv[i + 1];
           i++;
         } else {
@@ -184,15 +197,6 @@ async function selectFolder(projectRoot) {
 // ======================== INTERACTIVE MODEL SELECTOR ========================
 
 /**
- * Format a number with commas for display (e.g. 1048576 → "1,048,576").
- * @param {number} n
- * @returns {string}
- */
-function fmtNum(n) {
-  return n.toLocaleString('en-US');
-}
-
-/**
  * Format a token count as a human-readable context window size.
  * @param {number} tokens
  * @returns {string}
@@ -319,11 +323,17 @@ async function selectModel(GEMINI_MODELS, currentModel) {
 function showHelp() {
   console.log(`
   Usage: taskex [options] [folder]
+         taskex config [--show | --clear]
          node process_and_upload.js [options] [folder]
 
   AI-powered meeting analysis & document generation pipeline.
   If no folder is specified, shows an interactive folder selector.
   If you cd into a folder, just run: taskex
+
+  Subcommands:
+    config                            Interactive global config setup (~/.taskexrc)
+    config --show                     Show saved config (masked secrets)
+    config --clear                    Remove global config file
 
   Arguments:
     [folder]                          Path to the call/project folder (optional — interactive if omitted)
@@ -357,11 +367,14 @@ function showHelp() {
     --repo <path>                     Path to the project git repo (for change detection)
 
   Configuration:
-    --gemini-key <key>                Gemini API key (overrides .env / GEMINI_API_KEY)
-    --firebase-key <key>              Firebase API key (overrides .env / FIREBASE_API_KEY)
-    --firebase-project <id>           Firebase project ID (overrides .env / FIREBASE_PROJECT_ID)
-    --firebase-bucket <bucket>        Firebase storage bucket (overrides .env / FIREBASE_STORAGE_BUCKET)
-    --firebase-domain <domain>        Firebase auth domain (overrides .env / FIREBASE_AUTH_DOMAIN)
+    --gemini-key <key>                Gemini API key (overrides .env / ~/.taskexrc)
+    --firebase-key <key>              Firebase API key (overrides .env / ~/.taskexrc)
+    --firebase-project <id>           Firebase project ID (overrides .env / ~/.taskexrc)
+    --firebase-bucket <bucket>        Firebase storage bucket (overrides .env / ~/.taskexrc)
+    --firebase-domain <domain>        Firebase auth domain (overrides .env / ~/.taskexrc)
+
+    Config resolution (highest wins):
+      CLI flags → env vars → CWD .env → ~/.taskexrc → package .env
 
   Tuning:
     --parallel <n>                    Max parallel uploads (default: 3)
@@ -389,6 +402,11 @@ function showHelp() {
     taskex --dynamic "my-project"                                           Doc-only mode (prompted for request)
     taskex --dynamic --request "Plan API migration" "specs"                 Dynamic with request
     taskex --update-progress --repo "C:\\my-project" "call 1"               Progress tracking via git
+
+  First-time setup:
+    taskex config                                                           Save API keys globally (~/.taskexrc)
+    taskex config --show                                                    View saved config
+    taskex config --clear                                                   Remove saved config
   `);
   // Signal early exit — pipeline checks for help flag before calling this
   throw Object.assign(new Error('HELP_SHOWN'), { code: 'HELP_SHOWN' });
