@@ -4,18 +4,19 @@
  * Pricing is model-specific — passed from config.getActiveModelPricing()
  * at construction time based on the user's selected Gemini model.
  *
+ * Output pricing includes thinking tokens (unified rate since 2.5+ models).
  * Falls back to Gemini 2.5 Flash defaults if no pricing is provided.
  */
 
 'use strict';
 
-// Default pricing per million tokens (Gemini 2.5 Flash)
+// Default pricing per million tokens (Gemini 2.5 Flash — Feb 2026)
 const DEFAULT_PRICING = {
-  inputPerM: 0.15,
-  inputLongPerM: 0.35,    // >200K context
-  outputPerM: 0.60,
-  outputLongPerM: 1.50,   // >200K context
-  thinkingPerM: 0.70,
+  inputPerM: 0.30,
+  inputLongPerM: 0.30,      // flat rate (no long context tier)
+  outputPerM: 2.50,          // includes thinking tokens
+  outputLongPerM: 2.50,
+  thinkingPerM: 2.50,        // same as output (unified pricing)
   longContextThreshold: 200_000,
 };
 

@@ -56,129 +56,101 @@ const GEMINI_API_KEY = env('GEMINI_API_KEY');
 /**
  * Complete Gemini model registry — specs, context windows, pricing, and descriptions.
  *
- * Pricing source: Google AI for Developers (2025-2026)
- * Rates are per 1 million tokens. Some models have tiered pricing
- * based on context length (short = under threshold, long = over).
+ * Pricing source: Google AI for Developers — https://ai.google.dev/gemini-api/docs/pricing
+ * Last verified: February 2026
+ *
+ * Rates are per 1 million tokens. Output pricing INCLUDES thinking tokens
+ * (unified rate). Some models have tiered pricing based on context length
+ * (short = under threshold, long = over threshold).
+ *
+ * NOTE: gemini-2.0-flash, gemini-2.0-flash-lite, and all gemini-1.5-* models
+ * are deprecated/removed. Use 2.5+ models only.
  */
 const GEMINI_MODELS = {
-  'gemini-2.5-pro': {
-    name: 'Gemini 2.5 Pro',
-    description: 'Most capable — best reasoning, coding, complex analysis',
+  'gemini-3.1-pro-preview': {
+    name: 'Gemini 3.1 Pro Preview',
+    description: 'Latest & most capable — best reasoning, agentic workflows, vibe-coding',
     contextWindow: 1_048_576,
     maxOutput: 65536,
     thinking: true,
     tier: 'premium',
     pricing: {
-      inputPerM: 1.25,
-      inputLongPerM: 2.50,
-      outputPerM: 10.00,
-      outputLongPerM: 15.00,
-      thinkingPerM: 3.50,
+      inputPerM: 2.00,
+      inputLongPerM: 4.00,
+      outputPerM: 12.00,      // includes thinking tokens
+      outputLongPerM: 18.00,
+      thinkingPerM: 12.00,    // same rate as output (unified pricing)
       longContextThreshold: 200_000,
     },
-    costEstimate: '~$0.15/segment',
+    costEstimate: '~$0.30/segment',
   },
-  'gemini-2.5-flash': {
-    name: 'Gemini 2.5 Flash',
-    description: 'Fast with thinking — great balance of speed, quality & cost',
+  'gemini-3-flash-preview': {
+    name: 'Gemini 3 Flash Preview',
+    description: 'Frontier intelligence at flash speed — rivals larger models at fraction of cost',
     contextWindow: 1_048_576,
     maxOutput: 65536,
     thinking: true,
     tier: 'balanced',
     pricing: {
-      inputPerM: 0.15,
-      inputLongPerM: 0.35,
-      outputPerM: 0.60,
-      outputLongPerM: 1.50,
-      thinkingPerM: 0.70,
+      inputPerM: 0.50,
+      inputLongPerM: 0.50,    // flat rate (no long context tier)
+      outputPerM: 3.00,       // includes thinking tokens
+      outputLongPerM: 3.00,
+      thinkingPerM: 3.00,
       longContextThreshold: 200_000,
     },
-    costEstimate: '~$0.01/segment',
+    costEstimate: '~$0.07/segment',
   },
-  'gemini-2.0-flash': {
-    name: 'Gemini 2.0 Flash',
-    description: 'Fast, no thinking mode — lowest latency for simple tasks',
+  'gemini-2.5-pro': {
+    name: 'Gemini 2.5 Pro',
+    description: 'Stable premium — deep reasoning, coding, math, STEM, long context',
     contextWindow: 1_048_576,
-    maxOutput: 8192,
-    thinking: false,
-    tier: 'fast',
-    pricing: {
-      inputPerM: 0.10,
-      inputLongPerM: 0.10,
-      outputPerM: 0.40,
-      outputLongPerM: 0.40,
-      thinkingPerM: 0,
-      longContextThreshold: 200_000,
-    },
-    costEstimate: '~$0.005/segment',
-  },
-  'gemini-2.0-flash-lite': {
-    name: 'Gemini 2.0 Flash-Lite',
-    description: 'Ultra-cheap — basic analysis, summaries, quick tasks',
-    contextWindow: 1_048_576,
-    maxOutput: 8192,
-    thinking: false,
-    tier: 'economy',
-    pricing: {
-      inputPerM: 0.075,
-      inputLongPerM: 0.075,
-      outputPerM: 0.30,
-      outputLongPerM: 0.30,
-      thinkingPerM: 0,
-      longContextThreshold: 200_000,
-    },
-    costEstimate: '~$0.003/segment',
-  },
-  'gemini-1.5-pro': {
-    name: 'Gemini 1.5 Pro',
-    description: 'Legacy — largest context (2M tokens), strong reasoning',
-    contextWindow: 2_097_152,
-    maxOutput: 8192,
-    thinking: false,
+    maxOutput: 65536,
+    thinking: true,
     tier: 'premium',
     pricing: {
       inputPerM: 1.25,
       inputLongPerM: 2.50,
-      outputPerM: 5.00,
-      outputLongPerM: 10.00,
-      thinkingPerM: 0,
-      longContextThreshold: 128_000,
+      outputPerM: 10.00,      // includes thinking tokens
+      outputLongPerM: 15.00,
+      thinkingPerM: 10.00,
+      longContextThreshold: 200_000,
     },
-    costEstimate: '~$0.12/segment',
+    costEstimate: '~$0.20/segment',
   },
-  'gemini-1.5-flash': {
-    name: 'Gemini 1.5 Flash',
-    description: 'Legacy fast — cheap and reliable, no thinking',
+  'gemini-2.5-flash': {
+    name: 'Gemini 2.5 Flash',
+    description: 'Best price-performance — thinking, 1M context, high throughput',
     contextWindow: 1_048_576,
-    maxOutput: 8192,
-    thinking: false,
-    tier: 'fast',
+    maxOutput: 65536,
+    thinking: true,
+    tier: 'balanced',
     pricing: {
-      inputPerM: 0.075,
-      inputLongPerM: 0.15,
-      outputPerM: 0.30,
-      outputLongPerM: 0.60,
-      thinkingPerM: 0,
-      longContextThreshold: 128_000,
+      inputPerM: 0.30,
+      inputLongPerM: 0.30,    // flat rate
+      outputPerM: 2.50,       // includes thinking tokens
+      outputLongPerM: 2.50,
+      thinkingPerM: 2.50,
+      longContextThreshold: 200_000,
     },
-    costEstimate: '~$0.004/segment',
+    costEstimate: '~$0.05/segment',
   },
-  'gemini-1.5-flash-8b': {
-    name: 'Gemini 1.5 Flash-8B',
-    description: 'Cheapest available — small model, basic tasks only',
+  'gemini-2.5-flash-lite': {
+    name: 'Gemini 2.5 Flash-Lite',
+    description: 'Cheapest available — fastest, most cost-efficient for high-volume tasks',
     contextWindow: 1_048_576,
-    maxOutput: 8192,
-    thinking: false,
+    maxOutput: 65536,
+    thinking: true,
     tier: 'economy',
     pricing: {
-      inputPerM: 0.0375,
-      inputLongPerM: 0.075,
-      outputPerM: 0.15,
-      outputLongPerM: 0.30,
-      thinkingPerM: 0,
-      longContextThreshold: 128_000,
+      inputPerM: 0.10,
+      inputLongPerM: 0.10,    // flat rate
+      outputPerM: 0.40,       // includes thinking tokens
+      outputLongPerM: 0.40,
+      thinkingPerM: 0.40,
+      longContextThreshold: 200_000,
     },
-    costEstimate: '~$0.002/segment',
+    costEstimate: '~$0.01/segment',
   },
 };
 

@@ -219,7 +219,6 @@ async function selectModel(GEMINI_MODELS, currentModel) {
   const tiers = {
     premium:  { label: 'Premium (highest quality)',  icon: '🏆', models: [] },
     balanced: { label: 'Balanced (recommended)',      icon: '⚡', models: [] },
-    fast:     { label: 'Fast (low latency)',          icon: '🚀', models: [] },
     economy:  { label: 'Economy (lowest cost)',       icon: '💰', models: [] },
   };
 
@@ -336,9 +335,8 @@ function showHelp() {
   Core Options:
     --name <name>                     Your name (skips interactive prompt)
     --model <id>                      Gemini model to use (skips interactive selector)
-                                      Models: gemini-2.5-pro, gemini-2.5-flash (default),
-                                      gemini-2.0-flash, gemini-2.0-flash-lite, gemini-1.5-pro,
-                                      gemini-1.5-flash, gemini-1.5-flash-8b
+                                      Models: gemini-3.1-pro-preview, gemini-3-flash-preview,
+                                      gemini-2.5-pro, gemini-2.5-flash (default), gemini-2.5-flash-lite
     --skip-upload                     Skip Firebase Storage uploads
     --skip-compression                Skip video compression (use existing segments)
     --skip-gemini                     Skip Gemini AI analysis
