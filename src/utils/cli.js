@@ -181,6 +181,138 @@ async function selectFolder(projectRoot) {
   });
 }
 
+// ======================== INTERACTIVE MODEL SELECTOR ========================
+
+/**
+ * Format a number with commas for display (e.g. 1048576 → "1,048,576").
+ * @param {number} n
+ * @returns {string}
+ */
+function fmtNum(n) {
+  return n.toLocaleString('en-US');
+}
+
+/**
+ * Format a token count as a human-readable context window size.
+ * @param {number} tokens
+ * @returns {string}
+ */
+function fmtContext(tokens) {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(tokens % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(0)}K`;
+  return String(tokens);
+}
+
+/**
+ * Interactive model selector — shows all available Gemini models with
+ * context window sizes, pricing, and descriptions. Returns the model ID.
+ *
+ * @param {object} GEMINI_MODELS - Model registry from config.js
+ * @param {string} currentModel  - Currently active model ID (shown as default)
+ * @returns {Promise<string>} Selected model ID
+ */
+async function selectModel(GEMINI_MODELS, currentModel) {
+  const readline = require('readline');
+  const modelIds = Object.keys(GEMINI_MODELS);
+
+  // Group by tier for organized display
+  const tiers = {
+    premium:  { label: 'Premium (highest quality)',  icon: '🏆', models: [] },
+    balanced: { label: 'Balanced (recommended)',      icon: '⚡', models: [] },
+    fast:     { label: 'Fast (low latency)',          icon: '🚀', models: [] },
+    economy:  { label: 'Economy (lowest cost)',       icon: '💰', models: [] },
+  };
+
+  let idx = 0;
+  const indexMap = {}; // index → modelId
+  for (const id of modelIds) {
+    const m = GEMINI_MODELS[id];
+    const tier = tiers[m.tier] || tiers.fast;
+    idx++;
+    indexMap[idx] = id;
+    tier.models.push({ idx, id, ...m });
+  }
+
+  console.log('');
+  console.log('  ┌──────────────────────────────────────────────────────────────────────────────┐');
+  console.log('  │                        🤖  Gemini Model Selection                            │');
+  console.log('  └──────────────────────────────────────────────────────────────────────────────┘');
+
+  for (const [, tier] of Object.entries(tiers)) {
+    if (tier.models.length === 0) continue;
+    console.log('');
+    console.log(`  ${tier.icon} ${tier.label}`);
+    console.log('  ' + '─'.repeat(76));
+
+    for (const m of tier.models) {
+      const isDefault = m.id === currentModel;
+      const marker = isDefault ? ' ← default' : '';
+      const thinkTag = m.thinking ? ' [thinking]' : '';
+
+      // Line 1: number, name, description
+      console.log(`    [${m.idx}] ${m.name}${thinkTag}${marker}`);
+      console.log(`        ${m.description}`);
+
+      // Line 2: specs
+      const ctxStr = fmtContext(m.contextWindow);
+      const outStr = fmtContext(m.maxOutput);
+      const inPrice = `$${m.pricing.inputPerM.toFixed(m.pricing.inputPerM < 0.1 ? 4 : 2)}/1M in`;
+      const outPrice = `$${m.pricing.outputPerM.toFixed(m.pricing.outputPerM < 1 ? 2 : 2)}/1M out`;
+      const thinkPrice = m.thinking ? ` · $${m.pricing.thinkingPerM.toFixed(2)}/1M think` : '';
+      console.log(`        Context: ${ctxStr} tokens · Max output: ${outStr} · ${m.costEstimate}`);
+      console.log(`        Pricing: ${inPrice} · ${outPrice}${thinkPrice}`);
+    }
+  }
+
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question(`  Select model [1-${idx}] (Enter = keep default): `, answer => {
+      rl.close();
+      const trimmed = (answer || '').trim();
+
+      // Enter = keep default
+      if (!trimmed) {
+        console.log(`  → Using ${GEMINI_MODELS[currentModel].name}`);
+        resolve(currentModel);
+        return;
+      }
+
+      // Number selection
+      const num = parseInt(trimmed, 10);
+      if (!isNaN(num) && indexMap[num]) {
+        const chosen = indexMap[num];
+        console.log(`  → Selected ${GEMINI_MODELS[chosen].name}`);
+        resolve(chosen);
+        return;
+      }
+
+      // Direct model ID input
+      if (GEMINI_MODELS[trimmed]) {
+        console.log(`  → Selected ${GEMINI_MODELS[trimmed].name}`);
+        resolve(trimmed);
+        return;
+      }
+
+      // Fuzzy match: partial name
+      const lower = trimmed.toLowerCase();
+      const match = modelIds.find(id =>
+        id.toLowerCase().includes(lower) ||
+        GEMINI_MODELS[id].name.toLowerCase().includes(lower)
+      );
+      if (match) {
+        console.log(`  → Matched ${GEMINI_MODELS[match].name}`);
+        resolve(match);
+        return;
+      }
+
+      console.log(`  ⚠ Unknown selection "${trimmed}" — using default (${currentModel})`);
+      resolve(currentModel);
+    });
+  });
+}
+
 /**
  * Display help text and signal an early exit by throwing.
  * Callers should catch this and exit cleanly (no process.exit in library code).
@@ -203,6 +335,10 @@ function showHelp() {
 
   Core Options:
     --name <name>                     Your name (skips interactive prompt)
+    --model <id>                      Gemini model to use (skips interactive selector)
+                                      Models: gemini-2.5-pro, gemini-2.5-flash (default),
+                                      gemini-2.0-flash, gemini-2.0-flash-lite, gemini-1.5-pro,
+                                      gemini-1.5-flash, gemini-1.5-flash-8b
     --skip-upload                     Skip Firebase Storage uploads
     --skip-compression                Skip video compression (use existing segments)
     --skip-gemini                     Skip Gemini AI analysis
@@ -237,6 +373,7 @@ function showHelp() {
     node process_and_upload.js                                              Interactive folder selection
     node process_and_upload.js "call 1"                                     Analyze a call (with video)
     node process_and_upload.js --name "Jane" --skip-upload "call 1"         Skip Firebase, set name
+    node process_and_upload.js --model gemini-2.5-pro "call 1"              Use Gemini 2.5 Pro model
     node process_and_upload.js --resume "call 1"                            Resume interrupted run
     node process_and_upload.js --deep-dive "call 1"                         Video analysis + deep dive docs
     node process_and_upload.js --dynamic "my-project"                       Doc-only mode (prompted for request)
@@ -248,4 +385,4 @@ function showHelp() {
   throw Object.assign(new Error('HELP_SHOWN'), { code: 'HELP_SHOWN' });
 }
 
-module.exports = { parseArgs, showHelp, discoverFolders, selectFolder };
+module.exports = { parseArgs, showHelp, discoverFolders, selectFolder, selectModel };

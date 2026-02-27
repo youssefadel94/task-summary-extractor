@@ -23,11 +23,12 @@ const fs = require('fs');
 const path = require('path');
 
 // --- Config ---
+const config = require('./config');
 const {
-  VIDEO_EXTS, DOC_EXTS, SPEED, SEG_TIME, GEMINI_MODEL, PRESET,
+  VIDEO_EXTS, DOC_EXTS, SPEED, SEG_TIME, PRESET,
   LOG_LEVEL, MAX_PARALLEL_UPLOADS, THINKING_BUDGET, COMPILATION_THINKING_BUDGET,
-  validateConfig,
-} = require('./config');
+  validateConfig, GEMINI_MODELS, setActiveModel, getActiveModelPricing,
+} = config;
 
 // --- Services ---
 const { initFirebase, uploadToStorage, storageExists } = require('./services/firebase');
@@ -38,7 +39,7 @@ const { compressAndSegment, probeFormat, verifySegment } = require('./services/v
 const { findDocsRecursive } = require('./utils/fs');
 const { fmtDuration, fmtBytes } = require('./utils/format');
 const { promptUser, promptUserText } = require('./utils/prompt');
-const { parseArgs, showHelp, selectFolder } = require('./utils/cli');
+const { parseArgs, showHelp, selectFolder, selectModel } = require('./utils/cli');
 const { parallelMap } = require('./utils/retry');
 const Progress = require('./utils/progress');
 const CostTracker = require('./utils/cost-tracker');
@@ -124,6 +125,7 @@ async function phaseInit() {
     request: typeof flags.request === 'string' ? flags.request : null,
     updateProgress: !!flags['update-progress'],
     repoPath: flags.repo || null,
+    model: typeof flags.model === 'string' ? flags.model : null,
   };
 
   // --- Resolve folder: positional arg or interactive selection ---
@@ -188,9 +190,21 @@ async function phaseInit() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+  // --- Model selection ---
+  if (opts.model) {
+    // CLI flag: --model <id> — validate and activate
+    setActiveModel(opts.model);
+    log.step(`Model set via flag: ${config.GEMINI_MODEL}`);
+  } else {
+    // Interactive model selection
+    const chosenModel = await selectModel(GEMINI_MODELS, config.GEMINI_MODEL);
+    setActiveModel(chosenModel);
+    log.step(`Model selected: ${config.GEMINI_MODEL}`);
+  }
+
   // --- Initialize progress tracking ---
   const progress = new Progress(targetDir);
-  const costTracker = new CostTracker();
+  const costTracker = new CostTracker(getActiveModelPricing());
 
   return { opts, targetDir, progress, costTracker };
 }
@@ -266,7 +280,7 @@ async function phaseDiscover(ctx) {
   console.log(`  Docs    : ${allDocFiles.length}`);
   console.log(`  Speed   : ${SPEED}x`);
   console.log(`  Segments: < 5 min each (${SEG_TIME}s)`);
-  console.log(`  Model   : ${GEMINI_MODEL}`);
+  console.log(`  Model   : ${config.GEMINI_MODEL}`);
   console.log(`  Parallel: ${opts.parallel} concurrent uploads`);
   console.log(`  Thinking: ${opts.thinkingBudget} tokens (analysis) / ${opts.compilationThinkingBudget} tokens (compilation)`);
   console.log('');
@@ -590,7 +604,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
     }
 
     if (opts.dryRun) {
-      console.log(`    [DRY-RUN] Would analyze with ${GEMINI_MODEL}`);
+      console.log(`    [DRY-RUN] Would analyze with ${config.GEMINI_MODEL}`);
       fileResult.segments.push({
         segmentFile: segName, segmentIndex: j,
         storagePath, storageUrl,
@@ -1053,7 +1067,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
       meta: {
         callName: results.callName,
         processedAt: results.processedAt,
-        geminiModel: GEMINI_MODEL,
+        geminiModel: config.GEMINI_MODEL,
         userName,
         segmentCount: totalSegs,
         compilation: compilationRun || null,
@@ -1354,7 +1368,7 @@ async function run() {
       speed: SPEED,
       segmentTimeSec: SEG_TIME,
       preset: PRESET,
-      geminiModel: GEMINI_MODEL,
+      geminiModel: config.GEMINI_MODEL,
       thinkingBudget: fullCtx.opts.thinkingBudget,
     },
     flags: fullCtx.opts,

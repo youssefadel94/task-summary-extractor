@@ -21,7 +21,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { GEMINI_MODEL, GEMINI_CONTEXT_WINDOW } = require('../config');
+const config = require('../config');
+// Access config.GEMINI_MODEL / config.GEMINI_CONTEXT_WINDOW at call time for runtime model changes.
 const { extractJson } = require('../utils/json-parser');
 const { withRetry } = require('../utils/retry');
 
@@ -96,7 +97,7 @@ RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
 }`;
 
   const requestPayload = {
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
       systemInstruction: 'You are a knowledge analyst. Identify topics from meeting analysis that warrant deeper explanatory documentation. Respond with valid JSON only.',
@@ -179,7 +180,7 @@ WRITING RULES:
 START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):`;
 
   const requestPayload = {
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
       systemInstruction: 'You are a technical writer creating explanatory documentation from meeting analysis. Write clear, well-structured Markdown. Start directly with the content.',

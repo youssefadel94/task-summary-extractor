@@ -52,8 +52,169 @@ const FIREBASE_CONFIG = {
 // ======================== GEMINI AI ========================
 
 const GEMINI_API_KEY = env('GEMINI_API_KEY');
-const GEMINI_MODEL = env('GEMINI_MODEL', 'gemini-2.5-flash');
-const GEMINI_CONTEXT_WINDOW = 1_048_576; // model input context limit (tokens)
+
+/**
+ * Complete Gemini model registry — specs, context windows, pricing, and descriptions.
+ *
+ * Pricing source: Google AI for Developers (2025-2026)
+ * Rates are per 1 million tokens. Some models have tiered pricing
+ * based on context length (short = under threshold, long = over).
+ */
+const GEMINI_MODELS = {
+  'gemini-2.5-pro': {
+    name: 'Gemini 2.5 Pro',
+    description: 'Most capable — best reasoning, coding, complex analysis',
+    contextWindow: 1_048_576,
+    maxOutput: 65536,
+    thinking: true,
+    tier: 'premium',
+    pricing: {
+      inputPerM: 1.25,
+      inputLongPerM: 2.50,
+      outputPerM: 10.00,
+      outputLongPerM: 15.00,
+      thinkingPerM: 3.50,
+      longContextThreshold: 200_000,
+    },
+    costEstimate: '~$0.15/segment',
+  },
+  'gemini-2.5-flash': {
+    name: 'Gemini 2.5 Flash',
+    description: 'Fast with thinking — great balance of speed, quality & cost',
+    contextWindow: 1_048_576,
+    maxOutput: 65536,
+    thinking: true,
+    tier: 'balanced',
+    pricing: {
+      inputPerM: 0.15,
+      inputLongPerM: 0.35,
+      outputPerM: 0.60,
+      outputLongPerM: 1.50,
+      thinkingPerM: 0.70,
+      longContextThreshold: 200_000,
+    },
+    costEstimate: '~$0.01/segment',
+  },
+  'gemini-2.0-flash': {
+    name: 'Gemini 2.0 Flash',
+    description: 'Fast, no thinking mode — lowest latency for simple tasks',
+    contextWindow: 1_048_576,
+    maxOutput: 8192,
+    thinking: false,
+    tier: 'fast',
+    pricing: {
+      inputPerM: 0.10,
+      inputLongPerM: 0.10,
+      outputPerM: 0.40,
+      outputLongPerM: 0.40,
+      thinkingPerM: 0,
+      longContextThreshold: 200_000,
+    },
+    costEstimate: '~$0.005/segment',
+  },
+  'gemini-2.0-flash-lite': {
+    name: 'Gemini 2.0 Flash-Lite',
+    description: 'Ultra-cheap — basic analysis, summaries, quick tasks',
+    contextWindow: 1_048_576,
+    maxOutput: 8192,
+    thinking: false,
+    tier: 'economy',
+    pricing: {
+      inputPerM: 0.075,
+      inputLongPerM: 0.075,
+      outputPerM: 0.30,
+      outputLongPerM: 0.30,
+      thinkingPerM: 0,
+      longContextThreshold: 200_000,
+    },
+    costEstimate: '~$0.003/segment',
+  },
+  'gemini-1.5-pro': {
+    name: 'Gemini 1.5 Pro',
+    description: 'Legacy — largest context (2M tokens), strong reasoning',
+    contextWindow: 2_097_152,
+    maxOutput: 8192,
+    thinking: false,
+    tier: 'premium',
+    pricing: {
+      inputPerM: 1.25,
+      inputLongPerM: 2.50,
+      outputPerM: 5.00,
+      outputLongPerM: 10.00,
+      thinkingPerM: 0,
+      longContextThreshold: 128_000,
+    },
+    costEstimate: '~$0.12/segment',
+  },
+  'gemini-1.5-flash': {
+    name: 'Gemini 1.5 Flash',
+    description: 'Legacy fast — cheap and reliable, no thinking',
+    contextWindow: 1_048_576,
+    maxOutput: 8192,
+    thinking: false,
+    tier: 'fast',
+    pricing: {
+      inputPerM: 0.075,
+      inputLongPerM: 0.15,
+      outputPerM: 0.30,
+      outputLongPerM: 0.60,
+      thinkingPerM: 0,
+      longContextThreshold: 128_000,
+    },
+    costEstimate: '~$0.004/segment',
+  },
+  'gemini-1.5-flash-8b': {
+    name: 'Gemini 1.5 Flash-8B',
+    description: 'Cheapest available — small model, basic tasks only',
+    contextWindow: 1_048_576,
+    maxOutput: 8192,
+    thinking: false,
+    tier: 'economy',
+    pricing: {
+      inputPerM: 0.0375,
+      inputLongPerM: 0.075,
+      outputPerM: 0.15,
+      outputLongPerM: 0.30,
+      thinkingPerM: 0,
+      longContextThreshold: 128_000,
+    },
+    costEstimate: '~$0.002/segment',
+  },
+};
+
+// Active model — defaults from env or 'gemini-2.5-flash'
+let GEMINI_MODEL = env('GEMINI_MODEL', 'gemini-2.5-flash');
+let GEMINI_CONTEXT_WINDOW = (GEMINI_MODELS[GEMINI_MODEL] || {}).contextWindow || 1_048_576;
+
+/**
+ * Set the active model at runtime. Updates GEMINI_MODEL and GEMINI_CONTEXT_WINDOW
+ * on module.exports so all modules that reference config.GEMINI_MODEL see the change.
+ *
+ * @param {string} modelId - Model ID (key from GEMINI_MODELS)
+ * @returns {{ id: string, specs: object }} The selected model
+ */
+function setActiveModel(modelId) {
+  const specs = GEMINI_MODELS[modelId];
+  if (!specs) {
+    const valid = Object.keys(GEMINI_MODELS).join(', ');
+    throw new Error(`Unknown model "${modelId}". Valid models: ${valid}`);
+  }
+  GEMINI_MODEL = modelId;
+  GEMINI_CONTEXT_WINDOW = specs.contextWindow;
+  // Update module.exports so modules accessing config.GEMINI_MODEL see the new value
+  module.exports.GEMINI_MODEL = modelId;
+  module.exports.GEMINI_CONTEXT_WINDOW = specs.contextWindow;
+  return { id: modelId, specs };
+}
+
+/**
+ * Get the pricing config for the currently active model.
+ * @returns {object} Pricing object compatible with CostTracker
+ */
+function getActiveModelPricing() {
+  const specs = GEMINI_MODELS[module.exports.GEMINI_MODEL];
+  return specs ? specs.pricing : GEMINI_MODELS['gemini-2.5-flash'].pricing;
+}
 
 // ======================== VIDEO PROCESSING ========================
 
@@ -155,6 +316,9 @@ module.exports = {
   GEMINI_API_KEY,
   GEMINI_MODEL,
   GEMINI_CONTEXT_WINDOW,
+  GEMINI_MODELS,
+  setActiveModel,
+  getActiveModelPricing,
   SPEED,
   SEG_TIME,
   PRESET,

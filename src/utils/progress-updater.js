@@ -13,7 +13,8 @@
 'use strict';
 
 const { extractJson } = require('./json-parser');
-const { GEMINI_MODEL } = require('../config');
+const config = require('../config');
+// Access config.GEMINI_MODEL at call time for runtime model changes.
 
 // ======================== STATUS CONSTANTS ========================
 
@@ -205,7 +206,7 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
   const thinkingBudget = opts.thinkingBudget || 16384;
 
   const result = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
       temperature: 0,
@@ -225,7 +226,7 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
     assessments: parsed.assessments || [],
     overall_summary: parsed.overall_summary || 'No summary provided',
     recommendations: parsed.recommendations || [],
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     tokenUsage,
   };
 }

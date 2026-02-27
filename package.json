@@ -1,7 +1,7 @@
 {
   "name": "video-compress-upload-ai",
-  "version": "7.1.0",
-  "description": "AI-powered meeting analysis & dynamic document generation — video + document processing, deep dive docs, dynamic mode with video support, interactive CLI, confidence scoring, learning loop, git progress tracking",
+  "version": "7.2.0",
+  "description": "AI-powered meeting analysis & dynamic document generation — video + document processing, deep dive docs, dynamic mode with video support, interactive CLI with model selection, confidence scoring, learning loop, git progress tracking",
   "main": "process_and_upload.js",
   "scripts": {
     "setup": "node setup.js",

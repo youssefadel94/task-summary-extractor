@@ -7,16 +7,17 @@
 
 const fs = require('fs');
 const path = require('path');
+const config = require('../config');
 const {
   GEMINI_API_KEY,
-  GEMINI_MODEL,
-  GEMINI_CONTEXT_WINDOW,
   GEMINI_FILE_API_EXTS,
   INLINE_TEXT_EXTS,
   GEMINI_UNSUPPORTED,
   MIME_MAP,
   GEMINI_POLL_TIMEOUT_MS,
-} = require('../config');
+} = config;
+// Access config.GEMINI_MODEL and config.GEMINI_CONTEXT_WINDOW at call time
+// (not destructured) so runtime model changes via setActiveModel() are visible.
 const { extractJson } = require('../utils/json-parser');
 const {
   selectDocsByBudget,
@@ -274,7 +275,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   }
 
   // 4. Build content parts with SMART CONTEXT MANAGEMENT
-  console.log(`    Analyzing with ${GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
+  console.log(`    Analyzing with ${config.GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
 
   const contentParts = [
     { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
@@ -285,7 +286,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   const prevContextEstimate = estimateTokens(
     buildProgressiveContext(previousAnalyses, userName) || ''
   );
-  const docBudget = Math.max(100000, GEMINI_CONTEXT_WINDOW - 350000 - prevContextEstimate);
+  const docBudget = Math.max(100000, config.GEMINI_CONTEXT_WINDOW - 350000 - prevContextEstimate);
   console.log(`    Context budget: ${(docBudget / 1000).toFixed(0)}K tokens for docs (${contextDocs.length} available)`);
 
   const { selected: selectedDocs, excluded, stats } = selectDocsByBudget(
@@ -348,7 +349,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
 
   // 5. Send request (configurable thinking budget for complex multi-ticket analysis)
   const requestPayload = {
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
       systemInstruction,
@@ -375,14 +376,14 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
     totalTokens: usage.totalTokenCount || 0,
     thoughtTokens: usage.thoughtsTokenCount || 0,
   };
-  const contextRemaining = GEMINI_CONTEXT_WINDOW - tokenUsage.inputTokens;
-  const contextUsedPct = ((tokenUsage.inputTokens / GEMINI_CONTEXT_WINDOW) * 100).toFixed(1);
-  tokenUsage.contextWindow = GEMINI_CONTEXT_WINDOW;
+  const contextRemaining = config.GEMINI_CONTEXT_WINDOW - tokenUsage.inputTokens;
+  const contextUsedPct = ((tokenUsage.inputTokens / config.GEMINI_CONTEXT_WINDOW) * 100).toFixed(1);
+  tokenUsage.contextWindow = config.GEMINI_CONTEXT_WINDOW;
   tokenUsage.contextRemaining = contextRemaining;
   tokenUsage.contextUsedPct = parseFloat(contextUsedPct);
 
   console.log(`    Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()} | total: ${tokenUsage.totalTokens.toLocaleString()}`);
-  console.log(`    Context — used: ${contextUsedPct}% | remaining: ${contextRemaining.toLocaleString()} / ${GEMINI_CONTEXT_WINDOW.toLocaleString()} tokens`);
+  console.log(`    Context — used: ${contextUsedPct}% | remaining: ${contextRemaining.toLocaleString()} / ${config.GEMINI_CONTEXT_WINDOW.toLocaleString()} tokens`);
 
   // 7. Parse JSON response
   const parsed = extractJson(rawText);
@@ -396,7 +397,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
 
   return {
     run: {
-      model: GEMINI_MODEL,
+      model: config.GEMINI_MODEL,
       displayName,
       userName,
       timestamp: new Date().toISOString(),
@@ -522,7 +523,7 @@ ${segmentDumps}`;
   const contentParts = [{ text: compilationPrompt }];
 
   const requestPayload = {
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
       systemInstruction: `${systemInstruction}\n\nYou are now in COMPILATION MODE — your job is to merge multiple segment analyses into one final unified output. Deduplicate, reconcile conflicts, and produce the definitive analysis. Output valid JSON only — no markdown fences.`,
@@ -537,7 +538,7 @@ ${segmentDumps}`;
   };
 
   const t0 = Date.now();
-  console.log(`  Compiling with ${GEMINI_MODEL}...`);
+  console.log(`  Compiling with ${config.GEMINI_MODEL}...`);
   const response = await withRetry(
     () => ai.models.generateContent(requestPayload),
     { label: 'Gemini final compilation', maxRetries: 2, baseDelay: 5000 }
@@ -553,13 +554,13 @@ ${segmentDumps}`;
     totalTokens: usage.totalTokenCount || 0,
     thoughtTokens: usage.thoughtsTokenCount || 0,
   };
-  const contextUsedPct = ((tokenUsage.inputTokens / GEMINI_CONTEXT_WINDOW) * 100).toFixed(1);
-  tokenUsage.contextWindow = GEMINI_CONTEXT_WINDOW;
-  tokenUsage.contextRemaining = GEMINI_CONTEXT_WINDOW - tokenUsage.inputTokens;
+  const contextUsedPct = ((tokenUsage.inputTokens / config.GEMINI_CONTEXT_WINDOW) * 100).toFixed(1);
+  tokenUsage.contextWindow = config.GEMINI_CONTEXT_WINDOW;
+  tokenUsage.contextRemaining = config.GEMINI_CONTEXT_WINDOW - tokenUsage.inputTokens;
   tokenUsage.contextUsedPct = parseFloat(contextUsedPct);
 
   console.log(`  Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()} | total: ${tokenUsage.totalTokens.toLocaleString()}`);
-  console.log(`  Context — used: ${contextUsedPct}% | remaining: ${tokenUsage.contextRemaining.toLocaleString()} / ${GEMINI_CONTEXT_WINDOW.toLocaleString()} tokens`);
+  console.log(`  Context — used: ${contextUsedPct}% | remaining: ${tokenUsage.contextRemaining.toLocaleString()} / ${config.GEMINI_CONTEXT_WINDOW.toLocaleString()} tokens`);
   console.log(`  Compilation duration: ${(durationMs / 1000).toFixed(1)}s`);
 
   // Parse compiled result
@@ -575,7 +576,7 @@ ${segmentDumps}`;
     compiled,
     raw: rawText,
     run: {
-      model: GEMINI_MODEL,
+      model: config.GEMINI_MODEL,
       type: 'compilation',
       timestamp: new Date().toISOString(),
       durationMs,
@@ -665,9 +666,9 @@ FORMAT:
   ];
 
   // 4. Send to Gemini
-  console.log(`    Analyzing with ${GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
+  console.log(`    Analyzing with ${config.GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
   const requestPayload = {
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
       systemInstruction: 'You are a meticulous video analyst. Produce comprehensive, detailed summaries that capture everything in the video. Write in clear Markdown prose.',

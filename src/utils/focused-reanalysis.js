@@ -14,7 +14,8 @@
 const { extractJson } = require('./json-parser');
 const { withRetry } = require('./retry');
 const { estimateTokens } = require('./context-manager');
-const { GEMINI_MODEL, GEMINI_CONTEXT_WINDOW } = require('../config');
+const config = require('../config');
+// Access config.GEMINI_MODEL / config.GEMINI_CONTEXT_WINDOW at call time for runtime model changes.
 
 // ======================== WEAKNESS DETECTION ========================
 
@@ -197,7 +198,7 @@ Output ONLY valid JSON.`;
   contentParts.push({ text: promptText });
 
   const requestPayload = {
-    model: GEMINI_MODEL,
+    model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
       systemInstruction: 'You are a focused re-extraction agent. Find ONLY missing or incorrect items from the first pass. Output valid JSON only.',

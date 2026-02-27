@@ -1,12 +1,10 @@
 /**
  * CostTracker — tracks Gemini API token usage and estimates cost.
  *
- * Pricing (Gemini 2.5 Flash, as of 2025):
- *   Input:    $0.15  per 1M tokens (≤200K), $0.35 per 1M (>200K)
- *   Output:   $0.60  per 1M tokens (≤200K), $1.50 per 1M (>200K)
- *   Thinking: $0.70  per 1M tokens
+ * Pricing is model-specific — passed from config.getActiveModelPricing()
+ * at construction time based on the user's selected Gemini model.
  *
- * Prices are updated via config if the model/pricing changes.
+ * Falls back to Gemini 2.5 Flash defaults if no pricing is provided.
  */
 
 'use strict';
