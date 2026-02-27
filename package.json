@@ -21,11 +21,35 @@
     "setup": "node setup.js",
     "check": "node setup.js --check",
     "start": "node process_and_upload.js",
+
     "process": "node process_and_upload.js",
     "process:local": "node process_and_upload.js --skip-upload",
     "process:resume": "node process_and_upload.js --resume",
+    "process:reanalyze": "node process_and_upload.js --reanalyze",
     "process:dry-run": "node process_and_upload.js --dry-run",
+    "process:fast": "node process_and_upload.js --parallel 5 --parallel-analysis 3",
+    "process:turbo": "node process_and_upload.js --parallel 8 --parallel-analysis 3",
+    "process:serial": "node process_and_upload.js --parallel 1 --parallel-analysis 1",
+    "process:minimal": "node process_and_upload.js --skip-upload --no-focused-pass --no-learning --no-diff",
+    "process:no-ai": "node process_and_upload.js --skip-gemini",
+    "process:upload-only": "node process_and_upload.js --skip-compression --skip-gemini",
+
+    "deep-dive": "node process_and_upload.js --deep-dive",
+    "deep-dive:local": "node process_and_upload.js --deep-dive --skip-upload",
+    "deep-dive:fast": "node process_and_upload.js --deep-dive --parallel 5 --parallel-analysis 3",
+    "deep-dive:resume": "node process_and_upload.js --deep-dive --resume",
+
     "dynamic": "node process_and_upload.js --dynamic",
+    "dynamic:local": "node process_and_upload.js --dynamic --skip-upload",
+    "dynamic:fast": "node process_and_upload.js --dynamic --parallel 5 --parallel-analysis 3",
+    "dynamic:resume": "node process_and_upload.js --dynamic --resume",
+
+    "progress": "node process_and_upload.js --update-progress",
+
+    "config": "node process_and_upload.js config",
+    "config:show": "node process_and_upload.js config --show",
+    "config:clear": "node process_and_upload.js config --clear",
+
     "help": "node process_and_upload.js --help",
     "version": "node process_and_upload.js --version"
   },
