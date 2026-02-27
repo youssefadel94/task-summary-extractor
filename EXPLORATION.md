@@ -1,7 +1,9 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
 > **Version 7.2.0** — February 2026  
-> A multi-mode AI pipeline: analyze recorded calls, generate documents from any context, or deep-dive into topics — with interactive model selection (5 Gemini models), confidence scoring, focused re-analysis, cross-run diff intelligence, a learning loop that tunes itself over time, and smart git-based progress tracking.
+> Module map, codebase stats, and future roadmap.  
+> For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
+> For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ---
 
@@ -417,3 +419,13 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 ---
 
 *Generated from the v7.2.0 codebase — 30 files, ~10,000 lines of self-improving pipeline intelligence.*
+
+---
+
+## See Also
+
+| Doc | What's In It |
+|-----|-------------|
+| 📖 [README.md](README.md) | Setup, CLI flags, configuration, features |
+| 📖 [QUICK_START.md](QUICK_START.md) | Step-by-step first-time walkthrough |
+| 🏗️ [ARCHITECTURE.md](ARCHITECTURE.md) | Pipeline phases, processing flows, Mermaid diagrams |

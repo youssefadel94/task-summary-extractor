@@ -1,9 +1,8 @@
 # Architecture & Technical Deep Dive
 
 > Internal reference for the pipeline's architecture, processing flows, and design decisions.  
-> This tool analyzes recorded meetings/calls AND generates documents from context alone.  
-> Two modes: **Video Analysis** (default) and **Dynamic Mode** (`--dynamic`).  
-> For usage instructions, see [README.md](README.md) · [Quick Start](QUICK_START.md)
+> For setup instructions, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
+> For module map and roadmap, see [EXPLORATION.md](EXPLORATION.md)
 
 ---
 
@@ -549,3 +548,13 @@ Each segment analysis is saved as a timestamped JSON file:
   }
 }
 ```
+
+---
+
+## See Also
+
+| Doc | What's In It |
+|-----|-------------|
+| 📖 [README.md](README.md) | Setup, CLI flags, configuration, features |
+| 📖 [QUICK_START.md](QUICK_START.md) | Step-by-step first-time walkthrough |
+| 🔭 [EXPLORATION.md](EXPLORATION.md) | Module map, line counts, future roadmap |

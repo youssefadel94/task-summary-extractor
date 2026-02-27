@@ -1,7 +1,6 @@
 # Task Summary Extractor
 
-> **v7.2.0** — AI-powered meeting analysis & dynamic document generation pipeline  
-> Analyze recorded calls OR generate documents from any context — all from the CLI.
+> **v7.2.0** — AI-powered meeting analysis & document generation from the CLI.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
@@ -10,65 +9,72 @@
   <img src="https://img.shields.io/badge/version-7.2.0-brightgreen" alt="Version" />
 </p>
 
+**Record a meeting → get a structured task document.** Or point it at any folder and generate docs from context.
+
+📖 **New here?** Jump to [Setup (3 steps)](#setup-3-steps) — you'll be running in under 5 minutes.
+
 ---
 
 ## What It Does
 
-Two modes, one tool:
+### 🎥 Video Analysis (default mode)
 
-### Video Analysis Mode (default)
+Drop a recording in a folder → run the tool → get a Markdown task document with:
 
-You record a call or meeting — any kind. You drop the recording in a folder with supporting docs. The tool:
+- **Tickets** — ID, title, status, assignee, confidence score
+- **Change Requests** — what changed, where, how, why
+- **Action Items** — who does what, by when
+- **Blockers** — severity, owner, proposed resolution
+- **Scope Changes** — added, removed, deferred items
+- **Your Tasks** — personalized list scoped to your name
 
-1. **Compresses** the video (H.264, 1.5× speed, text-optimized)
-2. **Segments** into ≤5 min chunks for API limits
-3. **Analyzes** each segment with Google Gemini AI
-4. **Extracts** tickets, change requests, action items, blockers, scope changes, decisions
-5. **Scores** confidence on every item, retries weak segments automatically
-6. **Outputs** a structured Markdown task document + JSON data
-7. **Deep Dive** (optional) — generates explanatory documents for every topic discussed
+```bash
+node process_and_upload.js --name "Jane" "my-meeting"
+```
 
-You get a `results.md` with your personalized task list, ready to act on.
+### 📝 Dynamic Mode (`--dynamic`)
 
-### Dynamic Mode (`--dynamic`)
+No video needed. Point at a folder with docs, tell it what you want:
 
-Point it at any folder — with videos, documents, or both — and tell it what you need. It automatically detects and processes all content:
+```bash
+node process_and_upload.js --dynamic --request "Plan migration from MySQL to Postgres" "db-specs"
+```
 
-1. **Discovers** all videos and documents in the folder
-2. **Compresses & segments** video files (any format: mp4, mkv, avi, mov, webm)
-3. **Analyzes** video content with AI to extract comprehensive summaries
-4. **Plans** a document set based on video content + documents + your request
-5. **Generates** 3-15 standalone Markdown documents in parallel
-6. **Outputs** an indexed set of professional documents
+Generates 3–15 Markdown documents: overviews, guides, checklists, decision records, etc.
 
-Works with video-only folders, doc-only folders, or both. Use it for anything: meeting summaries, migration plans, learning guides, architecture docs, decision records, onboarding materials — whatever you describe.
+### 🔍 Deep Dive (`--deep-dive`)
 
-### Use Cases
+After video analysis, generate standalone docs for every topic discussed:
 
-| Scenario | Mode | What You Get |
-|----------|------|-------------|
-| **Sprint Planning / Standup** | Video | Tickets discussed, assignments, blockers, scope changes |
-| **Code Review** | Video | Change requests with file-level detail, reviewer feedback, action items |
-| **Client Meeting** | Video | Requirements, decisions, action items per person, agreed scope |
-| **Technical Interview** | Video | Assessment notes, topics covered, follow-up items |
-| **Training / Onboarding** | Video | Key topics, references shared, tasks assigned to trainee |
-| **Incident Review / Post-mortem** | Video | Root causes, action items, owners, deadlines |
-| **Product Discussion** | Video | Feature decisions, scope additions/removals, who owns what |
-| **1-on-1 / Sync** | Video | Personal action items, blockers raised, decisions made |
-| **System Migration Plan** | Dynamic | Migration guide, risk analysis, timelines, checklists |
-| **Codebase Onboarding** | Dynamic | Architecture overview, component guides, getting started |
-| **Learning / Research** | Dynamic | Concept explanations, progressive tutorials, reference material |
-| **Project Planning** | Dynamic | Task breakdown, dependency analysis, resource planning |
-| **Decision Documentation** | Dynamic | ADR-style decision records from context docs |
-| **API Documentation** | Dynamic | Endpoint reference, usage guides, integration examples |
+```bash
+node process_and_upload.js --deep-dive --name "Jane" "my-meeting"
+```
 
-The AI adapts to the meeting content — it extracts whatever structure exists in the conversation.
+### 📊 Progress Tracking (`--update-progress`)
+
+Check which items from a previous analysis have been completed, using git evidence:
+
+```bash
+node process_and_upload.js --update-progress --repo "C:\my-project" "my-meeting"
+```
+
+> See all modes explained with diagrams → [ARCHITECTURE.md](ARCHITECTURE.md#pipeline-phases)
 
 ---
 
-## Quick Start
+## Setup (3 Steps)
 
-### 1. Setup
+### What You Need First
+
+| Requirement | How to Check | Get It |
+|-------------|-------------|--------|
+| **Node.js ≥ 18** | `node --version` | [nodejs.org](https://nodejs.org/) |
+| **ffmpeg** | `ffmpeg -version` | [gyan.dev/ffmpeg](https://www.gyan.dev/ffmpeg/builds/) — add to PATH |
+| **Gemini API Key** | — | [Google AI Studio](https://aistudio.google.com/apikey) — free tier available |
+
+> **Git** is optional — only needed for `--update-progress` mode.
+
+### Step 1: Clone & install
 
 ```bash
 git clone https://github.com/youssefadel94/task-summary-extractor.git
@@ -76,200 +82,239 @@ cd task-summary-extractor
 node setup.js
 ```
 
-The setup script handles everything — checks Node.js, ffmpeg, git, installs dependencies, creates your `.env` with API key.
+The setup script does everything: installs dependencies, creates your `.env`, prompts for your API key, validates the pipeline. **Follow the prompts — it takes 1 minute.**
 
-> **Need your Gemini API key?** → [Google AI Studio](https://aistudio.google.com/apikey) (free tier available)
+### Step 2: Add your recording
 
-### 2. Prepare a Call Folder
-
-Create a folder with your recording and any relevant context:
+Create a folder and drop your video in it:
 
 ```
-my-call/
-├── Meeting Recording.mp4       ← Your video (required)
-├── Meeting Recording.vtt       ← Subtitles (recommended)
-├── agenda.md                   ← Loose docs work too (optional)
-│
-├── .tasks/                     ← Context folder (optional, improves quality)
-│   ├── code-map.md
-│   └── current-sprint.md
-├── specs/                      ← Any number of folders — all are scanned
-│   └── requirements.md
-└── notes/
-    └── previous-meeting.md
+my-meeting/
+├── Recording.mp4          ← your video file
+└── Recording.vtt          ← subtitles (optional, improves quality a lot)
 ```
 
-The pipeline **recursively scans all subfolders** for documents — use any folder structure that fits your workflow. `.tasks/` gets priority weighting but every folder is included.
+> You can also add docs (`.md`, `.pdf`, `.txt`, `.csv`) in any subfolders — the tool finds everything automatically. More context → better results.
 
-**Supported formats:** `.mp4`, `.mkv`, `.webm` (video) · `.vtt`, `.srt`, `.txt`, `.md`, `.csv`, `.pdf` (documents)
-
-### 3. Run
+### Step 3: Run
 
 ```bash
-# Interactive folder selection (just run it)
+node process_and_upload.js --name "Your Name" "my-meeting"
+```
+
+Or just run `node process_and_upload.js` — it'll walk you through everything interactively.
+
+**Done.** Your results are in `my-meeting/runs/{timestamp}/results.md`.
+
+> 🎓 **Full walkthrough** with examples, folder structures, and troubleshooting → [QUICK_START.md](QUICK_START.md)
+
+---
+
+## CLI Flags
+
+Every flag is optional. Run with no flags for fully interactive mode.
+
+### Everyday Flags
+
+These are the ones you'll actually use:
+
+| Flag | What It Does | Example |
+|------|-------------|---------|
+| `--name <name>` | Set your name (skips prompt) | `--name "Jane"` |
+| `--model <id>` | Pick a Gemini model (skips selector) | `--model gemini-2.5-pro` |
+| `--skip-upload` | Don't upload to Firebase (local only) | `--skip-upload` |
+| `--resume` | Continue an interrupted run | `--resume` |
+| `--reanalyze` | Force fresh analysis (ignore cache) | `--reanalyze` |
+| `--dry-run` | Preview what would run, without running | `--dry-run` |
+
+**Typical usage:**
+
+```bash
+# Interactive — picks folder, model, prompts for name
 node process_and_upload.js
 
-# Or specify folder directly
-node process_and_upload.js --name "Your Name" "my-call"
+# Specify everything upfront
+node process_and_upload.js --name "Jane" --model gemini-2.5-pro --skip-upload "my-meeting"
 
-# Dynamic mode (no video needed)
-node process_and_upload.js --dynamic --request "Explain this project for new developers" "my-project"
+# Resume a run that crashed halfway
+node process_and_upload.js --resume "my-meeting"
 ```
 
-### 4. View Results
+### Mode Flags
+
+Choose what the tool does. Only use one at a time:
+
+| Flag | Mode | What You Get |
+|------|------|-------------|
+| *(none)* | **Video analysis** | `results.md` — structured task document |
+| `--dynamic` | **Doc generation** | `INDEX.md` + 3–15 topic documents |
+| `--deep-dive` | **Topic explainers** | `INDEX.md` + per-topic deep-dive docs |
+| `--update-progress` | **Progress check** | `progress.md` — item status via git |
+
+**Dynamic mode** also uses:
+
+| Flag | Purpose | Example |
+|------|---------|---------|
+| `--request <text>` | Tell the AI what to generate | `--request "Create onboarding guide"` |
+
+**Progress tracking** also uses:
+
+| Flag | Purpose | Example |
+|------|---------|---------|
+| `--repo <path>` | Git repo to check for evidence | `--repo "C:\my-project"` |
+
+### Skip Flags
+
+Skip parts of the pipeline you don't need:
+
+| Flag | What It Skips | When to Use |
+|------|--------------|-------------|
+| `--skip-upload` | Firebase upload | Running locally, no Firebase configured |
+| `--skip-compression` | Video compression | You already compressed/segmented the video |
+| `--skip-gemini` | AI analysis entirely | You just want to compress & upload |
+
+### Tuning Flags
+
+**You probably don't need these.** The defaults work well. These are for power users:
+
+| Flag | Default | What It Controls |
+|------|---------|-----------------|
+| `--thinking-budget <n>` | `24576` | AI thinking tokens per segment — higher = more thorough, slower, costlier |
+| `--compilation-thinking-budget <n>` | `10240` | AI thinking tokens for the final cross-segment compilation |
+| `--parallel <n>` | `3` | Max concurrent Firebase uploads |
+| `--parallel-analysis <n>` | `2` | Max concurrent AI segment analyses |
+| `--log-level <level>` | `info` | `debug` / `info` / `warn` / `error` |
+| `--output <dir>` | auto | Custom output directory (default: `runs/{timestamp}`) |
+| `--no-focused-pass` | enabled | Disable targeted re-analysis of weak segments |
+| `--no-learning` | enabled | Disable auto-tuning from historical run data |
+| `--no-diff` | enabled | Disable diff comparison with the previous run |
+
+### Available Models
+
+Use `--model <id>` or run without it for an interactive picker:
+
+| Model ID | Speed | Cost | Best For |
+|----------|-------|------|----------|
+| `gemini-2.5-flash` | ⚡ Fast | $ | **Default** — best price-performance |
+| `gemini-2.5-flash-lite` | ⚡⚡ Fastest | ¢ | High volume, budget runs |
+| `gemini-2.5-pro` | 🧠 Slower | $$ | Deep reasoning, complex meetings |
+| `gemini-3-flash-preview` | ⚡ Fast | $ | Latest flash model |
+| `gemini-3.1-pro-preview` | 🧠 Slower | $$$ | Most capable overall |
+
+### Cheat Sheet
 
 ```
-my-call/runs/{timestamp}/
-├── results.md            ← Your task document
+node process_and_upload.js [flags] [folder]
+
+MODES      --dynamic  --deep-dive  --update-progress
+CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
+SKIP       --skip-compression  --skip-gemini
+DYNAMIC    --request <text>
+PROGRESS   --repo <path>
+TUNING     --thinking-budget  --compilation-thinking-budget  --parallel
+           --parallel-analysis  --log-level  --output
+           --no-focused-pass  --no-learning  --no-diff
+INFO       --help (-h)  --version (-v)
+```
+
+---
+
+## Output
+
+### Video Analysis
+
+```
+my-meeting/runs/{timestamp}/
+├── results.md            ← Open this — your task document
 ├── results.json          ← Full pipeline data
-└── compilation.json      ← All extracted items
+└── compilation.json      ← All extracted items (JSON)
 ```
-
-> See [QUICK_START.md](QUICK_START.md) for the full step-by-step walkthrough.
-
----
-
-## How to Use This Repo
-
-This repo is a **tool** — you pull `main` and create a local branch for your usage:
-
-```bash
-# First time
-git clone https://github.com/youssefadel94/task-summary-extractor.git
-cd task-summary-extractor
-node setup.js
-
-# Create your local working branch
-git checkout -b local/my-workspace
-
-# Add your call folders, .env, etc. — these stay local
-# .gitignore already excludes call folders, .env, logs, videos
-```
-
-### Updating
-
-```bash
-# Get latest tool updates
-git checkout main
-git pull
-
-# Merge into your working branch
-git checkout local/my-workspace
-git merge main
-```
-
-### What Stays Local (Not Committed)
-
-| Item | Why |
-|------|-----|
-| `call */` folders | Your recordings + results |
-| `.env` | API keys |
-| `logs/` | Run logs |
-| `gemini_runs/` | Raw AI response records |
-| `*.mp4`, `*.mkv`, etc. | Video files |
-| `node_modules/` | Dependencies |
-
----
-
-## Usage
-
-### Basic
-
-```bash
-# Interactive mode — shows available folders, lets you pick
-node process_and_upload.js
-
-# Analyze a call
-node process_and_upload.js --name "Jane" "client-kickoff"
-
-# Skip Firebase uploads (local only)
-node process_and_upload.js --skip-upload "weekly-standup"
-
-# Resume an interrupted run
-node process_and_upload.js --resume "client-kickoff"
-
-# Force re-analysis
-node process_and_upload.js --reanalyze "client-kickoff"
-```
-
-### Progress Tracking
-
-After doing the work from a call, check what's been completed:
-
-```bash
-node process_and_upload.js --update-progress --repo "C:\my-project" "call 1"
-```
-
-Outputs `progress.md` with: ✅ done, 🔄 in progress, ⏳ not started — with git evidence.
-
-> Works best when extracted items reference files or ticket IDs that appear in your git history.
-
-### Deep Dive
-
-Generate standalone explanatory documents for every topic discussed:
-
-```bash
-node process_and_upload.js --deep-dive --name "Jane" "client-kickoff"
-```
-
-Outputs a `deep-dive/` folder with an index and individual Markdown files — concepts, decisions, processes, architecture explanations, and more. Great for onboarding docs, decision records, or knowledge capture.
 
 ### Dynamic Mode
 
-Generate documents from context alone — no video required:
-
-```bash
-# Interactive (prompts for request)
-node process_and_upload.js --dynamic "my-project"
-
-# With request inline
-node process_and_upload.js --dynamic --request "Plan migration from PostgreSQL to MongoDB" "db-specs"
-
-# Learning materials from docs
-node process_and_upload.js --dynamic --request "Create React hooks tutorial" "react-notes"
-
-# Architecture docs from codebase notes
-node process_and_upload.js --dynamic --request "Explain this system for onboarding" "project-docs"
+```
+my-project/runs/{timestamp}/
+├── INDEX.md              ← Open this — document index
+├── dm-01-overview.md
+├── dm-02-guide.md
+└── dynamic-run.json
 ```
 
-Document categories generated: overview, guide, analysis, plan, reference, concept, decision, checklist, template, report.
+### Deep Dive
 
-### Advanced
+```
+my-meeting/runs/{timestamp}/deep-dive/
+├── INDEX.md              ← Open this — topic index
+├── dd-01-topic.md
+├── dd-02-topic.md
+└── deep-dive.json
+```
 
-```bash
-# Dry run — preview without executing
-node process_and_upload.js --dry-run "client-kickoff"
+### Progress Update
 
-# Custom thinking budget
-node process_and_upload.js --thinking-budget 32768 "client-kickoff"
-
-# Debug logging
-node process_and_upload.js --log-level debug "client-kickoff"
-
-# Disable smart features (faster, less thorough)
-node process_and_upload.js --no-focused-pass --no-learning --no-diff "client-kickoff"
+```
+my-meeting/runs/{timestamp}/
+├── progress.md           ← Status report with git evidence
+└── progress.json
 ```
 
 ---
 
-## What Gets Extracted
+## Folder Setup Tips
 
-The AI extracts **6 categories** from each call:
+Drop docs alongside your video to give the AI context. **More context = better extraction.**
 
-| Category | What's In It |
-|----------|-------------|
-| **Tickets / Items** | ID, title, status, assignee, reviewer, timestamps, details |
-| **Change Requests** | WHERE (target), WHAT (change), HOW (approach), WHY (justification) |
-| **References** | Files, documents, links, tools, and resources mentioned |
-| **Action Items** | Description, assigned to, deadline, dependencies |
-| **Blockers** | Description, severity, owner, proposed resolution |
-| **Scope Changes** | Type (added/removed/deferred), original vs new scope, impact |
+```
+my-meeting/
+├── Recording.mp4                  ← Video (required for video mode)
+├── Recording.vtt                  ← Subtitles (highly recommended)
+├── agenda.md                      ← Loose docs at root are fine
+│
+├── .tasks/                        ← Gets priority weighting (optional)
+│   ├── code-map.md                ← What each module/component does
+│   └── current-sprint.md          ← Current sprint goals and tickets
+│
+└── specs/                         ← Any subfolder name works
+    └── requirements.md
+```
 
-Every item includes a **confidence score** (HIGH / MEDIUM / LOW) with a reason.
+**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.vtt` `.srt` `.txt` `.md` `.csv` `.pdf` (docs)
 
-You also get a **`your_tasks`** section scoped to the `--name` you provide — owned items, TODOs, things you're waiting on.
+The tool **recursively scans all subfolders**. `.tasks/` gets highest priority weighting but everything is included.
 
-> The categories adapt to the meeting content. In a dev call you get tickets and code-level changes; in a client meeting you get requirements and deliverable changes; in an interview you get assessment items.
+| What Helps Most | Why |
+|-----------------|-----|
+| **Subtitles** (`.vtt`/`.srt`) | Dramatically improves name/ID extraction |
+| **Team roster** (`.csv`) | Accurate attribution of action items |
+| **Code map / architecture docs** | AI matches changes to actual files |
+| **Sprint / board exports** | Status context for discussed items |
+
+---
+
+## Configuration
+
+### `.env`
+
+Created by `node setup.js`. Only `GEMINI_API_KEY` is required — everything else has defaults:
+
+```env
+# Required
+GEMINI_API_KEY=your-key-here
+
+# Optional — uncomment to customize
+# GEMINI_MODEL=gemini-2.5-flash
+# VIDEO_SPEED=1.5
+# THINKING_BUDGET=24576
+# LOG_LEVEL=info
+
+# Optional — Firebase (or just use --skip-upload)
+# FIREBASE_API_KEY=...
+# FIREBASE_AUTH_DOMAIN=...
+# FIREBASE_PROJECT_ID=...
+# FIREBASE_STORAGE_BUCKET=...
+```
+
+> Full variable list + video encoding parameters → [ARCHITECTURE.md](ARCHITECTURE.md#tech-stack)
 
 ---
 
@@ -279,214 +324,45 @@ You also get a **`your_tasks`** section scoped to the `--name` you provide — o
 |---------|-------------|
 | **Video Compression** | H.264 CRF 24, text-optimized sharpening, configurable speed |
 | **Smart Segmentation** | ≤5 min chunks with boundary-aware splitting |
-| **Cross-Segment Continuity** | Ticket IDs, names, and context carry forward across segments |
-| **Document Discovery** | Auto-finds `.vtt`, `.pdf`, `.md`, `.txt`, `.csv`, `.srt` in your call folder |
-| **Quality Gate** | 4-dimension scoring with auto-retry on low quality |
-| **Focused Re-Analysis** | Targeted second pass on weak areas only |
-| **Learning Loop** | Auto-tunes thinking budgets based on past run quality |
-| **Diff Engine** | Shows what changed between analysis runs |
-| **Confidence Scoring** | Every item rated HIGH / MEDIUM / LOW with evidence |
-| **Git Progress Tracking** | Correlates git commits with extracted items |
-| **Deep Dive Mode** | `--deep-dive` generates explanatory docs per topic discussed |
-| **Dynamic Mode** | `--dynamic` generates docs from any content — videos + documents |
-| **Interactive Selection** | Run without args to browse and select available folders |
-| **Resume / Checkpoint** | `--resume` picks up where you left off |
-| **Firebase Upload** | Team access via cloud storage (optional) |
-| **Structured Logging** | JSONL logs with timing and phase spans |
+| **Cross-Segment Continuity** | Ticket IDs, names, and context carry forward |
+| **Document Discovery** | Auto-finds docs in all subfolders |
+| **Quality Gate** | 4-dimension scoring with auto-retry |
+| **Focused Re-Analysis** | Targeted second pass on weak areas |
+| **Learning Loop** | Auto-tunes budgets from past run quality |
+| **Diff Engine** | Shows what changed between runs |
+| **Confidence Scoring** | Every item rated HIGH/MEDIUM/LOW with evidence |
+| **Model Selection** | 5 Gemini models — interactive picker or `--model` |
+| **Git Progress Tracking** | Correlates commits with extracted items |
+| **Deep Dive** | Explanatory docs per topic discussed |
+| **Dynamic Mode** | Generate docs from any content mix |
+| **Interactive CLI** | Run with no args → guided experience |
+| **Resume / Checkpoint** | `--resume` continues interrupted runs |
+| **Firebase Upload** | Team access via cloud (optional) |
+
+> Technical details on each feature → [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ---
 
-## Document Patterns
+## Updating
 
-The pipeline discovers documents in your call folder to give the AI context. Better docs = better extraction.
-
-### Recommended Call Folder Structure
-
-```
-my-call/
-├── Recording.mp4                      Video (required)
-├── Recording.vtt                      Subtitles (highly recommended)
-├── meeting-notes.md                   Loose docs at root — scanned automatically
-├── agenda.md                          Meeting agenda / context
-│
-├── .tasks/                            High-priority context folder (optional)
-│   ├── code-map.md                    What each module/component does
-│   ├── current-sprint.md              Sprint goals & assigned tickets
-│   └── team.csv                       Name, role, email for attribution
-│
-├── specs/                             Any subfolder name works
-│   ├── requirements.md                Requirements or acceptance criteria
-│   └── api-contract.md                API specs, schemas, etc.
-│
-├── research/                          Add as many context folders as needed
-│   └── competitor-analysis.md
-│
-├── compressed/                        ← Generated
-├── runs/                              ← Generated
-└── gemini_runs/                       ← Generated
+```bash
+git checkout main && git pull
 ```
 
-> The pipeline recursively discovers **all** documents in **every** subfolder. Use whatever folder structure fits your project — `.tasks/` receives priority weighting in the AI prompt, but all folders are included.
-
-### What Helps Most
-
-| Document | Impact |
-|----------|--------|
-| **Subtitles (`.vtt`/`.srt`)** | Dramatically improves name, ID, and terminology extraction |
-| **Context folders** | Any subfolders (`.tasks/`, `specs/`, `docs/`, etc.) are recursively scanned and sent to AI |
-| **Agenda / notes** | Guides AI focus and helps resolve ambiguous references |
-| **Team roster (`.csv`)** | Accurate attribution of action items to people |
-| **Code map / architecture docs** | AI matches change requests to actual files and modules |
-| **Sprint/board exports** | Helps determine current status of discussed items |
-
-### Adapting Context Folders to Your Use Case
-
-Use any folder names and nesting — the pipeline scans everything. `.tasks/` gets the highest priority weighting but all folders are included.
-
-| Use Case | Recommended Structure |
-|----------|----------------------|
-| **Dev calls** | `.tasks/code-map.md`, `.tasks/current-sprint.md`, `docs/tech-debt.md` |
-| **Client meetings** | `requirements/scope.md`, `contracts/sow.md`, `.tasks/stakeholders.csv` |
-| **Interviews** | `role/job-description.md`, `role/evaluation-rubric.md`, `candidates/notes.md` |
-| **Incident reviews** | `systems/architecture.md`, `runbooks/service-x.md`, `timeline/incident.md` |
-| **Training** | `curriculum/outline.md`, `materials/prerequisites.md`, `resources/links.md` |
+Your call folders, `.env`, logs, and videos are all `.gitignore`d — nothing gets lost.
 
 ---
 
-## Prerequisites
+## Troubleshooting
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| **Node.js** | ≥ 18 | v24 tested |
-| **ffmpeg** | any | Must be in PATH — [download](https://www.gyan.dev/ffmpeg/builds/) |
-| **Git** | any | Optional — only for `--update-progress` |
-| **Gemini API Key** | — | [Google AI Studio](https://aistudio.google.com/apikey) |
-
----
-
-## Configuration
-
-### Environment Variables (`.env`)
-
-| Variable | Default | Required? |
-|----------|---------|-----------|
-| `GEMINI_API_KEY` | — | **Yes** |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | No |
-| `FIREBASE_*` (7 fields) | — | No — skip with `--skip-upload` |
-| `VIDEO_SPEED` | `1.5` | No |
-| `VIDEO_SEGMENT_TIME` | `280` (seconds) | No |
-| `THINKING_BUDGET` | `24576` | No |
-| `DEEP_DIVE_THINKING_BUDGET` | `16384` | No |
-| `LOG_LEVEL` | `info` | No |
-
-> Full variable list + encoding parameters → [ARCHITECTURE.md](ARCHITECTURE.md)
-
-### CLI Reference
-
-```
-Usage: node process_and_upload.js [options] [folder]
-
-If no folder is specified, shows an interactive folder selector.
-
-Modes:
-  (default)                Video analysis — compress, analyze, extract, compile
-  --dynamic                Dynamic mode — auto-detect videos + docs
-  --update-progress        Track item completion via git
-  --deep-dive              Generate explanatory docs per topic (after video analysis)
-
-Core:
-  --name <name>            Your name (skips prompt)
-  --model <id>             Gemini model to use (skips interactive selector)
-  --skip-upload            Skip Firebase uploads
-  --skip-compression       Skip video compression (use existing segments)
-  --skip-gemini            Skip Gemini AI analysis
-  --resume                 Resume from checkpoint
-  --reanalyze              Force re-analysis
-  --dry-run                Show plan without executing
-
-Dynamic Mode:
-  --dynamic                Enable dynamic mode (videos + docs)
-  --request <text>         What to generate (prompted if omitted)
-
-Progress:
-  --update-progress        Track item completion via git
-  --repo <path>            Project git repo path
-
-Deep Dive:
-  --deep-dive              Generate explanatory docs for each topic discussed
-
-Tuning:
-  --thinking-budget <n>    Thinking tokens per segment (default: 24576)
-  --compilation-thinking-budget <n>
-                           Thinking tokens for compilation (default: 10240)
-  --parallel <n>           Max parallel uploads (default: 3)
-  --parallel-analysis <n>  Concurrent segment analysis (default: 2)
-  --log-level <level>      debug / info / warn / error
-  --output <dir>           Custom output directory for results
-  --no-focused-pass        Disable focused re-analysis
-  --no-learning            Disable learning loop
-  --no-diff                Disable diff comparison
-
-Info:
-  --help, -h               Show help
-  --version, -v            Show version
-```
-
----
-
-## Output Structure
-
-### After Analysis
-
-```
-my-call/
-├── compressed/
-│   └── Meeting Recording/
-│       ├── segment_00.mp4
-│       └── ...
-└── runs/
-    └── 2026-02-24T16-22-28/
-        ├── results.md            Human-readable task document
-        ├── results.json          Pipeline metadata + per-segment data
-        └── compilation.json      All extracted items (JSON)
-```
-
-### After Deep Dive (`--deep-dive`)
-
-```
-my-call/
-└── runs/
-    └── 2026-02-24T16-22-28/
-        └── deep-dive/
-            ├── INDEX.md              Topic index grouped by category
-            ├── dd-01-topic-slug.md   Individual topic document
-            ├── dd-02-topic-slug.md   ...
-            └── deep-dive.json        Metadata + token usage
-```
-
-### After Dynamic Mode (`--dynamic`)
-
-```
-my-project/
-└── runs/
-    └── 2026-02-26T10-30-00/
-        ├── INDEX.md              Document set index with cross-links
-        ├── dm-01-overview.md     Overview document
-        ├── dm-02-guide.md        Step-by-step guide
-        ├── dm-03-analysis.md     Analysis document
-        ├── ...                   More documents per planned topic
-        └── dynamic-run.json      Metadata + token usage
-```
-
-### After Progress Update
-
-```
-my-call/
-└── runs/
-    └── 2026-02-25T14-30-00/
-        ├── progress.md           Status report with git evidence
-        └── progress.json         Full progress data
-```
+| Problem | Fix |
+|---------|-----|
+| `ffmpeg not found` | [Download](https://www.gyan.dev/ffmpeg/builds/) → add to PATH |
+| `GEMINI_API_KEY not set` | Edit `.env` → paste key from [AI Studio](https://aistudio.google.com/apikey) |
+| `ECONNREFUSED` | Check your internet — Gemini API needs network |
+| Videos are slow | Normal — ~30-60s per 5-min segment |
+| JSON parse warnings | Expected — the parser has 5 fallback strategies |
+| Something else broken | `node setup.js --check` validates everything |
 
 ---
 
@@ -495,66 +371,66 @@ my-call/
 ```
 task-summary-extractor/
 ├── process_and_upload.js       Entry point
-├── setup.js                    Automated setup & validation
+├── setup.js                    First-time setup & validation
 ├── package.json                Dependencies & scripts
-├── prompt.json                 Gemini extraction schema
-├── .gitignore                  Excludes local data & videos
+├── prompt.json                 Gemini extraction prompt
 │
 ├── src/
-│   ├── config.js               Configuration
-│   ├── logger.js               Structured logger
-│   ├── pipeline.js             8-phase orchestrator
+│   ├── config.js               Config, model registry, env vars
+│   ├── logger.js               Structured JSONL logger
+│   ├── pipeline.js             Multi-mode orchestrator (1,710 lines)
 │   ├── services/
-│   │   ├── firebase.js         Firebase Storage
 │   │   ├── gemini.js           Gemini AI analysis
-│   │   ├── git.js              Git CLI wrapper
-│   │   └── video.js            ffmpeg compression
+│   │   ├── firebase.js         Firebase Storage
+│   │   ├── video.js            ffmpeg compression
+│   │   └── git.js              Git CLI wrapper
 │   ├── renderers/
 │   │   └── markdown.js         Report renderer
-│   └── utils/                  19 utility modules
-│       ├── cli.js              Interactive prompts, --model selector, --help
+│   └── utils/                  19 modules — see ARCHITECTURE.md
 │
-├── QUICK_START.md              Getting started guide
-├── ARCHITECTURE.md             Technical deep dive & diagrams
-└── EXPLORATION.md              Feature roadmap
+├── QUICK_START.md              Step-by-step setup guide
+├── ARCHITECTURE.md             Technical deep dive
+└── EXPLORATION.md              Roadmap & future features
 ```
+
+> Full module map with line counts → [EXPLORATION.md](EXPLORATION.md#full-module-map)
 
 ---
 
 ## npm Scripts
 
-| Script | Command | Description |
-|--------|---------|-------------|
-| `npm run setup` | `node setup.js` | First-time setup |
-| `npm run check` | `node setup.js --check` | Validate environment |
-| `npm start` | `node process_and_upload.js` | Run the pipeline |
-| `npm run help` | `node process_and_upload.js --help` | Show CLI help |
+| Script | What |
+|--------|------|
+| `npm run setup` | First-time setup |
+| `npm run check` | Validate environment |
+| `npm start` | Run the pipeline |
+| `npm run help` | Show CLI help |
 
 ---
 
 ## Version History
 
-| Version | Theme | Highlights |
-|---------|-------|-----------|
-| **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
-| **v7.1** | Dynamic + Video | `--dynamic` now processes videos: compress, segment, analyze — works with any content |
-| **v7.0** | Dynamic Mode | `--dynamic` doc-only mode, interactive folder selection, fully flexible pipeline |
-| **v6.2** | Deep Dive | `--deep-dive` generates explanatory docs per topic, 8 content categories |
-| **v6.1** | Change Detection | Git progress tracking, AI correlation, `--update-progress` |
-| **v6** | Self-Improving | Confidence scoring, focused re-analysis, learning loop, diff engine |
-| **v5** | Smart & Accurate | Quality gate, adaptive budgets, health dashboard |
-| **v4** | Architecture | 8-phase pipeline, cost tracking, configurable budgets |
-| **v3** | Core | Logger, retry logic, CLI args, checkpoints, parallel uploads |
+| Version | Highlights |
+|---------|-----------|
+| **v7.2** | Interactive model selector, `--model` flag, 5-model registry |
+| **v7.1** | `--dynamic` processes videos too — any content mix |
+| **v7.0** | Dynamic mode, interactive folder selection |
+| **v6.2** | `--deep-dive` → topic docs |
+| **v6.1** | Git progress tracking, `--update-progress` |
+| **v6** | Confidence scoring, learning loop, diff engine |
+| **v5** | Quality gate, adaptive budgets |
+| **v4** | 8-phase pipeline, cost tracking |
+| **v3** | Logger, retry logic, checkpoints |
 
 ---
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| **[QUICK_START.md](QUICK_START.md)** | 5-minute setup to first analysis |
-| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Technical deep dive — processing flows, algorithms, diagrams |
-| **[EXPLORATION.md](EXPLORATION.md)** | Feature roadmap & architecture exploration |
+| Doc | What's In It | When to Read |
+|-----|-------------|-------------|
+| 📖 **[QUICK_START.md](QUICK_START.md)** | Full setup walkthrough, examples, troubleshooting | First time using the tool |
+| 🏗️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | Pipeline phases, algorithms, Mermaid diagrams | Understanding how it works |
+| 🔭 **[EXPLORATION.md](EXPLORATION.md)** | Module map, line counts, future roadmap | Contributing or extending |
 
 ---
 
