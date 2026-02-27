@@ -507,7 +507,7 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 29 files · 10,626 lines**
+**Codebase: 30 files · ~10,000 lines**
 
 ---
 

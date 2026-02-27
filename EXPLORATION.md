@@ -1,7 +1,7 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 6.1.0** — February 2026  
-> A self-improving pipeline that compresses developer call recordings, analyzes them with Gemini AI, and produces structured task documents with confidence-scored tickets, change requests, action items, and personalized task lists — now with focused re-analysis, cross-run diff intelligence, a learning loop that tunes itself over time, and smart git-based progress tracking.
+> **Version 7.2.0** — February 2026  
+> A multi-mode AI pipeline: analyze recorded calls, generate documents from any context, or deep-dive into topics — with interactive model selection (5 Gemini models), confidence scoring, focused re-analysis, cross-run diff intelligence, a learning loop that tunes itself over time, and smart git-based progress tracking.
 
 ---
 
@@ -16,7 +16,7 @@
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
-│                       pipeline.js (1,323 lines)                     │
+│                       pipeline.js (1,710 lines)                     │
 │                    8-Phase Orchestrator                              │
 │                                                                     │
 │  Init ──────► Discover ──► Services ──► ProcessVideo ──► Compile    │
@@ -40,16 +40,16 @@
 │Services│ │  Utils   │ │Renderers│ │Logger│ │  Config   │
 │        │ │          │ │         │ │      │ │           │
 │gemini  │ │quality   │ │markdown │ │JSONL │ │dotenv     │
-│firebase│ │-gate     │ │(969 ln) │ │struct│ │validation │
+│firebase│ │-gate     │ │(879 ln) │ │struct│ │validation │
 │video   │ │focused   │ │+ conf   │ │spans │ │env helpers│
-│        │ │-reanalysis│ │  badges│ │phases│ │           │
+│git     │ │-reanalysis│ │  badges│ │phases│ │model reg  │
 │        │ │learning  │ │+ diff   │ │metrics│ │           │
 │        │ │-loop     │ │ section │ │      │ │           │
 │        │ │diff      │ │         │ │      │ │           │
 │        │ │-engine   │ │         │ │      │ │           │
 │        │ │adapt-budg│ │         │ │      │ │           │
 │        │ │context   │ │         │ │      │ │           │
-│        │ │+9 more   │ │         │ │      │ │           │
+│        │ │+12 more  │ │         │ │      │ │           │
 └────────┘ └──────────┘ └─────────┘ └──────┘ └───────────┘
 ```
 
@@ -57,14 +57,15 @@
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Pipeline orchestrator | 1 | 1,323 |
-| Services (Gemini, Firebase, Video) | 3 | 986 |
-| Utilities (15 modules) | 15 | 3,263 |
-| Renderers | 1 | 969 |
-| Config + Logger | 2 | 527 |
-| Entry point | 1 | 67 |
+| Pipeline orchestrator | 1 | 1,710 |
+| Services (Gemini, Firebase, Video, Git) | 4 | 1,216 |
+| Utilities (19 modules) | 19 | 4,863 |
+| Renderers | 1 | 879 |
+| Config + Logger | 2 | 580 |
+| Entry point | 1 | 62 |
+| Setup script | 1 | 417 |
 | Prompt (JSON) | 1 | 265 |
-| **Total** | **24 files** | **7,400 lines** |
+| **Total** | **30 files** | **9,992 lines** |
 
 ### Version History
 
@@ -75,6 +76,10 @@
 | **v5** | Smart & Accurate | Quality Gate (4-dimension scoring), auto-retry with corrective hints, adaptive thinking budget, smart boundary detection, health dashboard, enhanced prompt engineering, compilation quality assessment |
 | **v6** | Self-Improving Intelligence | Confidence scoring per item, focused re-analysis for weak areas, learning loop (historical auto-tuning), diff-aware compilation (cross-run deltas), structured JSONL logging with phase spans, confidence badges in Markdown |
 | **v6.1** | Smart Change Detection | Git-based progress tracking, AI-powered change correlation, automatic item status assessment (DONE/IN_PROGRESS/NOT_STARTED), progress markdown reports, `--update-progress` mode |
+| **v6.2** | Deep Dive | `--deep-dive` generates explanatory docs per topic, 8 content categories |
+| **v7.0** | Dynamic Mode | `--dynamic` doc-only mode, interactive folder selection, fully flexible pipeline |
+| **v7.1** | Dynamic + Video | `--dynamic` now processes videos: compress, segment, analyze — works with any content |
+| **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 
 ### What v6 Delivers
 
@@ -192,25 +197,45 @@ The logger now writes **three parallel outputs**:
 ### CLI Reference
 
 ```
-Usage: node process_and_upload.js [options] <folder>
+Usage: node process_and_upload.js [options] [folder]
 
-Options:
+If no folder is specified, shows an interactive folder selector.
+
+Modes:
+  (default)                         Video analysis — compress, analyze, extract, compile
+  --dynamic                         Document-only mode — no video required
+  --update-progress                 Track item completion via git
+  --deep-dive                       Generate explanatory docs per topic discussed
+
+Core Options:
   --name <name>                     Your name (skips interactive prompt)
+  --model <id>                      Gemini model to use (skips interactive selector)
   --skip-upload                     Skip Firebase Storage uploads
   --skip-compression                Skip video compression (use existing segments)
   --skip-gemini                     Skip Gemini AI analysis
   --resume                          Resume from last checkpoint
   --reanalyze                       Force re-analysis of all segments
+  --dry-run                         Show what would be done without executing
+
+Dynamic Mode:
+  --dynamic                         Enable document-only mode
+  --request <text>                  What to generate (prompted if omitted)
+
+Progress Tracking:
+  --repo <path>                     Path to the project git repo
+
+Tuning:
   --parallel <n>                    Max parallel uploads (default: 3)
   --parallel-analysis <n>           Concurrent segment analysis batches (default: 2)
-  --log-level <level>               debug | info | warn | error (default: info)
-  --output <dir>                    Custom output directory for results
   --thinking-budget <n>             Thinking tokens per segment (default: 24576)
   --compilation-thinking-budget <n> Thinking tokens for compilation (default: 10240)
+  --log-level <level>               debug | info | warn | error (default: info)
+  --output <dir>                    Custom output directory for results
   --no-focused-pass                 Disable focused re-analysis
   --no-learning                     Disable learning loop
   --no-diff                         Disable diff comparison
-  --dry-run                         Show what would be done without executing
+
+Info:
   --help, -h                        Show help
   --version, -v                     Show version
 ```
@@ -219,34 +244,40 @@ Options:
 
 ```
 src/
-├── config.js                175 ln  Central config, env vars, validation
-├── logger.js                352 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
-├── pipeline.js            1,323 ln  8-phase orchestrator with learning loop + focused re-analysis + diff engine
+├── config.js                277 ln  Central config, env vars, model registry, validation
+├── logger.js                303 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
+├── pipeline.js            1,710 ln  Multi-mode orchestrator with learning loop + focused re-analysis + diff engine + deep-dive + dynamic
 ├── renderers/
-│   └── markdown.js          969 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
+│   └── markdown.js          879 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
 ├── services/
-│   ├── firebase.js          104 ln  Init, upload, exists check (with retry)
-│   ├── gemini.js            597 ln  Init, doc prep, segment analysis, compilation
-│   └── video.js             285 ln  ffmpeg compress, segment, probe, verify
+│   ├── firebase.js           90 ln  Init, upload, exists check (with retry)
+│   ├── gemini.js            614 ln  Init, doc prep, segment analysis, compilation, deep-dive, dynamic
+│   ├── git.js               258 ln  ★ v6.1 — Git CLI wrapper: log, diff, status, changed files
+│   └── video.js             254 ln  ffmpeg compress, segment, probe, verify
 └── utils/
-    ├── adaptive-budget.js   269 ln  ★ v5 — Transcript complexity → dynamic budget
-    ├── cli.js               102 ln  ★ v6 — 16 flags including --no-focused-pass, --no-learning, --no-diff
-    ├── context-manager.js   502 ln  4-tier priority, VTT slicing, progressive context, boundary detection
-    ├── cost-tracker.js      158 ln  Token counting, USD cost estimation (+ focused pass tracking)
-    ├── diff-engine.js       316 ln  ★ v6 — Cross-run delta: new/removed/changed items, Markdown rendering
-    ├── focused-reanalysis.js 318 ln ★ v6 — Weakness detection, targeted second pass, intelligent merge
-    ├── format.js             33 ln  Duration, bytes formatting
-    ├── fs.js                 40 ln  Recursive doc finder
-    ├── health-dashboard.js  217 ln  ★ v5 — Quality report, density bars, efficiency metrics
-    ├── json-parser.js       246 ln  5-strategy JSON extraction + repair
-    ├── learning-loop.js     302 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
-    ├── progress.js          167 ln  Checkpoint/resume persistence
-    ├── prompt.js             33 ln  Interactive user prompts
-    ├── quality-gate.js      430 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
-    └── retry.js             130 ln  Exponential backoff, parallel map
+    ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
+    ├── change-detector.js   417 ln  ★ v6.1 — Git-based change correlation engine
+    ├── cli.js               336 ln  ★ v7.2 — Interactive prompts, model selector, folder picker, 20+ flags
+    ├── context-manager.js   426 ln  4-tier priority, VTT slicing, progressive context, boundary detection
+    ├── cost-tracker.js      140 ln  Token counting, USD cost estimation (+ focused pass tracking)
+    ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
+    ├── diff-engine.js       280 ln  ★ v6 — Cross-run delta: new/removed/changed items, Markdown rendering
+    ├── dynamic-mode.js      494 ln  ★ v7.0 — Context-only doc generation, topic planning, parallel writing
+    ├── focused-reanalysis.js 268 ln ★ v6 — Weakness detection, targeted second pass, intelligent merge
+    ├── format.js             27 ln  Duration, bytes formatting
+    ├── fs.js                 34 ln  Recursive doc finder
+    ├── health-dashboard.js  191 ln  ★ v5 — Quality report, density bars, efficiency metrics
+    ├── json-parser.js       216 ln  5-strategy JSON extraction + repair
+    ├── learning-loop.js     270 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
+    ├── progress.js          145 ln  Checkpoint/resume persistence
+    ├── progress-updater.js  402 ln  ★ v6.1 — AI-powered progress assessment, status report generation
+    ├── prompt.js             28 ln  Interactive user prompts
+    ├── quality-gate.js      372 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
+    └── retry.js             112 ln  Exponential backoff, parallel map
 
 prompt.json                  265 ln  ★ v6 — Confidence scoring instructions, evidence-based schema
-process_and_upload.js         67 ln  Entry point, HELP_SHOWN handler
+process_and_upload.js         62 ln  Entry point, HELP_SHOWN handler
+setup.js                     417 ln  Automated first-time setup & environment validation
 ```
 
 ---
@@ -260,12 +291,15 @@ The following features from the original exploration have been **fully implement
 | Feature | Status | Implemented In |
 |---------|--------|----------------|
 | 📊 Confidence Scoring Per Extracted Item | ✅ Done | `prompt.json`, `quality-gate.js`, `markdown.js` |
-| 🔄 Multi-Pass Analysis (Focused Re-extraction) | ✅ Done | `focused-reanalysis.js` (318 ln), pipeline integration |
-| 🧠 Learning & Improvement Loop | ✅ Done | `learning-loop.js` (302 ln), pipeline init + save |
-| 📝 Diff-Aware Compilation | ✅ Done | `diff-engine.js` (316 ln), pipeline output + MD |
-| 🔍 Structured Logging & Observability | ✅ Done | `logger.js` rewritten (352 ln), JSONL + spans + metrics |
+| 🔄 Multi-Pass Analysis (Focused Re-extraction) | ✅ Done | `focused-reanalysis.js` (268 ln), pipeline integration |
+| 🧠 Learning & Improvement Loop | ✅ Done | `learning-loop.js` (270 ln), pipeline init + save |
+| 📝 Diff-Aware Compilation | ✅ Done | `diff-engine.js` (280 ln), pipeline output + MD |
+| 🔍 Structured Logging & Observability | ✅ Done | `logger.js` rewritten (303 ln), JSONL + spans + metrics |
 | Parallel segment analysis (via CLI) | ✅ Done | `--parallel-analysis` flag, pipeline batching |
-| 🔎 Smart Change Detection & Progress Tracking | ✅ Done | `git.js` (280 ln), `change-detector.js` (310 ln), `progress-updater.js` (320 ln), pipeline `--update-progress` mode |
+| 🔎 Smart Change Detection & Progress Tracking | ✅ Done | `git.js` (258 ln), `change-detector.js` (417 ln), `progress-updater.js` (402 ln), pipeline `--update-progress` mode |
+| 🗓️ Deep Dive Document Generation | ✅ Done | `deep-dive.js` (473 ln), pipeline phase 9 |
+| 📝 Dynamic Mode (doc-only generation) | ✅ Done | `dynamic-mode.js` (494 ln), pipeline `--dynamic` route |
+| 🤖 Runtime Model Selection | ✅ Done | `config.js` model registry, `cli.js` selector, `--model` flag |
 
 ---
 
@@ -310,7 +344,8 @@ The following features from the original exploration have been **fully implement
 
 #### 🤖 Multi-Model Support
 **What**: Support different AI models beyond Gemini — OpenAI GPT-4o, Claude, Llama local models.  
-**How**: Abstract the AI service behind a provider interface. Each provider implements: `upload()`, `analyze()`, `compile()`. Config selects the active provider.  
+**Status**: *Partially implemented in v7.2* — runtime model selection across 5 Gemini models with `--model` flag and interactive selector. Full multi-provider abstraction (OpenAI, Claude, local) remains a future enhancement.  
+**Next step**: Abstract the AI service behind a provider interface. Each provider implements: `upload()`, `analyze()`, `compile()`. Config selects the active provider.  
 **Impact**: Users choose the best model for their budget/accuracy needs. Can run local models for sensitive content. Enables A/B testing between models.
 
 #### 📱 Mobile App / Bot
@@ -369,7 +404,7 @@ The following features from the original exploration have been **fully implement
 
 ### Recommended Next Sprint
 
-Based on impact vs. effort, here's a suggested 5-item sprint building on v6:
+Based on impact vs. effort, here's a suggested 5-item sprint building on v7.2:
 
 1. **Test suite foundation** — Jest setup + tests for quality-gate, adaptive-budget, json-parser, focused-reanalysis, diff-engine, learning-loop (1.5 days)
 2. **Web dashboard / viewer** — Self-contained HTML report with filtering and video timestamp links (2 days)
@@ -381,4 +416,4 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v6.0.0 codebase — 24 files, 7,400 lines of self-improving pipeline intelligence.*
+*Generated from the v7.2.0 codebase — 30 files, ~10,000 lines of self-improving pipeline intelligence.*

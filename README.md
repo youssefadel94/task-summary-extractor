@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v7.0.0** — AI-powered meeting analysis & dynamic document generation pipeline  
+> **v7.2.0** — AI-powered meeting analysis & dynamic document generation pipeline  
 > Analyze recorded calls OR generate documents from any context — all from the CLI.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-7.0.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-7.2.0-brightgreen" alt="Version" />
 </p>
 
 ---
@@ -396,7 +396,10 @@ Modes:
 
 Core:
   --name <name>            Your name (skips prompt)
+  --model <id>             Gemini model to use (skips interactive selector)
   --skip-upload            Skip Firebase uploads
+  --skip-compression       Skip video compression (use existing segments)
+  --skip-gemini            Skip Gemini AI analysis
   --resume                 Resume from checkpoint
   --reanalyze              Force re-analysis
   --dry-run                Show plan without executing
@@ -414,8 +417,12 @@ Deep Dive:
 
 Tuning:
   --thinking-budget <n>    Thinking tokens per segment (default: 24576)
+  --compilation-thinking-budget <n>
+                           Thinking tokens for compilation (default: 10240)
+  --parallel <n>           Max parallel uploads (default: 3)
   --parallel-analysis <n>  Concurrent segment analysis (default: 2)
   --log-level <level>      debug / info / warn / error
+  --output <dir>           Custom output directory for results
   --no-focused-pass        Disable focused re-analysis
   --no-learning            Disable learning loop
   --no-diff                Disable diff comparison
@@ -505,6 +512,7 @@ task-summary-extractor/
 │   ├── renderers/
 │   │   └── markdown.js         Report renderer
 │   └── utils/                  19 utility modules
+│       ├── cli.js              Interactive prompts, --model selector, --help
 │
 ├── QUICK_START.md              Getting started guide
 ├── ARCHITECTURE.md             Technical deep dive & diagrams
@@ -528,6 +536,7 @@ task-summary-extractor/
 
 | Version | Theme | Highlights |
 |---------|-------|-----------|
+| **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 | **v7.1** | Dynamic + Video | `--dynamic` now processes videos: compress, segment, analyze — works with any content |
 | **v7.0** | Dynamic Mode | `--dynamic` doc-only mode, interactive folder selection, fully flexible pipeline |
 | **v6.2** | Deep Dive | `--deep-dive` generates explanatory docs per topic, 8 content categories |
