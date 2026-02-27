@@ -242,20 +242,35 @@ function buildDocBridgeText(contextDocs) {
  * Returns a complete model run record (run, input, output).
  */
 async function processWithGemini(ai, filePath, displayName, contextDocs = [], previousAnalyses = [], userName = '', scriptDir = __dirname, segmentOpts = {}) {
-  // segmentOpts: { segmentIndex, totalSegments, segmentStartSec, segmentEndSec, thinkingBudget, boundaryContext, retryHints, existingFileUri, existingFileMime, existingGeminiFileName }
+  // segmentOpts: { segmentIndex, totalSegments, segmentStartSec, segmentEndSec, thinkingBudget, boundaryContext, retryHints, existingFileUri, existingFileMime, existingGeminiFileName, storageDownloadUrl }
   const { segmentIndex = 0, totalSegments = 1, segmentStartSec, segmentEndSec, thinkingBudget = 24576,
           boundaryContext = null, retryHints = [],
-          existingFileUri = null, existingFileMime = 'video/mp4', existingGeminiFileName = null } = segmentOpts;
+          existingFileUri = null, existingFileMime = 'video/mp4', existingGeminiFileName = null,
+          storageDownloadUrl = null } = segmentOpts;
 
   // 1. Load structured prompt
   const { systemInstruction, promptText } = loadPrompt(scriptDir);
 
-  // 2. Upload video to Gemini File API (or reuse existing URI)
+  // 2. Resolve video file reference (3 strategies, in priority order):
+  //    a) Reuse existing Gemini File API URI (retry / focused pass)
+  //    b) Use Firebase Storage download URL as External URL (skip Gemini upload)
+  //    c) Upload to Gemini File API as fallback
   let file;
+  let usedExternalUrl = false;
+
   if (existingFileUri) {
+    // Strategy A: Reuse Gemini File API URI from a previous pass
     file = { uri: existingFileUri, mimeType: existingFileMime, name: existingGeminiFileName, state: 'ACTIVE' };
     console.log(`    Reusing Gemini File API URI (skip upload)`);
+  } else if (storageDownloadUrl) {
+    // Strategy B: Use Firebase Storage download URL as Gemini External URL
+    // Supported for models >= 2.5; limit 100MB per payload.
+    // Gemini fetches the file on-demand — no separate upload + polling needed.
+    file = { uri: storageDownloadUrl, mimeType: 'video/mp4', name: null, state: 'ACTIVE' };
+    usedExternalUrl = true;
+    console.log(`    Using Firebase Storage URL as external reference (skip Gemini upload)`);
   } else {
+    // Strategy C: Upload to Gemini File API (default fallback)
     console.log(`    Uploading to Gemini File API...`);
     file = await withRetry(
       () => ai.files.upload({
@@ -419,7 +434,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       systemInstruction,
     },
     input: {
-      videoFile: { mimeType: file.mimeType, fileUri: file.uri, displayName, geminiFileName: file.name },
+      videoFile: { mimeType: file.mimeType, fileUri: file.uri, displayName, geminiFileName: file.name, usedExternalUrl },
       contextDocuments: contextDocs.map(d => ({ fileName: d.fileName, type: d.type })),
       previousSegmentCount: previousAnalyses.length,
       parts: inputSummary,

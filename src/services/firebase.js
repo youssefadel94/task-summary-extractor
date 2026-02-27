@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { FIREBASE_CONFIG, MIME_MAP } = require('../config');
 const { withRetry } = require('../utils/retry');
+const { ref, uploadBytes, getDownloadURL } = require('firebase/storage');
 
 // Cached Firebase instances — avoid re-initializing
 let _app = null;
@@ -62,7 +63,6 @@ async function initFirebase() {
  * @returns {Promise<string>} Download URL
  */
 async function uploadToStorage(storage, filePath, storagePath) {
-  const { ref, uploadBytes, getDownloadURL } = require('firebase/storage');
 
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_MAP[ext] || 'application/octet-stream';
@@ -70,7 +70,7 @@ async function uploadToStorage(storage, filePath, storagePath) {
   if (!fs.existsSync(filePath)) {
     throw new Error(`File not found for upload: ${filePath}`);
   }
-  const fileBuffer = fs.readFileSync(filePath);
+  const fileBuffer = await fs.promises.readFile(filePath);
 
   return withRetry(async () => {
     const fileRef = ref(storage, storagePath);
@@ -89,7 +89,6 @@ async function uploadToStorage(storage, filePath, storagePath) {
  * Retries on transient network errors.
  */
 async function storageExists(storage, storagePath) {
-  const { ref, getDownloadURL } = require('firebase/storage');
   try {
     return await withRetry(async () => {
       const fileRef = ref(storage, storagePath);

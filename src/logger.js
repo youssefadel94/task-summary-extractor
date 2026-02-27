@@ -233,7 +233,7 @@ class Logger {
   /** Both logs — standard info */
   info(msg, data = null) {
     if (!this._shouldLog('info')) return;
-    this._writeDetailed(`${this._ts()} INFO ${msg}`);
+    this._writeBoth(`${this._ts()} INFO ${msg}`);
     this._writeStructured({ event: 'log', level: 'info', message: msg, ...(data ? { data } : {}) });
   }
 

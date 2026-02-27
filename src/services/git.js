@@ -206,7 +206,7 @@ function getChangedFilesSince(repoPath, sinceISO) {
  * @returns {string} Human-readable diff summary
  */
 function getDiffSummary(repoPath, sinceISO) {
-  const commits = getCommitsSince(repoPath, sinceISO, 1);
+  const commits = getCommitsSince(repoPath, sinceISO);
   if (commits.length === 0) return 'No changes';
 
   const oldestHash = commits[commits.length - 1].hash;
@@ -228,7 +228,7 @@ function getDiffSummary(repoPath, sinceISO) {
  * @returns {string} Diff content (may be truncated)
  */
 function getDiffContent(repoPath, sinceISO, maxBytes = 100000) {
-  const commits = getCommitsSince(repoPath, sinceISO, 1);
+  const commits = getCommitsSince(repoPath, sinceISO);
   if (commits.length === 0) return '';
 
   const oldestHash = commits[commits.length - 1].hash;

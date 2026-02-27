@@ -233,10 +233,10 @@ WRITING RULES:
 5. Reference other documents in the set using their titles where relevant (e.g., "See [Document Title]").
 6. Ground content in ALL provided context — video recordings AND documents when available.
 7. If video content is provided, use specific details, quotes, and decisions from the video.
-7. Be practical and actionable — include concrete examples, steps, or recommendations.
-8. DO NOT include YAML frontmatter or metadata blocks.
-9. Start with a level-1 heading (# Title) followed by a brief introduction.
-10. Include a "Summary" or "Key Takeaways" section at the end for longer docs.
+8. Be practical and actionable — include concrete examples, steps, or recommendations.
+9. DO NOT include YAML frontmatter or metadata blocks.
+10. Start with a level-1 heading (# Title) followed by a brief introduction.
+11. Include a "Summary" or "Key Takeaways" section at the end for longer docs.
 
 START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):`;
 

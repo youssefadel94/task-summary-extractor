@@ -740,6 +740,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             segmentEndSec: segmentMeta[j].endTimeSec,
             thinkingBudget: adaptiveBudget,
             boundaryContext: boundaryCtx,
+            storageDownloadUrl: storageUrl || null,
           }
         );
 
@@ -751,9 +752,11 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         log.debug(`Gemini model run saved → ${runFilePath}`);
 
         // Capture Gemini File API URI for reuse in retry / focused pass
+        // When external URL was used, fileUri IS the storage URL — reuse it the same way
         geminiFileUri = geminiRun.input.videoFile.fileUri;
         geminiFileMime = geminiRun.input.videoFile.mimeType;
         geminiFileName = geminiRun.input.videoFile.geminiFileName || null;
+        const usedExternalUrl = geminiRun.input.videoFile.usedExternalUrl || false;
 
         analysis = geminiRun.output.parsed || { rawResponse: geminiRun.output.raw };
         analysis._geminiMeta = {
@@ -895,13 +898,15 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         previousAnalyses.push(analysis);
 
         // === CLEANUP: delete Gemini File API upload after all passes ===
-        if (geminiFileName && ai) {
+        // Skip cleanup when external URL was used — no Gemini file was uploaded
+        if (geminiFileName && ai && !usedExternalUrl) {
           cleanupGeminiFiles(ai, geminiFileName).catch(() => {});
         }
 
         const ticketCount = analysis.tickets ? analysis.tickets.length : 0;
         const tok = geminiRun.run.tokenUsage || {};
-        log.step(`Gemini OK: ${segName} — ${ticketCount} ticket(s) | ${geminiRun.run.durationMs}ms | tokens: ${tok.inputTokens || 0}in/${tok.outputTokens || 0}out/${tok.thoughtTokens || 0}think/${tok.totalTokens || 0}total`);
+        const sourceLabel = usedExternalUrl ? 'via Storage URL' : (geminiFileName ? 'via File API' : 'direct');
+        log.step(`Gemini OK: ${segName} (${sourceLabel}) — ${ticketCount} ticket(s) | ${geminiRun.run.durationMs}ms | tokens: ${tok.inputTokens || 0}in/${tok.outputTokens || 0}out/${tok.thoughtTokens || 0}think/${tok.totalTokens || 0}total`);
         log.debug(`Gemini parsed: ${JSON.stringify(analysis).substring(0, 500)}`);
         console.log(`    ✓ AI analysis complete (${(geminiRun.run.durationMs / 1000).toFixed(1)}s)${retried ? (retryImproved ? ' [retry improved]' : ' [retried]') : ''}`);
         progress.markAnalyzed(`${baseName}_seg${j}`, geminiRunFile);
