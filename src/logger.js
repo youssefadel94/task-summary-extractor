@@ -115,24 +115,28 @@ class Logger {
     } catch { /* ignore serialization errors */ }
   }
 
-  _flush() {
+  _flush(sync = false) {
+    const writeFn = sync
+      ? (p, d) => fs.appendFileSync(p, d)
+      : (p, d) => fs.appendFile(p, d, () => {});
+
     if (this._detailedBuffer.length > 0) {
-      try {
-        fs.appendFileSync(this.detailedPath, this._detailedBuffer.join(''));
-      } catch { /* ignore write errors */ }
+      const data = this._detailedBuffer.join('');
       this._detailedBuffer.length = 0;
+      try { writeFn(this.detailedPath, data); }
+      catch { /* ignore write errors */ }
     }
     if (this._minimalBuffer.length > 0) {
-      try {
-        fs.appendFileSync(this.minimalPath, this._minimalBuffer.join(''));
-      } catch { /* ignore write errors */ }
+      const data = this._minimalBuffer.join('');
       this._minimalBuffer.length = 0;
+      try { writeFn(this.minimalPath, data); }
+      catch { /* ignore write errors */ }
     }
     if (this._structuredBuffer.length > 0) {
-      try {
-        fs.appendFileSync(this.structuredPath, this._structuredBuffer.join(''));
-      } catch { /* ignore write errors */ }
+      const data = this._structuredBuffer.join('');
       this._structuredBuffer.length = 0;
+      try { writeFn(this.structuredPath, data); }
+      catch { /* ignore write errors */ }
     }
   }
 
@@ -335,7 +339,7 @@ class Logger {
       timestamp: new Date().toISOString(),
       level: 'info',
     });
-    this._flush();
+    this._flush(true); // sync flush on close to ensure data is written before process exits
   }
 
   /** Get human-readable elapsed time */

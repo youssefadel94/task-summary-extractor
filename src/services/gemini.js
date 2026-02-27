@@ -58,7 +58,7 @@ async function prepareDocsForGemini(ai, docFileList) {
     try {
       if (INLINE_TEXT_EXTS.includes(ext)) {
         console.log(`    Reading ${name} (inline text)...`);
-        const content = fs.readFileSync(docPath, 'utf8');
+        const content = await fs.promises.readFile(docPath, 'utf8');
         prepared.push({ type: 'inlineText', fileName: name, content });
         console.log(`    ✓ ${name} ready (${(content.length / 1024).toFixed(1)} KB)`);
       } else if (GEMINI_FILE_API_EXTS.includes(ext)) {
@@ -97,6 +97,7 @@ async function prepareDocsForGemini(ai, docFileList) {
           fileName: name,
           mimeType: file.mimeType,
           fileUri: file.uri,
+          geminiFileName: file.name,
         });
         console.log(`    ✓ ${name} ready (File API)`);
       } else if (GEMINI_UNSUPPORTED.includes(ext)) {
@@ -124,7 +125,12 @@ function loadPrompt(scriptDir) {
   if (!fs.existsSync(promptPath)) {
     throw new Error(`prompt.json not found at "${promptPath}". Ensure it exists alongside the entry script.`);
   }
-  const promptConfig = JSON.parse(fs.readFileSync(promptPath, 'utf8'));
+  let promptConfig;
+  try {
+    promptConfig = JSON.parse(fs.readFileSync(promptPath, 'utf8'));
+  } catch (err) {
+    throw new Error(`Failed to parse prompt.json at "${promptPath}": ${err.message}`);
+  }
 
   const instructions = promptConfig.instructions
     ? promptConfig.instructions.map(i => `- ${i}`).join('\n')
@@ -236,42 +242,49 @@ function buildDocBridgeText(contextDocs) {
  * Returns a complete model run record (run, input, output).
  */
 async function processWithGemini(ai, filePath, displayName, contextDocs = [], previousAnalyses = [], userName = '', scriptDir = __dirname, segmentOpts = {}) {
-  // segmentOpts: { segmentIndex, totalSegments, segmentStartSec, segmentEndSec, thinkingBudget, boundaryContext, retryHints }
+  // segmentOpts: { segmentIndex, totalSegments, segmentStartSec, segmentEndSec, thinkingBudget, boundaryContext, retryHints, existingFileUri, existingFileMime, existingGeminiFileName }
   const { segmentIndex = 0, totalSegments = 1, segmentStartSec, segmentEndSec, thinkingBudget = 24576,
-          boundaryContext = null, retryHints = [] } = segmentOpts;
+          boundaryContext = null, retryHints = [],
+          existingFileUri = null, existingFileMime = 'video/mp4', existingGeminiFileName = null } = segmentOpts;
 
   // 1. Load structured prompt
   const { systemInstruction, promptText } = loadPrompt(scriptDir);
 
-  // 2. Upload video to Gemini File API (with retry)
-  console.log(`    Uploading to Gemini File API...`);
-  let file = await withRetry(
-    () => ai.files.upload({
-      file: filePath,
-      config: { mimeType: 'video/mp4', displayName },
-    }),
-    { label: `Gemini file upload (${displayName})`, maxRetries: 3 }
-  );
-
-  // 3. Wait for processing (with polling + retry on get + timeout)
-  let waited = 0;
-  const pollStart = Date.now();
-  while (file.state === 'PROCESSING') {
-    if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-      throw new Error(`Gemini file processing timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s for ${displayName}. Try again or increase GEMINI_POLL_TIMEOUT_MS.`);
-    }
-    process.stdout.write(`    Processing${'.'.repeat((waited % 3) + 1)}   \r`);
-    await new Promise(r => setTimeout(r, 5000));
-    waited++;
+  // 2. Upload video to Gemini File API (or reuse existing URI)
+  let file;
+  if (existingFileUri) {
+    file = { uri: existingFileUri, mimeType: existingFileMime, name: existingGeminiFileName, state: 'ACTIVE' };
+    console.log(`    Reusing Gemini File API URI (skip upload)`);
+  } else {
+    console.log(`    Uploading to Gemini File API...`);
     file = await withRetry(
-      () => ai.files.get({ name: file.name }),
-      { label: 'Gemini file status check', maxRetries: 2, baseDelay: 1000 }
+      () => ai.files.upload({
+        file: filePath,
+        config: { mimeType: 'video/mp4', displayName },
+      }),
+      { label: `Gemini file upload (${displayName})`, maxRetries: 3 }
     );
-  }
-  console.log('    Processing complete.        ');
 
-  if (file.state === 'FAILED') {
-    throw new Error(`Gemini file processing failed for ${displayName}`);
+    // 3. Wait for processing (with polling + retry on get + timeout)
+    let waited = 0;
+    const pollStart = Date.now();
+    while (file.state === 'PROCESSING') {
+      if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
+        throw new Error(`Gemini file processing timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s for ${displayName}. Try again or increase GEMINI_POLL_TIMEOUT_MS.`);
+      }
+      process.stdout.write(`    Processing${'.'.repeat((waited % 3) + 1)}   \r`);
+      await new Promise(r => setTimeout(r, 5000));
+      waited++;
+      file = await withRetry(
+        () => ai.files.get({ name: file.name }),
+        { label: 'Gemini file status check', maxRetries: 2, baseDelay: 1000 }
+      );
+    }
+    console.log('    Processing complete.        ');
+
+    if (file.state === 'FAILED') {
+      throw new Error(`Gemini file processing failed for ${displayName}`);
+    }
   }
 
   // 4. Build content parts with SMART CONTEXT MANAGEMENT
@@ -406,7 +419,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       systemInstruction,
     },
     input: {
-      videoFile: { mimeType: file.mimeType, fileUri: file.uri, displayName },
+      videoFile: { mimeType: file.mimeType, fileUri: file.uri, displayName, geminiFileName: file.name },
       contextDocuments: contextDocs.map(d => ({ fileName: d.fileName, type: d.type })),
       previousSegmentCount: previousAnalyses.length,
       parts: inputSummary,
@@ -686,6 +699,13 @@ FORMAT:
 
   const summary = (response.text || '').trim();
 
+  // Cleanup: delete uploaded file from Gemini File API
+  try {
+    await ai.files.delete({ name: file.name });
+  } catch (cleanupErr) {
+    console.warn(`    ⚠ Gemini file cleanup failed: ${cleanupErr.message}`);
+  }
+
   const usage = response.usageMetadata || {};
   const tokenUsage = {
     inputTokens: usage.promptTokenCount || 0,
@@ -700,6 +720,38 @@ FORMAT:
   return { summary, durationMs, tokenUsage };
 }
 
+// ======================== CLEANUP ========================
+
+/**
+ * Delete uploaded files from Gemini File API.
+ * Call after all analysis (including focused passes) is complete.
+ *
+ * @param {object} ai - GoogleGenAI instance
+ * @param {string|null} geminiFileName - The Gemini file resource name (from file.name)
+ * @param {Array} [contextDocs] - Prepared context docs (may contain File API uploads)
+ */
+async function cleanupGeminiFiles(ai, geminiFileName, contextDocs = []) {
+  const toDelete = [];
+  if (geminiFileName) toDelete.push(geminiFileName);
+  for (const doc of contextDocs) {
+    if (doc.type === 'fileData' && doc.geminiFileName) {
+      toDelete.push(doc.geminiFileName);
+    }
+  }
+  if (toDelete.length === 0) return;
+
+  let cleaned = 0;
+  for (const name of toDelete) {
+    try {
+      await ai.files.delete({ name });
+      cleaned++;
+    } catch { /* ignore — files may already be expired */ }
+  }
+  if (cleaned > 0) {
+    console.log(`    🧹 Cleaned up ${cleaned} Gemini File API upload(s)`);
+  }
+}
+
 module.exports = {
   initGemini,
   prepareDocsForGemini,
@@ -708,4 +760,5 @@ module.exports = {
   compileFinalResult,
   buildDocBridgeText,
   analyzeVideoForContext,
+  cleanupGeminiFiles,
 };

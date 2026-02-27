@@ -32,7 +32,7 @@ const {
 
 // --- Services ---
 const { initFirebase, uploadToStorage, storageExists } = require('./services/firebase');
-const { initGemini, prepareDocsForGemini, processWithGemini, compileFinalResult, analyzeVideoForContext } = require('./services/gemini');
+const { initGemini, prepareDocsForGemini, processWithGemini, compileFinalResult, analyzeVideoForContext, cleanupGeminiFiles } = require('./services/gemini');
 const { compressAndSegment, probeFormat, verifySegment } = require('./services/video');
 
 // --- Utils ---
@@ -721,6 +721,9 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       // === FIRST ATTEMPT ===
       let retried = false;
       let retryImproved = false;
+      let geminiFileUri = null;   // Gemini File API URI — reused for retry + focused pass
+      let geminiFileMime = null;
+      let geminiFileName = null;  // Gemini resource name — needed for cleanup
 
       try {
         const geminiRun = await processWithGemini(
@@ -746,6 +749,11 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         fs.writeFileSync(runFilePath, JSON.stringify(geminiRun, null, 2), 'utf8');
         geminiRunFile = path.relative(PROJECT_ROOT, runFilePath);
         log.debug(`Gemini model run saved → ${runFilePath}`);
+
+        // Capture Gemini File API URI for reuse in retry / focused pass
+        geminiFileUri = geminiRun.input.videoFile.fileUri;
+        geminiFileMime = geminiRun.input.videoFile.mimeType;
+        geminiFileName = geminiRun.input.videoFile.geminiFileName || null;
 
         analysis = geminiRun.output.parsed || { rawResponse: geminiRun.output.raw };
         analysis._geminiMeta = {
@@ -794,6 +802,9 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
                 thinkingBudget: retryBudget,
                 boundaryContext: boundaryCtx,
                 retryHints: qualityReport.retryHints,
+                existingFileUri: geminiFileUri,
+                existingFileMime: geminiFileMime,
+                existingGeminiFileName: geminiFileName,
               }
             );
 
@@ -852,7 +863,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             log.step(`Focused re-analysis for ${segName}: ${weakness.weakAreas.join(', ')}`);
             try {
               const focusedResult = await runFocusedPass(ai, analysis, weakness.focusPrompt, {
-                videoUri: storageUrl || null,
+                videoUri: geminiFileUri || null,
                 segmentIndex: j,
                 totalSegments: segments.length,
                 thinkingBudget: 12288,
@@ -882,6 +893,11 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         }
 
         previousAnalyses.push(analysis);
+
+        // === CLEANUP: delete Gemini File API upload after all passes ===
+        if (geminiFileName && ai) {
+          cleanupGeminiFiles(ai, geminiFileName).catch(() => {});
+        }
 
         const ticketCount = analysis.tickets ? analysis.tickets.length : 0;
         const tok = geminiRun.run.tokenUsage || {};
@@ -1245,7 +1261,7 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
   console.log('══════════════════════════════════════════════');
   console.log('');
 
-  const thinkingBudget = parseInt(opts['deep-dive-thinking-budget'], 10) ||
+  const thinkingBudget = opts.thinkingBudget ||
     require('./config').DEEP_DIVE_THINKING_BUDGET;
 
   // Gather context snippets from inline text docs (for richer AI context)
@@ -1744,9 +1760,8 @@ async function runDynamic(initCtx) {
       const { storage, authenticated } = await initFirebase();
       if (authenticated && storage) {
         const storagePath = `calls/${folderName}/dynamic/${ts}`;
-        const { uploadToStorage: upload } = require('./services/firebase');
         const indexStoragePath = `${storagePath}/INDEX.md`;
-        await upload(storage, indexPath, indexStoragePath);
+        await uploadToStorage(storage, indexPath, indexStoragePath);
         console.log(`  ✓ Uploaded to Firebase: ${storagePath}/`);
         log.step(`Firebase upload complete: ${storagePath}`);
       }
@@ -1906,8 +1921,8 @@ async function runProgressUpdate(initCtx) {
   // 7. Firebase upload (if available)
   if (!opts.skipUpload) {
     try {
-      const { storage } = await initFirebase();
-      if (storage) {
+      const { storage, authenticated } = await initFirebase();
+      if (storage && authenticated) {
         const storagePath = `calls/${callName}/progress/${ts}`;
         await uploadToStorage(storage, progressJsonPath, `${storagePath}/progress.json`);
         await uploadToStorage(storage, progressMdPath, `${storagePath}/progress.md`);

@@ -412,7 +412,7 @@ function getConfidenceStats(analysis) {
     }
   }
 
-  return { total, high, medium, low, missing, coverage: (total - missing) / total };
+  return { total, high, medium, low, missing, coverage: Math.round(((total - missing) / total) * 100) };
 }
 
 module.exports = {

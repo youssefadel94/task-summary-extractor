@@ -67,8 +67,12 @@ async function uploadToStorage(storage, filePath, storagePath) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_MAP[ext] || 'application/octet-stream';
 
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`File not found for upload: ${filePath}`);
+  }
+  const fileBuffer = fs.readFileSync(filePath);
+
   return withRetry(async () => {
-    const fileBuffer = fs.readFileSync(filePath);
     const fileRef = ref(storage, storagePath);
     await uploadBytes(fileRef, fileBuffer, { contentType });
     const url = await getDownloadURL(fileRef);
