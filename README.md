@@ -1,16 +1,16 @@
 # Task Summary Extractor
 
-> **v8.2.0** — AI-powered meeting analysis & document generation CLI. Install globally, run anywhere.
+> **v8.3.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-8.2.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-8.3.0-brightgreen" alt="Version" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
-**Record a meeting → get a structured task document.** Or point it at any folder and generate docs from context.
+**Analyze any content → get a structured task document.** Feed it meeting recordings, audio files, documents, or any mix — it extracts work items, action items, blockers, and more. Or point it at any folder and generate docs from context.
 
 📖 **New here?** Jump to [Setup (3 steps)](#setup-3-steps) — you'll be running in under 5 minutes.
 
@@ -18,9 +18,9 @@
 
 ## What It Does
 
-### 🎥 Video Analysis (default mode)
+### 🎥 Content Analysis (default mode)
 
-Drop a recording in a folder → run the tool → get a Markdown task document with:
+Drop a recording (video/audio) or documents in a folder → run the tool → get a Markdown task document with:
 
 - **Tickets** — ID, title, status, assignee, confidence score
 - **Change Requests** — what changed, where, how, why
@@ -191,7 +191,7 @@ Choose what the tool does. Only use one at a time:
 
 | Flag | Mode | What You Get |
 |------|------|-------------|
-| *(none)* | **Video analysis** | `results.md` — structured task document |
+| *(none)* | **Content analysis** | `results.md` — structured task document |
 | `--dynamic` | **Doc generation** | `INDEX.md` + 3–15 topic documents |
 | `--deep-dive` | **Topic explainers** | `INDEX.md` + per-topic deep-dive docs |
 | `--update-progress` | **Progress check** | `progress.md` — item status via git |
@@ -271,7 +271,7 @@ INFO       --help (-h)  --version (-v)
 
 ## Output
 
-### Video Analysis
+### Content Analysis
 
 ```
 my-meeting/runs/{timestamp}/
@@ -312,12 +312,12 @@ my-meeting/runs/{timestamp}/
 
 ## Folder Setup Tips
 
-Drop docs alongside your video to give the AI context. **More context = better extraction.**
+Drop content files and supporting docs in a folder. **More context = better extraction.**
 
 ```
 my-meeting/
-├── Recording.mp4                  ← Video (required for video mode)
-├── Recording.vtt                  ← Subtitles (highly recommended)
+├── Recording.mp4                  ← Video recording (primary for video mode)
+├── Recording.vtt                  ← Subtitles (highly recommended for recordings)
 ├── agenda.md                      ← Loose docs at root are fine
 │
 ├── .tasks/                        ← Gets priority weighting (optional)
@@ -328,7 +328,7 @@ my-meeting/
     └── requirements.md
 ```
 
-**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.vtt` `.srt` `.txt` `.md` `.csv` `.pdf` (docs)
+**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.mp3` `.wav` `.ogg` `.m4a` (audio) · `.vtt` `.srt` `.txt` `.md` `.csv` `.pdf` (docs)
 
 The tool **recursively scans all subfolders**. `.tasks/` gets highest priority weighting but everything is included.
 
@@ -406,7 +406,7 @@ GEMINI_API_KEY=your-key-here
 
 | Feature | Description |
 |---------|-------------|
-| **Video Compression** | H.264 CRF 24, text-optimized sharpening, configurable speed |
+| **Video/Audio Compression** | H.264 CRF 24, text-optimized sharpening, configurable speed |
 | **Smart Segmentation** | ≤5 min chunks with boundary-aware splitting |
 | **Cross-Segment Continuity** | Ticket IDs, names, and context carry forward |
 | **Document Discovery** | Auto-finds docs in all subfolders |
@@ -518,6 +518,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v8.3.0** | **Universal content analysis** — prompt v4.0.0 supports video, audio, documents, and mixed content; input type auto-detection; timestamps conditional on content type; gemini.js bridge text generalized; all markdown docs updated |
 | **v8.2.0** | **Architecture cleanup** — `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.1.0** | **Smart global config** — `taskex config` persistent setup (`~/.taskexrc`), first-run prompting, 5-level config resolution, production audit fixes, shared CLI flag injection, boolean flag parser fix |
 | **v8.0.0** | **npm package** — `npm i -g task-summary-extractor`, `taskex` global CLI, `--gemini-key` / `--firebase-*` config flags, run from anywhere, CWD-first `.env` resolution |

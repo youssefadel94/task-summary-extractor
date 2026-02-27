@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 8.1.0** — February 2026  
+> **Version 8.3.0** — February 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -66,7 +66,7 @@
 | Config + Logger | 2 | 578 |
 | Entry points (taskex + legacy) | 2 | 165 |
 | Setup script | 1 | 505 |
-| Prompt (JSON) | 1 | 265 |
+| Prompt (JSON) | 1 | 308 |
 | **Total** | **33 files** | **~10,600 lines** |
 
 ### Version History
@@ -85,6 +85,8 @@
 | **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
 | **v7.2.2** | Upload Control | `--force-upload` to re-upload existing files, `--no-storage-url` to force Gemini File API, production-ready docs |
 | **v8.1.0** | Smart Global Config | Persistent `~/.taskexrc` config, `taskex config` subcommand, first-run API key prompting, 5-level config resolution, production audit (14 fixes), shared CLI flag injection, boolean flag parser fix |
+| **v8.2.0** | Architecture Cleanup | `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
+| **v8.3.0** | Universal Content Analysis | prompt.json v4.0.0 — input type auto-detection (video/audio/document/mixed), timestamps conditional, domain-adaptive extraction for any content source, gemini.js bridge text generalized |
 | **v8.0.0** | npm Package | Global CLI (`taskex`), `--gemini-key`/`--firebase-*` config flags, CWD-based path resolution, CWD-first `.env`, `bin/taskex.js` entry point, npm publish-ready `package.json` |
 | **v7.2.3** | Production Hardening | Cross-platform ffmpeg detection, shell injection fix (spawnSync), auto git init for `--update-progress`, `runs/` excluded from doc discovery, entry point docs updated |
 
@@ -176,7 +178,7 @@ The logger now writes **three parallel outputs**:
 | Adaptive Thinking Budget | `adaptive-budget.js` | Segment position, complexity, context docs → dynamic 8K–32K range |
 | Smart Boundary Detection | `context-manager.js` | Mid-conversation detection, open ticket carry-forward, continuity hints |
 | Health Dashboard | `health-dashboard.js` | Quality scores, extraction density bars, retry stats, efficiency metrics |
-| Enhanced Prompt | `prompt.json` | Timestamp accuracy, dedup rules, self-verification checklist, retry hints |
+| Enhanced Prompt | `prompt.json` | Universal content analysis (v4.0.0): input type detection, timestamps conditional on content type, domain-adaptive extraction, self-verification checklist |
 
 ### Current Capabilities
 
@@ -300,7 +302,7 @@ src/
     ├── quality-gate.js      372 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
     └── retry.js             112 ln  Exponential backoff, parallel map (self-contained defaults)
 
-prompt.json                  265 ln  ★ v6 — Confidence scoring instructions, evidence-based schema
+prompt.json                  308 ln  ★ v4.0.0 — Universal content analysis: video, audio, documents, mixed input; auto-detects input type + domain
 process_and_upload.js         14 ln  Backward-compatible shim — delegates to bin/taskex.js
 setup.js                     505 ln  Automated first-time setup & environment validation (v8.0.0)
 ```
@@ -418,7 +420,7 @@ The following features from the original exploration have been **fully implement
 | **Slack webhook** — post summary to a channel | ~1 hr | Team-wide visibility |
 | **Segment preview** — show first 3 VTT lines per segment before analyzing | ~30 min | Better UX during processing |
 | **Custom output templates** — Handlebars/Mustache for MD output | ~4 hrs | Teams customize report format |
-| **Audio-only mode** — support .mp3/.wav without video | ~2 hrs | Works for phone calls, podcasts |
+| **~~Audio-only mode~~** | ~~Done~~ | prompt.json v4.0.0 supports audio/doc/mixed — pipeline video requirement is next |
 | **Watch mode** — monitor a folder and auto-process new recordings | ~3 hrs | Hands-free automation |
 | **Git integration** — auto-commit results to repo | ~1 hr | Version-controlled meeting history |
 | **Confidence threshold filter** — CLI flag to exclude LOW confidence items from output | ~1 hr | Cleaner reports on demand |

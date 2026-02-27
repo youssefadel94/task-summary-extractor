@@ -119,7 +119,7 @@ flowchart TB
 | Phase | Name | What Happens |
 |-------|------|-------------|
 | 1 | **Init** | CLI parsing, interactive folder selection (if no arg), config validation, logger setup, load learning insights, route to dynamic/progress mode |
-| 2 | **Discover** | Find videos, discover documents, resolve user name, check resume state |
+| 2 | **Discover** | Find videos/audio, discover documents, resolve user name, check resume state |
 | 3 | **Services** | Firebase auth, Gemini init, prepare document parts |
 | 4 | **Process** | Compress → Upload → Analyze → Quality Gate → Retry → Focused Pass |
 | 5 | **Compile** | Cross-segment compilation, diff engine comparison |
@@ -298,17 +298,17 @@ flowchart TB
 
 ## Extraction Schema
 
-The AI extracts 6 structured categories from each meeting. The categories are content-adaptive — the AI populates whichever fields are relevant to the actual discussion.
+The AI extracts 6 structured categories from any content source (video, audio, documents, or mixed). The prompt auto-detects the input type and adapts: temporal content (video/audio) gets timestamps; document-only content uses section references and null timestamps. All field names remain identical regardless of input type for backward compatibility.
 
 ### Categories
 
 | Category | Key Fields | Adapts To |
 |----------|-----------|----------|
-| **Tickets / Items** | `ticket_id`, `title`, `status`, `assignee`, `reviewer`, `video_segments` with timestamps, `speaker_comments`, `details` with priority, confidence | Sprint items, requirements, interview topics, incident items |
-| **Change Requests** | `WHERE` (target: file, system, process, scope), `WHAT` (specific change), `HOW` (approach), `WHY` (justification), `dependencies`, `blocked_by`, confidence | Code changes, requirement changes, process changes, scope adjustments |
-| **References** | `name`, `type`, `role`, cross-refs to tickets & CRs, `context_doc_match` | Files, documents, URLs, tools, systems, resources mentioned |
-| **Action Items** | `description`, `assigned_to`, `status`, `deadline`, `dependencies`, related tickets & CRs, confidence | Any follow-up work discussed |
-| **Blockers** | `description`, `severity`, `owner`, `status`, `proposed_resolution`, confidence | Technical blockers, approval gates, resource constraints |
+| **Tickets / Items** | `ticket_id`, `title`, `status`, `assignee`, `reviewer`, `video_segments` with timestamps (or null for docs), `speaker_comments`, `details` with priority, confidence | Sprint items, requirements, interview topics, incident items, legal matters, deals |
+| **Change Requests** | `WHERE` (target: file, system, process, scope), `WHAT` (specific change), `HOW` (approach), `WHY` (justification), `dependencies`, `blocked_by`, confidence | Code changes, requirement changes, process changes, scope adjustments, contract revisions, policy updates |
+| **References** | `name`, `type`, `role`, cross-refs to tickets & CRs, `context_doc_match` | Files, documents, URLs, tools, systems, resources, contracts, reports mentioned |
+| **Action Items** | `description`, `assigned_to`, `status`, `deadline`, `dependencies`, related tickets & CRs, confidence | Any follow-up work discussed or documented |
+| **Blockers** | `description`, `severity`, `owner`, `status`, `proposed_resolution`, confidence | Technical blockers, approval gates, resource constraints, legal reviews, budget approvals |
 | **Scope Changes** | `type` (added/removed/deferred), `original` vs `new` scope, `decided_by`, `impact`, confidence | Feature scope, project scope, contract scope, training scope |
 
 ### Personalized Task Section
@@ -504,6 +504,7 @@ taskex --dynamic --request "Document this microservices architecture"
 |-----------|--------|-------------|
 | `.vtt` `.srt` `.txt` `.md` `.csv` | Inline text | Read and passed directly as text parts |
 | `.pdf` | Gemini File API | Uploaded as binary, Gemini processes natively |
+| `.mp3` `.wav` `.ogg` `.m4a` | Gemini File API | Uploaded as audio, Gemini processes natively |
 | `.docx` `.doc` | Firebase only | Uploaded for archival, not processable by Gemini |
 
 Directories skipped during recursive discovery: `node_modules`, `.git`, `compressed`, `logs`, `gemini_runs`, `runs`

@@ -207,14 +207,14 @@ function buildDocBridgeText(contextDocs) {
       }
     }
 
-    bridgeText += `\n\nCRITICAL: Cross-reference these task documents with the video discussion. When the call mentions a file, class, procedure, module, CR number, or ticket — match it to the corresponding task document. Use exact file paths and component names from the code-map.md and execution-plan.md in your output. The task documents contain the ground truth for what was planned — the call reveals what was actually discussed, confirmed, or changed. Flag any discrepancies between documented state and discussed state.`;
+    bridgeText += `\n\nCRITICAL: Cross-reference these task documents with the content being analyzed. When the content mentions a file, class, procedure, module, CR number, or ticket — match it to the corresponding task document. Use exact file paths and component names from the code-map.md and execution-plan.md in your output. The task documents contain the ground truth for what was planned — the content reveals what was actually discussed, confirmed, or changed. Flag any discrepancies between documented state and observed state.`;
   }
 
   // Tier 2 — Robot/AI knowledge base
   if (robotDocs.length > 0) {
     bridgeText += `\n\n=== TIER 2: CODEBASE KNOWLEDGE BASE (${robotDocs.length}) — FILE MAPS & PATTERNS ===`;
     bridgeText += `\nThese contain complete file maps for every app/service, backend API maps, database schemas, auth configs, coding patterns, and naming conventions.`;
-    bridgeText += `\nUse these to RESOLVE exact file paths when the call mentions a class, component, service, or controller by name.`;
+    bridgeText += `\nUse these to RESOLVE exact file paths when the content mentions a class, component, service, or controller by name.`;
     bridgeText += `\nFiles: ${robotDocs.map(d => d.fileName).join(', ')}`;
   }
 
@@ -222,13 +222,13 @@ function buildDocBridgeText(contextDocs) {
   if (archDocs.length > 0) {
     bridgeText += `\n\n=== TIER 3: PROJECT DOCUMENTATION (${archDocs.length}) — ARCHITECTURE & REFERENCE ===`;
     bridgeText += `\nThese provide background on the solution architecture, tech stack, patterns, best practices, payment systems, evaluation system, i18n, and more.`;
-    bridgeText += `\nUse for context when the call discusses system concepts, design decisions, or technical constraints.`;
+    bridgeText += `\nUse for context when the content discusses system concepts, design decisions, or technical constraints.`;
     bridgeText += `\nFiles: ${archDocs.map(d => d.fileName).join(', ')}`;
   }
 
   // Other docs
   if (otherDocs.length > 0) {
-    bridgeText += `\n\n=== CALL DOCUMENTS (${otherDocs.length}) — SUBTITLES, TRANSCRIPTS, NOTES ===`;
+    bridgeText += `\n\n=== SUPPORTING DOCUMENTS (${otherDocs.length}) — SUBTITLES, TRANSCRIPTS, NOTES, OTHER ===`;
     bridgeText += `\nFiles: ${otherDocs.map(d => d.fileName).join(', ')}`;
   }
 
