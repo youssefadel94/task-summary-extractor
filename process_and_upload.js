@@ -1,13 +1,20 @@
 #!/usr/bin/env node
 /**
- * Video Compression → Firebase Upload → Gemini AI Processing
+ * taskex — AI-powered meeting analysis & document generation.
  *
  * Backward-compatible entry point — delegates to src/pipeline.js.
- * The monolith has been refactored into modular files under src/.
+ * For global installs, use the `taskex` command directly.
  *
  * Usage:
+ *   taskex [options] [folder]
  *   node process_and_upload.js [options] "C:\path\to\call folder"
- *   npm run process -- "C:\path\to\call folder"
+ *
+ * Config flags (override .env):
+ *   --gemini-key <key>          Gemini API key
+ *   --firebase-key <key>        Firebase API key
+ *   --firebase-project <id>     Firebase project ID
+ *   --firebase-bucket <bucket>  Firebase storage bucket
+ *   --firebase-domain <domain>  Firebase auth domain
  *
  * Options:
  *   --name <name>              Your name (skips interactive prompt)
@@ -73,6 +80,37 @@
 
 'use strict';
 
+// ── Inject CLI config flags into process.env ──────────────────────────────
+// Must run BEFORE any require() that touches config.js / dotenv
+const configFlagMap = {
+  'gemini-key':        'GEMINI_API_KEY',
+  'firebase-key':      'FIREBASE_API_KEY',
+  'firebase-project':  'FIREBASE_PROJECT_ID',
+  'firebase-bucket':   'FIREBASE_STORAGE_BUCKET',
+  'firebase-domain':   'FIREBASE_AUTH_DOMAIN',
+};
+
+const argv = process.argv.slice(2);
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i].startsWith('--')) {
+    const eqIdx = argv[i].indexOf('=');
+    let key, val;
+    if (eqIdx !== -1) {
+      key = argv[i].slice(2, eqIdx);
+      val = argv[i].slice(eqIdx + 1);
+    } else {
+      key = argv[i].slice(2);
+      if (configFlagMap[key] && i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
+        val = argv[i + 1];
+      }
+    }
+    if (key && val && configFlagMap[key]) {
+      process.env[configFlagMap[key]] = val;
+    }
+  }
+}
+
+// ── Delegate to pipeline ──────────────────────────────────────────────────
 const { run, getLog } = require('./src/pipeline');
 
 run().catch(err => {

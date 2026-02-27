@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 7.2.3** — February 2026  
+> **Version 8.0.0** — February 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -13,8 +13,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        process_and_upload.js                        │
-│                          (Entry Point)                              │
+│          taskex (bin/taskex.js) or process_and_upload.js            │
+│                          (Entry Points)                             │
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
@@ -64,10 +64,10 @@
 | Utilities (19 modules) | 19 | 4,566 |
 | Renderers | 1 | 969 |
 | Config + Logger | 2 | 578 |
-| Entry point | 1 | 79 |
+| Entry points (taskex + legacy) | 2 | 165 |
 | Setup script | 1 | 505 |
 | Prompt (JSON) | 1 | 265 |
-| **Total** | **30 files** | **~10,140 lines** |
+| **Total** | **31 files** | **~10,300 lines** |
 
 ### Version History
 
@@ -84,6 +84,7 @@
 | **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 | **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
 | **v7.2.2** | Upload Control | `--force-upload` to re-upload existing files, `--no-storage-url` to force Gemini File API, production-ready docs |
+| **v8.0.0** | npm Package | Global CLI (`taskex`), `--gemini-key`/`--firebase-*` config flags, CWD-based path resolution, CWD-first `.env`, `bin/taskex.js` entry point, npm publish-ready `package.json` |
 | **v7.2.3** | Production Hardening | Cross-platform ffmpeg detection, shell injection fix (spawnSync), auto git init for `--update-progress`, `runs/` excluded from doc discovery, entry point docs updated |
 
 ### What v6 Delivers
@@ -204,9 +205,18 @@ The logger now writes **three parallel outputs**:
 ### CLI Reference
 
 ```
-Usage: node process_and_upload.js [options] [folder]
+Usage: taskex [options] [folder]
+
+Install: npm i -g task-summary-extractor
 
 If no folder is specified, shows an interactive folder selector.
+
+Configuration (override .env):
+  --gemini-key <key>                Gemini API key
+  --firebase-key <key>              Firebase API key
+  --firebase-project <id>           Firebase project ID
+  --firebase-bucket <bucket>        Firebase storage bucket
+  --firebase-domain <domain>        Firebase auth domain
 
 Modes:
   (default)                         Video analysis — compress, analyze, extract, compile
@@ -252,6 +262,9 @@ Info:
 ### Full Module Map
 
 ```
+bin/
+└── taskex.js                 72 ln  ★ v8.0.0 — Global CLI entry point, config flag injection
+
 src/
 ├── config.js                277 ln  Central config, env vars, model registry, validation
 ├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
@@ -266,7 +279,7 @@ src/
 └── utils/
     ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
     ├── change-detector.js   417 ln  ★ v6.1 — Git-based change correlation engine
-    ├── cli.js               340 ln  ★ v7.2 — Interactive prompts, model selector, folder picker, 22+ flags
+    ├── cli.js               391 ln  ★ v8.0.0 — Interactive prompts, model selector, folder picker, config flags, taskex help
     ├── context-manager.js   424 ln  4-tier priority, VTT slicing, progressive context, boundary detection
     ├── cost-tracker.js      140 ln  Token counting, USD cost estimation (+ focused pass tracking)
     ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
@@ -285,8 +298,8 @@ src/
     └── retry.js             112 ln  Exponential backoff, parallel map
 
 prompt.json                  265 ln  ★ v6 — Confidence scoring instructions, evidence-based schema
-process_and_upload.js         79 ln  Entry point, HELP_SHOWN handler
-setup.js                     505 ln  Automated first-time setup & environment validation (v7.2.3)
+process_and_upload.js        115 ln  Backward-compatible entry point with config flag injection (v8.0.0)
+setup.js                     505 ln  Automated first-time setup & environment validation (v8.0.0)
 ```
 
 ---
@@ -377,10 +390,9 @@ The following features from the original exploration have been **fully implement
 **Impact**: Confidence in changes. CI/CD pipeline with automated testing. Prevents regressions.  
 **Priority modules to test**: `quality-gate.js`, `adaptive-budget.js`, `json-parser.js`, `context-manager.js`, `cost-tracker.js`, `focused-reanalysis.js`, `diff-engine.js`, `learning-loop.js`.
 
-#### 📦 Packaging & Distribution
-**What**: Publish as an npm package (`npx task-summary-extractor 'call 1'`), or as a standalone binary.  
-**How**: Add bin field to package.json. Use `pkg` or `nexe` for standalone. Publish to npm registry.  
-**Impact**: Installation becomes `npx task-summary-extractor` instead of cloning a repo.
+#### 📦 ~~Packaging & Distribution~~ ✅ Done (v8.0.0)
+**Status**: Published as `task-summary-extractor` on npm. Global CLI: `taskex`. Install: `npm i -g task-summary-extractor`.  
+**What was done**: `bin/taskex.js` entry point, `--gemini-key`/`--firebase-*` CLI config flags, CWD-based `.env` resolution, `PKG_ROOT`/`PROJECT_ROOT` path split for global compatibility.
 
 #### 🔍 Advanced Observability (OpenTelemetry)
 **What**: Extend the existing structured JSONL logging with OpenTelemetry trace export for external monitoring.  
@@ -425,7 +437,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v7.2.3 codebase — 30 files, ~10,140 lines of self-improving pipeline intelligence.*
+*Generated from the v8.0.0 codebase — 31 files, ~10,300 lines of self-improving pipeline intelligence. npm: `task-summary-extractor` · CLI: `taskex`*
 
 ---
 

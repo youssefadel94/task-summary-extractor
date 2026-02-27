@@ -1,12 +1,13 @@
 # Task Summary Extractor
 
-> **v7.2.3** — AI-powered meeting analysis & document generation from the CLI.
+> **v8.0.0** — AI-powered meeting analysis & document generation CLI. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-7.2.3-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-8.0.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
 **Record a meeting → get a structured task document.** Or point it at any folder and generate docs from context.
@@ -29,7 +30,7 @@ Drop a recording in a folder → run the tool → get a Markdown task document w
 - **Your Tasks** — personalized list scoped to your name
 
 ```bash
-node process_and_upload.js --name "Jane" "my-meeting"
+taskex --name "Jane" "my-meeting"
 ```
 
 ### 📝 Dynamic Mode (`--dynamic`)
@@ -37,7 +38,7 @@ node process_and_upload.js --name "Jane" "my-meeting"
 No video needed. Point at a folder with docs, tell it what you want:
 
 ```bash
-node process_and_upload.js --dynamic --request "Plan migration from MySQL to Postgres" "db-specs"
+taskex --dynamic --request "Plan migration from MySQL to Postgres" "db-specs"
 ```
 
 Generates 3–15 Markdown documents: overviews, guides, checklists, decision records, etc.
@@ -47,7 +48,7 @@ Generates 3–15 Markdown documents: overviews, guides, checklists, decision rec
 After video analysis, generate standalone docs for every topic discussed:
 
 ```bash
-node process_and_upload.js --deep-dive --name "Jane" "my-meeting"
+taskex --deep-dive --name "Jane" "my-meeting"
 ```
 
 ### 📊 Progress Tracking (`--update-progress`)
@@ -55,7 +56,7 @@ node process_and_upload.js --deep-dive --name "Jane" "my-meeting"
 Check which items from a previous analysis have been completed, using git evidence:
 
 ```bash
-node process_and_upload.js --update-progress --repo "C:\my-project" "my-meeting"
+taskex --update-progress --repo "C:\my-project" "my-meeting"
 ```
 
 > **v7.2.3**: If the call folder isn't a git repo, the tool auto-initializes one for baseline tracking.
@@ -76,7 +77,17 @@ node process_and_upload.js --update-progress --repo "C:\my-project" "my-meeting"
 
 > **Git** is optional — only needed for `--update-progress` mode.
 
-### Step 1: Clone & install
+### Step 1: Install
+
+**Option A — npm global install (recommended):**
+
+```bash
+npm install -g task-summary-extractor
+```
+
+Now `taskex` is available system-wide. Done.
+
+**Option B — Clone & install (development):**
 
 ```bash
 git clone https://github.com/youssefadel94/task-summary-extractor.git
@@ -101,10 +112,16 @@ my-meeting/
 ### Step 3: Run
 
 ```bash
-node process_and_upload.js --name "Your Name" "my-meeting"
+taskex --name "Your Name" "my-meeting"
 ```
 
-Or just run `node process_and_upload.js` — it'll walk you through everything interactively.
+Or just run `taskex` inside a folder — it'll walk you through everything interactively.
+
+**Pass your API key inline (no .env needed):**
+
+```bash
+taskex --gemini-key "YOUR_KEY" --name "Your Name" "my-meeting"
+```
 
 **Done.** Your results are in `my-meeting/runs/{timestamp}/results.md`.
 
@@ -115,6 +132,20 @@ Or just run `node process_and_upload.js` — it'll walk you through everything i
 ## CLI Flags
 
 Every flag is optional. Run with no flags for fully interactive mode.
+
+### Configuration Flags
+
+Pass API keys and config directly — no `.env` file needed:
+
+| Flag | What It Does | Example |
+|------|-------------|---------|
+| `--gemini-key <key>` | Gemini API key | `--gemini-key "AIza..."` |
+| `--firebase-key <key>` | Firebase API key | `--firebase-key "AIza..."` |
+| `--firebase-project <id>` | Firebase project ID | `--firebase-project "my-proj"` |
+| `--firebase-bucket <bucket>` | Firebase storage bucket | `--firebase-bucket "my-proj.appspot.com"` |
+| `--firebase-domain <domain>` | Firebase auth domain | `--firebase-domain "my-proj.firebaseapp.com"` |
+
+> Config flags override `.env` values. You can mix both — flags take priority.
 
 ### Everyday Flags
 
@@ -134,13 +165,16 @@ These are the ones you'll actually use:
 
 ```bash
 # Interactive — picks folder, model, prompts for name
-node process_and_upload.js
+taskex
 
 # Specify everything upfront
-node process_and_upload.js --name "Jane" --model gemini-2.5-pro --skip-upload "my-meeting"
+taskex --name "Jane" --model gemini-2.5-pro --skip-upload "my-meeting"
 
 # Resume a run that crashed halfway
-node process_and_upload.js --resume "my-meeting"
+taskex --resume "my-meeting"
+
+# Pass API key directly (no .env needed)
+taskex --gemini-key "AIza..." --name "Jane" "my-meeting"
 ```
 
 ### Mode Flags
@@ -209,8 +243,10 @@ Use `--model <id>` or run without it for an interactive picker:
 ### Cheat Sheet
 
 ```
-node process_and_upload.js [flags] [folder]
+taskex [flags] [folder]
 
+CONFIG     --gemini-key  --firebase-key  --firebase-project
+           --firebase-bucket  --firebase-domain
 MODES      --dynamic  --deep-dive  --update-progress
 CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
 UPLOAD     --force-upload  --no-storage-url
@@ -299,9 +335,19 @@ The tool **recursively scans all subfolders**. `.tasks/` gets highest priority w
 
 ## Configuration
 
-### `.env`
+### CLI Config Flags (recommended for global install)
 
-Created by `node setup.js`. Only `GEMINI_API_KEY` is required — everything else has defaults:
+Pass keys directly — no files needed:
+
+```bash
+taskex --gemini-key "AIza..." --name "Jane" "my-meeting"
+```
+
+### `.env` File
+
+For repeated use, create a `.env` in your **working directory**. Run `node setup.js` (from the cloned repo) to generate one automatically.
+
+Only `GEMINI_API_KEY` is required — everything else has defaults:
 
 ```env
 # Required
@@ -355,6 +401,14 @@ GEMINI_API_KEY=your-key-here
 
 ## Updating
 
+**npm global install:**
+
+```bash
+npm update -g task-summary-extractor
+```
+
+**Git clone:**
+
 ```bash
 git checkout main && git pull
 ```
@@ -380,9 +434,11 @@ Your call folders, `.env`, logs, and videos are all `.gitignore`d — nothing ge
 
 ```
 task-summary-extractor/
-├── process_and_upload.js       Entry point
+├── bin/
+│   └── taskex.js               Global CLI entry point
+├── process_and_upload.js       Backward-compatible entry point
 ├── setup.js                    First-time setup & validation
-├── package.json                Dependencies & scripts
+├── package.json                Dependencies, scripts, bin config
 ├── prompt.json                 Gemini extraction prompt
 │
 ├── src/
@@ -409,6 +465,8 @@ task-summary-extractor/
 
 ## npm Scripts
 
+> If installed globally, just use `taskex` directly. These scripts are for development use with the cloned repo.
+
 | Script | What |
 |--------|------|
 | `npm run setup` | First-time setup |
@@ -422,6 +480,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v8.0.0** | **npm package** — `npm i -g task-summary-extractor`, `taskex` global CLI, `--gemini-key` / `--firebase-*` config flags, run from anywhere, CWD-first `.env` resolution |
 | **v7.2.3** | Production hardening — cross-platform ffmpeg, shell injection fix, auto git init for progress tracking, `runs/` excluded from doc discovery |
 | **v7.2.2** | Upload control flags (`--force-upload`, `--no-storage-url`), production-ready docs |
 | **v7.2.1** | Storage URL optimization, 3-strategy file resolution, Gemini file cleanup, codebase audit fixes |
@@ -449,4 +508,4 @@ task-summary-extractor/
 
 ## License
 
-Private — © 2026
+MIT — © 2026 Youssef Adel

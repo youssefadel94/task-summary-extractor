@@ -69,8 +69,10 @@ let log = null;
 let shuttingDown = false;
 
 // ======================== PROJECT ROOT ========================
-// Resolve to the project root (parent of src/)
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+// PKG_ROOT = where the package is installed (for reading prompt.json, package.json)
+// PROJECT_ROOT = where the user runs from (CWD) — logs, history, gemini_runs go here
+const PKG_ROOT = path.resolve(__dirname, '..');
+const PROJECT_ROOT = process.cwd();
 
 // ======================== PHASE HELPERS ========================
 
@@ -99,7 +101,7 @@ async function phaseInit() {
 
   if (flags.help || flags.h) showHelp();
   if (flags.version || flags.v) {
-    const pkg = JSON.parse(fs.readFileSync(path.join(PROJECT_ROOT, 'package.json'), 'utf8'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
     process.stdout.write(`v${pkg.version}\n`);
     return null; // signal early exit
   }
@@ -742,7 +744,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           contextDocs,
           previousAnalyses,
           userName,
-          PROJECT_ROOT,
+          PKG_ROOT,
           {
             segmentIndex: j,
             totalSegments: segments.length,
@@ -806,7 +808,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
               contextDocs,
               previousAnalyses,
               userName,
-              PROJECT_ROOT,
+              PKG_ROOT,
               {
                 segmentIndex: j,
                 totalSegments: segments.length,
@@ -1000,7 +1002,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
       console.log(`  Compilation thinking budget: ${compBudget.budget.toLocaleString()} tokens (${compBudget.reason})`);
 
       const compilationResult = await compileFinalResult(
-        ai, allSegmentAnalyses, userName, callName, PROJECT_ROOT,
+        ai, allSegmentAnalyses, userName, callName, PKG_ROOT,
         { thinkingBudget: compBudget.budget }
       );
 
@@ -1844,7 +1846,7 @@ async function runProgressUpdate(initCtx) {
   const prev = loadPreviousCompilation(targetDir);
   if (!prev) {
     console.error('  ✗ No previous analysis found. Run the full pipeline first.');
-    console.error('    Usage: node process_and_upload.js "' + callName + '"');
+    console.error('    Usage: taskex "' + callName + '"');
     initCtx.progress.cleanup();
     log.close();
     return;

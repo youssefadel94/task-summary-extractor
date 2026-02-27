@@ -40,7 +40,17 @@ If not installed:
 
 ---
 
-## Step 2: Clone & set up
+## Step 2: Install the tool
+
+**Option A — npm global install (recommended):**
+
+```bash
+npm install -g task-summary-extractor
+```
+
+That's it. `taskex` is now available system-wide.
+
+**Option B — Clone the repo (development):**
 
 ```bash
 git clone https://github.com/youssefadel94/task-summary-extractor.git
@@ -100,7 +110,7 @@ The tool **automatically scans all subfolders** for documents. Use whatever stru
 ### Option A: Interactive (easiest)
 
 ```bash
-node process_and_upload.js
+taskex
 ```
 
 The tool will:
@@ -112,15 +122,21 @@ The tool will:
 ### Option B: Specify everything upfront
 
 ```bash
-node process_and_upload.js --name "Your Name" "my-meeting"
+taskex --name "Your Name" "my-meeting"
 ```
 
-### Option C: Skip Firebase (local only)
+### Option C: Pass API key directly (no .env)
+
+```bash
+taskex --gemini-key "AIza..." --name "Your Name" "my-meeting"
+```
+
+### Option D: Skip Firebase (local only)
 
 If you don't have Firebase set up, add `--skip-upload`:
 
 ```bash
-node process_and_upload.js --name "Your Name" --skip-upload "my-meeting"
+taskex --name "Your Name" --skip-upload "my-meeting"
 ```
 
 ### What happens
@@ -164,7 +180,7 @@ my-meeting/runs/{timestamp}/
 Generate documents from a folder of docs:
 
 ```bash
-node process_and_upload.js --dynamic --request "Explain this codebase for new developers" "my-project"
+taskex --dynamic --request "Explain this codebase for new developers" "my-project"
 ```
 
 Output:
@@ -184,21 +200,22 @@ my-project/runs/{timestamp}/
 
 | What You Want | Command |
 |---------------|---------|
-| **Interactive mode** | `node process_and_upload.js` |
-| **Analyze a meeting** | `node process_and_upload.js --name "Jane" "my-meeting"` |
-| **Pick a specific model** | `node process_and_upload.js --model gemini-2.5-pro "my-meeting"` |
-| **Run without Firebase** | `node process_and_upload.js --skip-upload "my-meeting"` |
-| **Resume interrupted run** | `node process_and_upload.js --resume "my-meeting"` |
-| **Force re-analysis** | `node process_and_upload.js --reanalyze "my-meeting"` |
-| **Re-upload to Storage** | `node process_and_upload.js --force-upload "my-meeting"` |
-| **Force Gemini File API** | `node process_and_upload.js --no-storage-url "my-meeting"` |
-| **Preview without running** | `node process_and_upload.js --dry-run "my-meeting"` |
-| **Deep dive docs** | `node process_and_upload.js --deep-dive "my-meeting"` |
-| **Generate docs (no video)** | `node process_and_upload.js --dynamic "my-project"` |
-| **Track progress via git** | `node process_and_upload.js --update-progress --repo "C:\project" "my-meeting"` |
+| **Interactive mode** | `taskex` |
+| **Analyze a meeting** | `taskex --name "Jane" "my-meeting"` |
+| **Pass API key directly** | `taskex --gemini-key "AIza..." "my-meeting"` |
+| **Pick a specific model** | `taskex --model gemini-2.5-pro "my-meeting"` |
+| **Run without Firebase** | `taskex --skip-upload "my-meeting"` |
+| **Resume interrupted run** | `taskex --resume "my-meeting"` |
+| **Force re-analysis** | `taskex --reanalyze "my-meeting"` |
+| **Re-upload to Storage** | `taskex --force-upload "my-meeting"` |
+| **Force Gemini File API** | `taskex --no-storage-url "my-meeting"` |
+| **Preview without running** | `taskex --dry-run "my-meeting"` |
+| **Deep dive docs** | `taskex --deep-dive "my-meeting"` |
+| **Generate docs (no video)** | `taskex --dynamic "my-project"` |
+| **Track progress via git** | `taskex --update-progress --repo "C:\project" "my-meeting"` |
 
 > **Tip:** If the call folder isn't already a git repo, `--update-progress` auto-initializes one for baseline tracking.
-| **Debug mode** | `node process_and_upload.js --log-level debug "my-meeting"` |
+| **Debug mode** | `taskex --log-level debug "my-meeting"` |
 
 > Full CLI reference with all flags → [README.md — CLI Flags](README.md#cli-flags)
 
@@ -219,6 +236,14 @@ my-project/runs/{timestamp}/
 ---
 
 ## Updating the Tool
+
+**npm global install:**
+
+```bash
+npm update -g task-summary-extractor
+```
+
+**Git clone:**
 
 ```bash
 git checkout main

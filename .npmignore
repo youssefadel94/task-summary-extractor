@@ -1,0 +1,30 @@
+# Call data and results
+call */
+logs/
+gemini_runs/
+sample-call/
+history.json
+
+# Video files (large)
+**/*.mp4
+**/*.mkv
+**/*.avi
+**/*.mov
+**/*.webm
+
+# Environment
+.env
+.env.local
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# Other
+node_modules/

@@ -1,8 +1,23 @@
 {
-  "name": "video-compress-upload-ai",
-  "version": "7.2.3",
-  "description": "AI-powered meeting analysis & dynamic document generation — video + document processing, deep dive docs, dynamic mode with video support, interactive CLI with model selection, confidence scoring, learning loop, git progress tracking",
+  "name": "task-summary-extractor",
+  "version": "8.0.0",
+  "description": "AI-powered meeting analysis & document generation CLI — video + document processing, deep dive docs, dynamic mode, interactive CLI with model selection, confidence scoring, learning loop, git progress tracking",
   "main": "process_and_upload.js",
+  "bin": {
+    "taskex": "./bin/taskex.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "prompt.json",
+    "process_and_upload.js",
+    "setup.js",
+    "compress_and_segment.bat",
+    "README.md",
+    "QUICK_START.md",
+    "ARCHITECTURE.md",
+    "EXPLORATION.md"
+  ],
   "scripts": {
     "setup": "node setup.js",
     "check": "node setup.js --check",
@@ -15,6 +30,29 @@
     "help": "node process_and_upload.js --help",
     "version": "node process_and_upload.js --version"
   },
+  "keywords": [
+    "meeting",
+    "analysis",
+    "gemini",
+    "ai",
+    "video",
+    "transcription",
+    "task-extraction",
+    "document-generation",
+    "cli",
+    "firebase",
+    "ffmpeg"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/youssefadel94/task-summary-extractor.git"
+  },
+  "homepage": "https://github.com/youssefadel94/task-summary-extractor#readme",
+  "bugs": {
+    "url": "https://github.com/youssefadel94/task-summary-extractor/issues"
+  },
+  "author": "Youssef Adel",
+  "license": "MIT",
   "dependencies": {
     "@google/genai": "^1.42.0",
     "dotenv": "^17.3.1",

@@ -9,8 +9,14 @@
 
 const path = require('path');
 
-// Load .env from project root (parent of src/)
-require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+// Load .env from the current working directory (where the user runs from).
+// When installed globally, this picks up .env from the project being analyzed.
+// Falls back to package root .env for backward compatibility.
+const cwd = process.cwd();
+const cwdEnv = path.join(cwd, '.env');
+const pkgEnv = path.resolve(__dirname, '..', '.env');
+const fs_ = require('fs');
+require('dotenv').config({ path: fs_.existsSync(cwdEnv) ? cwdEnv : pkgEnv });
 
 // ======================== HELPERS ========================
 

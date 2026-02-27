@@ -8,22 +8,36 @@
 
 ## Table of Contents
 
-- [System Architecture](#system-architecture)
-- [Pipeline Phases](#pipeline-phases)
-- [Per-Segment Processing](#per-segment-processing)
-- [Smart Change Detection](#smart-change-detection)
-- [Extraction Schema](#extraction-schema)
-- [JSON Parser](#json-parser--5-strategy-extraction)
-- [Quality Gate](#quality-gate--4-dimension-scoring)
-- [Learning Loop](#learning-loop--self-improving-budgets)
-- [Cross-Segment Continuity](#cross-segment-continuity)
-- [Diff Engine](#diff-engine--cross-run-intelligence)
-- [Deep Dive Mode](#deep-dive-mode)
-- [Dynamic Mode](#dynamic-mode)
-- [Document Processing](#document-context-processing)
-- [Skip Logic / Caching](#skip-logic--caching)
-- [Logging](#logging)
-- [Tech Stack](#tech-stack)
+- [Architecture \& Technical Deep Dive](#architecture--technical-deep-dive)
+  - [Table of Contents](#table-of-contents)
+  - [System Architecture](#system-architecture)
+    - [Phase Descriptions](#phase-descriptions)
+  - [Pipeline Phases](#pipeline-phases)
+  - [Per-Segment Processing](#per-segment-processing)
+    - [File Resolution Strategies](#file-resolution-strategies)
+    - [Quality Gate Decision Table](#quality-gate-decision-table)
+  - [Smart Change Detection](#smart-change-detection)
+    - [Correlation Strategies](#correlation-strategies)
+    - [Assessment Thresholds](#assessment-thresholds)
+  - [Extraction Schema](#extraction-schema)
+    - [Categories](#categories)
+    - [Personalized Task Section](#personalized-task-section)
+    - [Confidence Scoring](#confidence-scoring)
+  - [JSON Parser — 5-Strategy Extraction](#json-parser--5-strategy-extraction)
+  - [Quality Gate — 4-Dimension Scoring](#quality-gate--4-dimension-scoring)
+  - [Learning Loop — Self-Improving Budgets](#learning-loop--self-improving-budgets)
+  - [Cross-Segment Continuity](#cross-segment-continuity)
+  - [Diff Engine — Cross-Run Intelligence](#diff-engine--cross-run-intelligence)
+  - [Deep Dive Mode](#deep-dive-mode)
+  - [Dynamic Mode](#dynamic-mode)
+    - [Dynamic Mode Categories](#dynamic-mode-categories)
+  - [Document Context Processing](#document-context-processing)
+  - [Skip Logic / Caching](#skip-logic--caching)
+  - [Logging](#logging)
+  - [Tech Stack](#tech-stack)
+  - [Video Encoding Parameters](#video-encoding-parameters)
+  - [Gemini Run Record Format](#gemini-run-record-format)
+  - [See Also](#see-also)
 
 ---
 
@@ -32,7 +46,7 @@
 ```mermaid
 flowchart TB
     subgraph Entry["Entry Point"]
-        EP["process_and_upload.js"]
+        EP["taskex (bin/taskex.js)\nor process_and_upload.js"]
     end
 
     subgraph Pipeline["pipeline.js — Multi-Mode Orchestrator"]
@@ -469,13 +483,13 @@ Dynamic mode accepts any request — the AI adapts document categories and count
 
 ```bash
 # Migration planning → plan + guide + checklist + risk analysis
---dynamic --request "Plan migration from MySQL to PostgreSQL"
+taskex --dynamic --request "Plan migration from MySQL to PostgreSQL"
 
 # Learning → concept + guide + reference (progressive complexity)
---dynamic --request "Create React hooks tutorial"
+taskex --dynamic --request "Create React hooks tutorial"
 
 # Architecture → overview + system docs + decision records
---dynamic --request "Document this microservices architecture"
+taskex --dynamic --request "Document this microservices architecture"
 ```
 
 ---
@@ -525,12 +539,12 @@ JSONL structured format includes phase spans with timing metrics for observabili
 |-----------|---------|---------|
 | **Node.js** | ≥ 18.0.0 | Runtime (v24 tested) |
 | **Gemini AI** | `@google/genai@^1.42.0` | Video analysis, File API, 1M context window |
-| **Firebase** | `firebase@^11.0.0` | Anonymous auth + Cloud Storage uploads |
+| **Firebase** | `firebase@^12.9.0` | Anonymous auth + Cloud Storage uploads |
 | **dotenv** | `dotenv@^17.3.1` | Environment variable loading |
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 30 files · ~10,140 lines**
+**Codebase: 31 files · ~10,300 lines** · npm package: `task-summary-extractor` · CLI: `taskex`
 
 ---
 

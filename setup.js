@@ -94,7 +94,7 @@ This is a sample folder. Replace with your actual recording.
 1. Drop your video file here (e.g., \`Meeting Recording.mp4\`)
 2. Add subtitles if available (e.g., \`Meeting Recording.vtt\`)
 3. Add any relevant docs in subfolders — the pipeline scans ALL subfolders recursively
-4. Run: \`node process_and_upload.js --name "Your Name" "sample-call"\`
+4. Run: \`taskex --name "Your Name" "sample-call"\`
 
 ## Folder structure
 
@@ -452,7 +452,7 @@ function validate() {
 async function main() {
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
-  console.log('  ║  Task Summary Extractor — Setup v7.2.3  ║');
+  console.log('  ║  Task Summary Extractor — Setup v8.0.0  ║');
   console.log('  ╚══════════════════════════════════════════╝');
 
   if (CHECK_ONLY) {
@@ -484,7 +484,8 @@ async function main() {
     console.log('  Next steps:');
     console.log('  ──────────');
     console.log('  1. Drop a video in your call folder');
-    console.log('  2. Run:  node process_and_upload.js --name "Your Name" "call 1"');
+    console.log('  2. Run:  taskex --name "Your Name" "call 1"');
+    console.log('         or: node process_and_upload.js --name "Your Name" "call 1"');
     console.log('  3. Open: call 1/runs/{timestamp}/results.md');
     console.log('');
     console.log('  Docs:  README.md  ·  QUICK_START.md  ·  ARCHITECTURE.md');

@@ -318,10 +318,12 @@ async function selectModel(GEMINI_MODELS, currentModel) {
  */
 function showHelp() {
   console.log(`
-  Usage: node process_and_upload.js [options] [folder]
+  Usage: taskex [options] [folder]
+         node process_and_upload.js [options] [folder]
 
   AI-powered meeting analysis & document generation pipeline.
   If no folder is specified, shows an interactive folder selector.
+  If you cd into a folder, just run: taskex
 
   Arguments:
     [folder]                          Path to the call/project folder (optional — interactive if omitted)
@@ -354,6 +356,13 @@ function showHelp() {
   Progress Tracking:
     --repo <path>                     Path to the project git repo (for change detection)
 
+  Configuration:
+    --gemini-key <key>                Gemini API key (overrides .env / GEMINI_API_KEY)
+    --firebase-key <key>              Firebase API key (overrides .env / FIREBASE_API_KEY)
+    --firebase-project <id>           Firebase project ID (overrides .env / FIREBASE_PROJECT_ID)
+    --firebase-bucket <bucket>        Firebase storage bucket (overrides .env / FIREBASE_STORAGE_BUCKET)
+    --firebase-domain <domain>        Firebase auth domain (overrides .env / FIREBASE_AUTH_DOMAIN)
+
   Tuning:
     --parallel <n>                    Max parallel uploads (default: 3)
     --parallel-analysis <n>           Concurrent segment analysis batches (default: 2)
@@ -370,18 +379,16 @@ function showHelp() {
     --version, -v                     Show version
 
   Examples:
-    node process_and_upload.js                                              Interactive folder selection
-    node process_and_upload.js "call 1"                                     Analyze a call (with video)
-    node process_and_upload.js --name "Jane" --skip-upload "call 1"         Skip Firebase, set name
-    node process_and_upload.js --model gemini-2.5-pro "call 1"              Use Gemini 2.5 Pro model
-    node process_and_upload.js --resume "call 1"                            Resume interrupted run
-    node process_and_upload.js --force-upload "call 1"                      Re-upload all files to Storage
-    node process_and_upload.js --no-storage-url "call 1"                    Force Gemini File API upload
-    node process_and_upload.js --deep-dive "call 1"                         Video analysis + deep dive docs
-    node process_and_upload.js --dynamic "my-project"                       Doc-only mode (prompted for request)
-    node process_and_upload.js --dynamic --request "Plan API migration" "specs"
-    node process_and_upload.js --dynamic --request "Explain this codebase for onboarding" "my-project"
-    node process_and_upload.js --update-progress --repo "C:\\my-project" "call 1"
+    taskex                                                                  Interactive (cd into folder first)
+    taskex "call 1"                                                         Analyze a call (with video)
+    taskex --name "Jane" --skip-upload "call 1"                             Skip Firebase, set name
+    taskex --gemini-key "AIza..." --skip-upload "call 1"                    Pass API key inline (no .env)
+    taskex --model gemini-2.5-pro "call 1"                                  Use Gemini 2.5 Pro model
+    taskex --resume "call 1"                                                Resume interrupted run
+    taskex --deep-dive "call 1"                                             Video analysis + deep dive docs
+    taskex --dynamic "my-project"                                           Doc-only mode (prompted for request)
+    taskex --dynamic --request "Plan API migration" "specs"                 Dynamic with request
+    taskex --update-progress --repo "C:\\my-project" "call 1"               Progress tracking via git
   `);
   // Signal early exit — pipeline checks for help flag before calling this
   throw Object.assign(new Error('HELP_SHOWN'), { code: 'HELP_SHOWN' });
