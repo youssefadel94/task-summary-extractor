@@ -177,22 +177,41 @@ Each video segment goes through this flow (Phase 4 detail):
 flowchart TB
     START(["Segment N"]) --> COMPRESS["ffmpeg compress\nH.264 CRF 24, 1.5x speed"]
     COMPRESS --> VERIFY["Verify segment integrity"]
-    VERIFY --> UPLOAD_FB["Upload to Firebase Storage"]
-    VERIFY --> UPLOAD_GEM["Upload to Gemini File API"]
+    VERIFY --> UPLOAD_FB["Upload to Firebase Storage\n→ download URL"]
+
+    UPLOAD_FB --> RESOLVE{"File Resolution\n3-Strategy Hierarchy"}
+
+    RESOLVE -->|"Strategy A\nRetry/Focused pass"| REUSE["Reuse existing\nGemini File API URI"]
+    RESOLVE -->|"Strategy B\nFirebase URL available"| EXTURL["Use Firebase download URL\nas Gemini External URL\n(skip File API upload)"]
+    RESOLVE -->|"Strategy C\nFallback"| UPLOAD_GEM["Upload to Gemini File API"]
     UPLOAD_GEM --> WAIT["Poll until ACTIVE"]
-    WAIT --> ANALYZE["Gemini AI Analysis\nVideo + Docs + Prompt + Context"]
+
+    REUSE & EXTURL & WAIT --> ANALYZE["Gemini AI Analysis\nVideo + Docs + Prompt + Context"]
     ANALYZE --> PARSE["JSON Parser\n5-strategy extraction"]
     PARSE --> QUALITY{"Quality Gate\nScore 0-100"}
 
-    QUALITY -->|"Score < 45"| RETRY["Auto-Retry\nwith corrective hints"]
+    QUALITY -->|"Score < 45"| RETRY["Auto-Retry\nwith corrective hints\n(reuses URI — Strategy A)"]
     RETRY --> ANALYZE
-    QUALITY -->|"Score 45-59\nweak areas"| FOCUS["Focused Re-Analysis\ntargeted second pass"]
+    QUALITY -->|"Score 45-59\nweak areas"| FOCUS["Focused Re-Analysis\ntargeted second pass\n(reuses URI — Strategy A)"]
     FOCUS --> MERGE["Merge focused results"]
-    QUALITY -->|"Score >= 60"| NEXT(["Next Segment"])
-    MERGE --> NEXT
+    QUALITY -->|"Score >= 60"| CLEANUP
+    MERGE --> CLEANUP["Cleanup: delete\nGemini File API uploads"]
+    CLEANUP --> NEXT(["Next Segment"])
 
     NEXT --> CTX["Inject into cross-segment context"]
 ```
+
+### File Resolution Strategies
+
+The pipeline uses a 3-strategy hierarchy to avoid redundant uploads:
+
+| Strategy | When Used | What Happens | Benefit |
+|----------|-----------|-------------|---------|
+| **A: Reuse URI** | Retry or focused re-analysis pass | Uses the Gemini File API URI or External URL from the first analysis | Zero upload — instant |
+| **B: Storage URL** | Firebase upload succeeded, segment available via HTTPS | Uses the Firebase Storage download URL directly as a Gemini External URL | Skips Gemini File API upload + polling entirely |
+| **C: File API Upload** | Fallback (no Firebase, `--skip-upload`, etc.) | Uploads to Gemini File API, polls until ACTIVE | Full upload + processing wait |
+
+After all passes complete, any Gemini File API uploads are cleaned up (fire-and-forget delete). When Strategy B was used, no cleanup is needed since no Gemini file was created.
 
 ### Quality Gate Decision Table
 
@@ -482,12 +501,13 @@ Directories skipped during recursive discovery: `node_modules`, `.git`, `compres
 
 ## Logging
 
-Every run creates two log files in `logs/`:
+Every run creates three log files in `logs/`:
 
 | File | Contents |
 |------|----------|
 | **Detailed** (`_detailed.log`) | All console output, debug info, response previews, timestamps |
-| **Minimal** (`_minimal.log`) | Key milestones: start, compression, uploads, AI results, errors |
+| **Minimal** (`_minimal.log`) | Steps, info, warnings, errors + timestamps (no debug) |
+| **Structured** (`_structured.jsonl`) | Every event as a JSON object with level, timestamp, context, phase |
 
 Log levels: `STEP` (milestones) · `INFO` (verbose) · `WARN` (non-fatal) · `ERR` (failures) · `DBG` (debug data)
 
@@ -506,7 +526,7 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 30 files · ~10,000 lines**
+**Codebase: 30 files · ~10,076 lines**
 
 ---
 
@@ -537,7 +557,12 @@ Each segment analysis is saved as a timestamped JSON file:
     "durationMs": 45230
   },
   "input": {
-    "videoFile": { "mimeType": "video/mp4", "fileUri": "..." },
+    "videoFile": {
+      "mimeType": "video/mp4",
+      "fileUri": "...",
+      "geminiFileName": "files/abc123",
+      "usedExternalUrl": false
+    },
     "contextDocuments": [{ "fileName": ".tasks/requirements.md" }],
     "previousSegmentCount": 0
   },
@@ -548,6 +573,8 @@ Each segment analysis is saved as a timestamped JSON file:
   }
 }
 ```
+
+When `usedExternalUrl` is `true`, the `fileUri` contains the Firebase Storage download URL and `geminiFileName` is `null` (no File API upload was made).
 
 ---
 

@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v7.2.0** — AI-powered meeting analysis & document generation from the CLI.
+> **v7.2.1** — AI-powered meeting analysis & document generation from the CLI.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-7.2.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-7.2.1-brightgreen" alt="Version" />
 </p>
 
 **Record a meeting → get a structured task document.** Or point it at any folder and generate docs from context.
@@ -326,6 +326,9 @@ GEMINI_API_KEY=your-key-here
 | **Smart Segmentation** | ≤5 min chunks with boundary-aware splitting |
 | **Cross-Segment Continuity** | Ticket IDs, names, and context carry forward |
 | **Document Discovery** | Auto-finds docs in all subfolders |
+| **Storage URL Optimization** | Firebase download URLs reused as Gemini External URLs — skips separate File API upload |
+| **3-Strategy File Resolution** | Reuse URI → Storage URL → File API upload (zero redundant uploads) |
+| **Gemini File Cleanup** | Auto-deletes File API uploads after analysis completes |
 | **Quality Gate** | 4-dimension scoring with auto-retry |
 | **Focused Re-Analysis** | Targeted second pass on weak areas |
 | **Learning Loop** | Auto-tunes budgets from past run quality |
@@ -377,11 +380,11 @@ task-summary-extractor/
 │
 ├── src/
 │   ├── config.js               Config, model registry, env vars
-│   ├── logger.js               Structured JSONL logger
-│   ├── pipeline.js             Multi-mode orchestrator (1,710 lines)
+│   ├── logger.js               Structured JSONL logger (triple output)
+│   ├── pipeline.js             Multi-mode orchestrator (1,728 lines)
 │   ├── services/
-│   │   ├── gemini.js           Gemini AI analysis
-│   │   ├── firebase.js         Firebase Storage
+│   │   ├── gemini.js           Gemini AI — 3-strategy file resolution + External URL support
+│   │   ├── firebase.js         Firebase Storage (async I/O)
 │   │   ├── video.js            ffmpeg compression
 │   │   └── git.js              Git CLI wrapper
 │   ├── renderers/
@@ -412,6 +415,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v7.2.1** | Storage URL optimization, 3-strategy file resolution, Gemini file cleanup, codebase audit fixes |
 | **v7.2** | Interactive model selector, `--model` flag, 5-model registry |
 | **v7.1** | `--dynamic` processes videos too — any content mix |
 | **v7.0** | Dynamic mode, interactive folder selection |

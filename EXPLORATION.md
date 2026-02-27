@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 7.2.0** — February 2026  
+> **Version 7.2.1** — February 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -18,7 +18,7 @@
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
-│                       pipeline.js (1,710 lines)                     │
+│                       pipeline.js (1,728 lines)                     │
 │                    8-Phase Orchestrator                              │
 │                                                                     │
 │  Init ──────► Discover ──► Services ──► ProcessVideo ──► Compile    │
@@ -59,15 +59,15 @@
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Pipeline orchestrator | 1 | 1,710 |
-| Services (Gemini, Firebase, Video, Git) | 4 | 1,216 |
-| Utilities (19 modules) | 19 | 4,863 |
+| Pipeline orchestrator | 1 | 1,728 |
+| Services (Gemini, Firebase, Video, Git) | 4 | 1,281 |
+| Utilities (19 modules) | 19 | 4,566 |
 | Renderers | 1 | 879 |
-| Config + Logger | 2 | 580 |
+| Config + Logger | 2 | 583 |
 | Entry point | 1 | 62 |
 | Setup script | 1 | 417 |
 | Prompt (JSON) | 1 | 265 |
-| **Total** | **30 files** | **9,992 lines** |
+| **Total** | **30 files** | **~10,076 lines** |
 
 ### Version History
 
@@ -82,6 +82,7 @@
 | **v7.0** | Dynamic Mode | `--dynamic` doc-only mode, interactive folder selection, fully flexible pipeline |
 | **v7.1** | Dynamic + Video | `--dynamic` now processes videos: compress, segment, analyze — works with any content |
 | **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
+| **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
 
 ### What v6 Delivers
 
@@ -179,8 +180,10 @@ The logger now writes **three parallel outputs**:
 |------------|--------|-------------|
 | Video compression | ✅ Mature | ffmpeg-based, CRF, configurable speed/preset |
 | Video segmentation | ✅ Mature | Time-based splitting, segment pre-validation |
-| Firebase upload | ✅ Mature | Parallel, retry, skip-existing, anonymous auth |
-| Gemini segment analysis | ✅ Premium | 1M context window, VTT slicing, progressive context, adaptive budget |
+| Firebase upload | ✅ Mature | Parallel, retry, skip-existing, anonymous auth, async I/O |
+| Storage URL optimization | ✅ v7.2.1 New | Firebase download URLs used as Gemini External URLs — skips File API upload |
+| Gemini segment analysis | ✅ Premium | 1M context, VTT slicing, progressive context, adaptive budget, 3-strategy file resolution |
+| Gemini file cleanup | ✅ v7.2.1 New | Auto-delete File API uploads after all passes complete |
 | Quality gate + retry | ✅ Enhanced | 4-dimension scoring + confidence coverage dimension, auto-retry with hints |
 | Confidence scoring | ✅ v6 New | HIGH/MEDIUM/LOW per item with evidence reasoning |
 | Focused re-analysis | ✅ v6 New | Targeted second pass for weak quality dimensions |
@@ -247,20 +250,20 @@ Info:
 ```
 src/
 ├── config.js                277 ln  Central config, env vars, model registry, validation
-├── logger.js                303 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
-├── pipeline.js            1,710 ln  Multi-mode orchestrator with learning loop + focused re-analysis + diff engine + deep-dive + dynamic
+├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
+├── pipeline.js            1,728 ln  Multi-mode orchestrator with Storage URL optimization, learning loop, focused re-analysis, diff engine, deep-dive, dynamic
 ├── renderers/
 │   └── markdown.js          879 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
 ├── services/
-│   ├── firebase.js           90 ln  Init, upload, exists check (with retry)
-│   ├── gemini.js            614 ln  Init, doc prep, segment analysis, compilation, deep-dive, dynamic
+│   ├── firebase.js           92 ln  Init, upload, exists check (with retry, async I/O)
+│   ├── gemini.js            677 ln  ★ v7.2.1 — 3-strategy file resolution, External URL support, cleanup, doc prep, analysis, compilation
 │   ├── git.js               258 ln  ★ v6.1 — Git CLI wrapper: log, diff, status, changed files
 │   └── video.js             254 ln  ffmpeg compress, segment, probe, verify
 └── utils/
     ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
     ├── change-detector.js   417 ln  ★ v6.1 — Git-based change correlation engine
     ├── cli.js               336 ln  ★ v7.2 — Interactive prompts, model selector, folder picker, 20+ flags
-    ├── context-manager.js   426 ln  4-tier priority, VTT slicing, progressive context, boundary detection
+    ├── context-manager.js   424 ln  4-tier priority, VTT slicing, progressive context, boundary detection
     ├── cost-tracker.js      140 ln  Token counting, USD cost estimation (+ focused pass tracking)
     ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
     ├── diff-engine.js       280 ln  ★ v6 — Cross-run delta: new/removed/changed items, Markdown rendering
@@ -279,7 +282,7 @@ src/
 
 prompt.json                  265 ln  ★ v6 — Confidence scoring instructions, evidence-based schema
 process_and_upload.js         62 ln  Entry point, HELP_SHOWN handler
-setup.js                     417 ln  Automated first-time setup & environment validation
+setup.js                     417 ln  Automated first-time setup & environment validation (v7.2)
 ```
 
 ---
@@ -418,7 +421,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v7.2.0 codebase — 30 files, ~10,000 lines of self-improving pipeline intelligence.*
+*Generated from the v7.2.1 codebase — 30 files, ~10,076 lines of self-improving pipeline intelligence.*
 
 ---
 

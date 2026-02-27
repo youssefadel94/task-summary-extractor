@@ -128,9 +128,9 @@ node process_and_upload.js --name "Your Name" --skip-upload "my-meeting"
 The pipeline will:
 1. **Compress** the video (~30s)
 2. **Segment** it into ≤5 min chunks
-3. **Upload** segments to Gemini AI
-4. **Analyze** each segment — extract tickets, action items, decisions, etc.
-5. **Quality check** — retry weak segments automatically
+3. **Upload** segments to Firebase Storage (if configured)
+4. **Analyze** each segment with Gemini AI — uses Firebase Storage URL directly when available (skips separate Gemini upload)
+5. **Quality check** — retry weak segments automatically (reuses file reference — no re-upload)
 6. **Compile** results across all segments
 7. **Output** `results.md` + `results.json`
 
