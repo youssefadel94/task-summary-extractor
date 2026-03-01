@@ -90,7 +90,7 @@ async function prepareDocsForGemini(ai, docFileList) {
         const pollStart = Date.now();
         while (file.state === 'PROCESSING') {
           if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-            console.warn(`    ${c.warn(`${name} — polling timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s, skipping`)}`);
+            console.warn(`    ${c.warn(`${name} — file is still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s, skipping (you can increase the wait time with GEMINI_POLL_TIMEOUT_MS in .env)`)}`);
             file = null;
             break;
           }
@@ -287,7 +287,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
     const pollStart = Date.now();
     while (uploaded.state === 'PROCESSING') {
       if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-        throw new Error(`Gemini file processing timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s for ${displayName}. Try again or increase GEMINI_POLL_TIMEOUT_MS.`);
+        throw new Error(`File "${displayName}" is still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s. Try again or increase the wait time by setting GEMINI_POLL_TIMEOUT_MS in your .env file.`);
       }
       process.stdout.write(`    Processing${'.'.repeat((waited % 3) + 1)}   \r`);
       await new Promise(r => setTimeout(r, 5000));
@@ -343,7 +343,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
     buildProgressiveContext(previousAnalyses, userName) || ''
   );
   const docBudget = Math.max(100000, config.GEMINI_CONTEXT_WINDOW - 350000 - prevContextEstimate);
-  console.log(`    Context budget: ${(docBudget / 1000).toFixed(0)}K tokens for docs (${contextDocs.length} available)`);
+  console.log(`    Reference docs budget: ${(docBudget / 1000).toFixed(0)}K (${contextDocs.length} doc${contextDocs.length !== 1 ? 's' : ''} available)`);
 
   const { selected: selectedDocs, excluded, stats } = selectDocsByBudget(
     contextDocs, docBudget, { segmentIndex }

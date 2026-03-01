@@ -109,6 +109,14 @@ describe('buildBatches', () => {
     expect(batches[0].length).toBe(2);
     expect(batches[1].length).toBe(1);
   });
+
+  it('uses default BATCH_MAX_CHARS when no maxChars given', () => {
+    // Small docs should all fit in one batch with the default 600K limit
+    const docs = [makeDoc('a.md', 1000), makeDoc('b.md', 2000)];
+    const batches = buildBatches(docs);
+    expect(batches.length).toBe(1);
+    expect(batches[0].length).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------

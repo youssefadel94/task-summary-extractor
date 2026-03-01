@@ -372,6 +372,7 @@ ${f('--dynamic', 'Document generation — no media required')}
 ${f('--update-progress', 'Track item completion via git changes')}
 ${f('--deep-dive', 'Generate explanatory docs per topic')}
 ${f('--deep-summary', 'Pre-summarize context docs (saves ~60-80% input tokens)')}
+${f('--exclude-docs <list>', 'Comma-separated doc names to keep full (use with --deep-summary)')}
 
   ${h('CORE OPTIONS')}
 ${f('--name <name>', 'Your name (skip interactive prompt)')}
@@ -437,6 +438,7 @@ ${f('--version, -v', 'Show version')}
     ${c.dim('$')} taskex --format docx "call 1" ${c.dim('# Word document')}
     ${c.dim('$')} taskex --resume "call 1" ${c.dim('# Resume interrupted run')}
     ${c.dim('$')} taskex --deep-summary "call 1" ${c.dim('# Pre-summarize docs, save tokens')}
+    ${c.dim('$')} taskex --deep-summary --exclude-docs "board.md,spec.md" "call 1" ${c.dim('# Keep specific docs full')}
     ${c.dim('$')} taskex --update-progress --repo ./my-project "call 1"
   `);
   // Signal early exit — pipeline checks for help flag before calling this
@@ -529,6 +531,9 @@ const RUN_PRESETS = {
     overrides: {},
   },
 };
+
+// Attach RUN_PRESETS to exports (defined after module.exports due to const ordering)
+module.exports.RUN_PRESETS = RUN_PRESETS;
 
 /**
  * Interactive run-mode selector. Shows preset options and returns the chosen
@@ -749,28 +754,35 @@ async function selectDocsToExclude(contextDocs) {
   if (eligible.length === 0) return [];
 
   console.log('');
-  console.log(`  ${c.bold('📋 Deep Summary — Select Focus Documents')}`);
+  console.log(`  ${c.bold('📋 Deep Summary — Choose What to Keep in Full')}`);
   console.log(c.dim('  ' + '─'.repeat(60)));
-  console.log(`  ${c.dim('Selected docs will be kept at FULL fidelity (not summarized).')}`);
-  console.log(`  ${c.dim('The summary pass will focus on extracting info about these topics.')}`);
-  console.log(`  ${c.dim('Press Enter to summarize all (no exclusions).')}`);
+  console.log('');
+  console.log(`  ${c.dim('To save processing time, we can create short summaries of your')}`);
+  console.log(`  ${c.dim('reference documents. The AI will still read them — just faster.')}`);
+  console.log('');
+  console.log(`  ${c.bold('If a document is especially important to you, select it below')}`);
+  console.log(`  ${c.bold('to keep it in full.')} The rest will be smartly condensed.`);
   console.log('');
 
   eligible.forEach((d, i) => {
     const num = c.cyan(`[${i + 1}]`);
-    const tokens = c.dim(`~${(d.tokensEst / 1000).toFixed(0)}K tokens`);
-    console.log(`    ${num} ${c.bold(d.fileName)} ${tokens}`);
+    const size = d.tokensEst >= 1000
+      ? c.dim(`~${(d.tokensEst / 1000).toFixed(0)}K words`)
+      : c.dim(`~${d.tokensEst} words`);
+    console.log(`    ${num} ${c.bold(d.fileName)} ${size}`);
   });
+  console.log('');
+  console.log(c.dim('  Tip: Enter = condense all · Type numbers to keep full (e.g. 1,3)'));
   console.log('');
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => {
-    rl.question('  Keep full (e.g. 1,3,5 or Enter = summarize all): ', answer => {
+    rl.question('  Keep full (e.g. 1,3 or Enter = condense all): ', answer => {
       rl.close();
       const trimmed = (answer || '').trim();
 
       if (!trimmed) {
-        console.log(c.success('All documents will be summarized'));
+        console.log(c.success('Got it — all documents will be condensed for faster processing'));
         resolve([]);
         return;
       }
@@ -786,12 +798,12 @@ async function selectDocsToExclude(contextDocs) {
       }
 
       if (excluded.length === 0) {
-        console.log(c.warn('No valid selections — summarizing all'));
+        console.log(c.warn('No valid selections — condensing all documents'));
         resolve([]);
         return;
       }
 
-      console.log(c.success(`Keeping ${excluded.length} doc(s) at full fidelity:`));
+      console.log(c.success(`Keeping ${excluded.length} doc(s) in full — the rest will be condensed:`));
       excluded.forEach(f => console.log(`    ${c.dim('•')} ${c.cyan(f)}`));
       resolve(excluded);
     });

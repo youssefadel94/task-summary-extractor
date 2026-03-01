@@ -209,7 +209,6 @@ ${docEntries.join('\n\n')}`;
  * @param {object} [opts]
  * @param {string[]} [opts.excludeFileNames=[]] - Doc fileNames to keep at full fidelity
  * @param {number} [opts.thinkingBudget=8192] - Thinking budget per batch
- * @param {number} [opts.concurrency=1] - Parallel batch limit
  * @param {Function} [opts.onProgress] - Callback(done, total) for progress
  * @returns {Promise<{docs: Array, stats: object}>}
  */
@@ -217,7 +216,6 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   const {
     excludeFileNames = [],
     thinkingBudget = 8192,
-    concurrency = 1,
     onProgress = null,
   } = opts;
 
@@ -347,7 +345,7 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
 
   const savedTokens = originalTokens - summaryTokens;
   const savingsPercent = originalTokens > 0
-    ? ((savedTokens / originalTokens) * 100).toFixed(1)
+    ? parseFloat(((savedTokens / originalTokens) * 100).toFixed(1))
     : 0;
 
   return {
@@ -358,7 +356,7 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
       originalTokens,
       summaryTokens,
       savedTokens,
-      savingsPercent: parseFloat(savingsPercent),
+      savingsPercent,
       totalInputTokens: totalInput,
       totalOutputTokens: totalOutput,
     },

@@ -1,6 +1,6 @@
 {
   "name": "task-summary-extractor",
-  "version": "9.3.0",
+  "version": "9.3.1",
   "description": "AI-powered meeting analysis & document generation CLI — video + document processing, deep dive docs, dynamic mode, interactive CLI with model selection, confidence scoring, learning loop, git progress tracking",
   "main": "process_and_upload.js",
   "bin": {
@@ -15,8 +15,7 @@
     ".env.example",
     "README.md",
     "QUICK_START.md",
-    "ARCHITECTURE.md",
-    "EXPLORATION.md"
+    "ARCHITECTURE.md"
   ],
   "scripts": {
     "setup": "node setup.js",

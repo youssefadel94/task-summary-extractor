@@ -96,6 +96,43 @@ describe('parseArgs', () => {
     expect(flags['deep-summary']).toBe(true);
     expect(positional).toContain('call 1');
   });
+
+  it('parses --exclude-docs as a value flag', () => {
+    const { flags } = parseArgs(['--deep-summary', '--exclude-docs', 'board.md,spec.md', 'call 1']);
+    expect(flags['deep-summary']).toBe(true);
+    expect(flags['exclude-docs']).toBe('board.md,spec.md');
+  });
+
+  it('parses --exclude-docs=value syntax', () => {
+    const { flags } = parseArgs(['--exclude-docs=notes.md']);
+    expect(flags['exclude-docs']).toBe('notes.md');
+  });
+});
+
+// ─── RUN_PRESETS ─────────────────────────────────────────────────────────────
+
+describe('RUN_PRESETS', () => {
+  const { RUN_PRESETS } = require('../../src/utils/cli');
+
+  it('exports RUN_PRESETS object', () => {
+    expect(RUN_PRESETS).toBeDefined();
+    expect(typeof RUN_PRESETS).toBe('object');
+  });
+
+  it('has fast, balanced, detailed, custom presets', () => {
+    expect(Object.keys(RUN_PRESETS)).toEqual(
+      expect.arrayContaining(['fast', 'balanced', 'detailed', 'custom'])
+    );
+  });
+
+  it('each preset has label, icon, description, overrides', () => {
+    for (const [key, preset] of Object.entries(RUN_PRESETS)) {
+      expect(preset.label).toBeDefined();
+      expect(preset.icon).toBeDefined();
+      expect(preset.description).toBeDefined();
+      expect(preset.overrides).toBeDefined();
+    }
+  });
 });
 
 // ─── showHelp ────────────────────────────────────────────────────────────────

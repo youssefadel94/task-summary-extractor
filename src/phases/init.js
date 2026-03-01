@@ -68,7 +68,9 @@ async function phaseInit() {
     noHtml: !!flags['no-html'],
     deepDive: !!flags['deep-dive'],
     deepSummary: !!flags['deep-summary'],
-    deepSummaryExclude: [],  // populated by interactive picker or kept empty
+    deepSummaryExclude: typeof flags['exclude-docs'] === 'string'
+      ? flags['exclude-docs'].split(',').map(s => s.trim()).filter(Boolean)
+      : [],  // populated by CLI flag, interactive picker, or kept empty
     dynamic: !!flags.dynamic,
     request: typeof flags.request === 'string' ? flags.request : null,
     updateProgress: !!flags['update-progress'],
@@ -96,36 +98,10 @@ async function phaseInit() {
     opts.runMode = mode;
 
     if (mode !== 'custom') {
-      // Apply preset overrides
-      const { selectRunMode: _ignore, ...cliModule } = require('../utils/cli');
-      // Access RUN_PRESETS from the module
-      const presetOverrides = {
-        fast: {
-          disableFocusedPass: true,
-          disableLearning: true,
-          disableDiff: true,
-          format: 'md,json',
-          formats: new Set(['md', 'json']),
-          modelTier: 'economy',
-        },
-        balanced: {
-          disableFocusedPass: false,
-          disableLearning: false,
-          disableDiff: false,
-          format: 'all',
-          formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
-          modelTier: 'balanced',
-        },
-        detailed: {
-          disableFocusedPass: false,
-          disableLearning: false,
-          disableDiff: false,
-          format: 'all',
-          formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
-          modelTier: 'premium',
-        },
-      };
-      const preset = presetOverrides[mode];
+      // Apply preset overrides from the shared RUN_PRESETS definition
+      const { RUN_PRESETS } = require('../utils/cli');
+      const presetDef = RUN_PRESETS[mode];
+      const preset = presetDef ? presetDef.overrides : null;
       if (preset) {
         opts.disableFocusedPass = preset.disableFocusedPass;
         opts.disableLearning = preset.disableLearning;

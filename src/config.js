@@ -220,7 +220,7 @@ function getMaxThinkingBudget() {
 
 // ======================== VIDEO PROCESSING ========================
 
-const SPEED = envFloat('VIDEO_SPEED', 1.5);
+const SPEED = envFloat('VIDEO_SPEED', 1.6);
 const SEG_TIME = envInt('VIDEO_SEGMENT_TIME', 280); // seconds — produces segments < 5 min
 const PRESET = env('VIDEO_PRESET', 'slow');
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
