@@ -13,9 +13,8 @@
 'use strict';
 
 const {
-  stripParens, normalizeKey, clusterNames, resolve,
+  clusterNames, resolve,
   dedupBy, normalizeDesc, dedupByDesc,
-  fmtTs, priBadge, confBadge, confBadgeFull,
   escHtml,
 } = require('./shared');
 

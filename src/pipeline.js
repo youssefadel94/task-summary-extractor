@@ -151,7 +151,7 @@ async function run() {
     files: [],
   };
 
-  fullCtx.progress.setPhase('compress');
+  fullCtx.progress.setPhase('analyze');
   bar.setPhase('analyze', mediaFiles.length);
   if (log && log.phaseStart) log.phaseStart('process_videos');
 
@@ -702,6 +702,7 @@ async function runDynamic(initCtx) {
     });
   } catch (err) {
     console.error(`  ${c.error(`Topic planning failed: ${err.message}`)}`);
+    console.error(`    ${c.dim('Tip: check your Gemini API key, or try a simpler --request.')}`);
     log.error(`Dynamic topic planning failed: ${err.message}`);    bar.finish();    initCtx.progress.cleanup();
     log.close();
     return;

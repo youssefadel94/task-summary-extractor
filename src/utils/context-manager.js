@@ -511,12 +511,164 @@ function detectBoundaryContext(vttContent, segmentStartSec, segmentEndSec, segme
   return `SEGMENT BOUNDARY CONTEXT:\n${notes.map(n => `• ${n}`).join('\n')}\n→ Pay special attention to continuity — pick up where the previous segment left off. Do NOT re-extract items that were already captured in previous segments unless their status changed.`;
 }
 
+// ════════════════════════════════════════════════════════════
+//  Multi-Segment Batch Planning
+// ════════════════════════════════════════════════════════════
+
+/** Tokens per second of video at standard resolution (Google docs: ~300 tok/s). */
+const VIDEO_TOKENS_PER_SEC = 300;
+
+/**
+ * Plan how to group consecutive segments into batches that fit the context window.
+ *
+ * Token budget breakdown:
+ *   contextWindow
+ *   − promptOverhead (system instruction + prompt template + output buffer + safety)
+ *   − docTokens (context documents, already accounting for deep-summary condensation)
+ *   − prevContextTokens (progressive previous-analysis context, grows with batches)
+ *   = available for video segments
+ *
+ * Each segment costs ~300 tok/sec × durationSec.
+ *
+ * @param {Array<{durSec: number}>} segmentMetas  – per-segment metadata with durations
+ * @param {Array}  contextDocs      – prepared context docs (after deep-summary, if any)
+ * @param {object} opts
+ * @param {number} opts.contextWindow        – model context window (default: 1_048_576)
+ * @param {number} [opts.promptOverhead=120000] – tokens reserved for prompt/output/thinking
+ * @param {number} [opts.previousAnalysesTokens=0] – current progressive context size
+ * @param {number} [opts.maxBatchSize=8]    – hard cap on segments per batch
+ * @returns {{ batches: number[][], batchSize: number, reason: string }}
+ */
+function planSegmentBatches(segmentMetas, contextDocs, opts = {}) {
+  const {
+    contextWindow = 1_048_576,
+    promptOverhead = 120_000,
+    previousAnalysesTokens = 0,
+    maxBatchSize = 8,
+  } = opts;
+
+  // Total doc tokens
+  const docTokens = contextDocs.reduce((sum, d) => sum + estimateDocTokens(d), 0);
+
+  // Available tokens for video
+  const available = contextWindow - promptOverhead - docTokens - previousAnalysesTokens;
+
+  if (available <= 0) {
+    return { batches: segmentMetas.map((_, i) => [i]), batchSize: 1, reason: 'no headroom — 1 segment per call' };
+  }
+
+  // Greedy batching: pack consecutive segments while they fit
+  const batches = [];
+  let batch = [];
+  let batchTokens = 0;
+
+  for (let i = 0; i < segmentMetas.length; i++) {
+    const segTokens = Math.ceil((segmentMetas[i].durSec || 280) * VIDEO_TOKENS_PER_SEC);
+
+    if (batch.length > 0 && (batchTokens + segTokens > available || batch.length >= maxBatchSize)) {
+      batches.push(batch);
+      batch = [];
+      batchTokens = 0;
+    }
+
+    batch.push(i);
+    batchTokens += segTokens;
+  }
+  if (batch.length > 0) batches.push(batch);
+
+  // Effective max batch size across all batches
+  const effectiveBatchSize = Math.max(...batches.map(b => b.length));
+
+  const reason = effectiveBatchSize > 1
+    ? `${(available / 1000).toFixed(0)}K tokens available → up to ${effectiveBatchSize} segments/batch`
+    : 'segments too large for batching — 1 per call';
+
+  return { batches, batchSize: effectiveBatchSize, reason };
+}
+
+/**
+ * Build a segment focus block that covers a RANGE of segments in a batch.
+ *
+ * @param {number[]} segmentIndices  – indices of segments in this batch (0-based)
+ * @param {number}   totalSegments   – total segment count across the whole file
+ * @param {Array}    previousAnalyses – all analyses from prior batches
+ * @param {string}   userName
+ * @returns {string}
+ */
+function buildBatchSegmentFocus(segmentIndices, totalSegments, previousAnalyses, userName) {
+  const first = segmentIndices[0];
+  const last = segmentIndices[segmentIndices.length - 1];
+  const isRange = segmentIndices.length > 1;
+  const lines = [];
+
+  const posLabel = first === 0 ? 'FIRST' :
+    last === totalSegments - 1 ? 'LAST' : 'MIDDLE';
+
+  if (isRange) {
+    lines.push(`MULTI-SEGMENT BATCH: segments ${first + 1}–${last + 1} of ${totalSegments} (${posLabel} — analyzing ${segmentIndices.length} consecutive segments together)`);
+    lines.push(`You are watching ${segmentIndices.length} video segments in sequence. Each segment is a separate video file provided in order.`);
+    lines.push(`IMPORTANT: Tag every extracted item with its correct source_segment number (${first + 1}–${last + 1}) based on which video it appears in.`);
+  } else {
+    lines.push(`SEGMENT POSITION: ${first + 1} of ${totalSegments} (${
+      first === 0 ? 'FIRST — establish baseline' :
+      first === totalSegments - 1 ? 'LAST — capture final decisions & wrap-up tasks' :
+      'MIDDLE — track changes & new items'
+    })`);
+  }
+
+  if (first === 0) {
+    lines.push('FOCUS: Identify ALL tickets, participants, and initial task assignments.');
+    lines.push('Establish the baseline state for each ticket. Cross-reference everything against task documents.');
+    lines.push(`Pay special attention to tasks assigned to "${userName}".`);
+  } else {
+    // Build awareness of what's been found
+    const allTicketIds = new Set();
+    const allCrIds = new Set();
+    const allActionIds = new Set();
+    const allBlockerIds = new Set();
+
+    for (const prev of previousAnalyses) {
+      (prev.tickets || []).forEach(t => allTicketIds.add(t.ticket_id));
+      (prev.change_requests || []).forEach(cr => allCrIds.add(cr.id));
+      (prev.action_items || []).forEach(ai => allActionIds.add(ai.id));
+      (prev.blockers || []).forEach(b => allBlockerIds.add(b.id));
+    }
+
+    lines.push('ALREADY FOUND in previous segments:');
+    if (allTicketIds.size > 0) lines.push(`  Tickets: ${[...allTicketIds].join(', ')}`);
+    if (allCrIds.size > 0) lines.push(`  CRs: ${[...allCrIds].slice(0, 20).join(', ')}${allCrIds.size > 20 ? ` (+${allCrIds.size - 20} more)` : ''}`);
+    if (allActionIds.size > 0) lines.push(`  Actions: ${[...allActionIds].join(', ')}`);
+    if (allBlockerIds.size > 0) lines.push(`  Blockers: ${[...allBlockerIds].join(', ')}`);
+
+    lines.push('');
+    lines.push('FOCUS for this batch:');
+    lines.push('1. DETECT NEW tickets, CRs, action items, blockers not yet found');
+    lines.push('2. TRACK STATE CHANGES to already-known items within and across the segments');
+    lines.push('3. CAPTURE any tasks assigned, re-assigned, or completed');
+    lines.push(`4. UPDATE ${userName}'s task list — any new assignments, completions, or blockers`);
+
+    if (last === totalSegments - 1) {
+      lines.push('');
+      lines.push('LAST SEGMENT SPECIAL:');
+      lines.push('- Capture all FINAL DECISIONS and wrap-up action items');
+      lines.push('- Note any "next steps" or "follow-up" items mentioned');
+      lines.push('- Identify items that were discussed but NOT resolved');
+    }
+  }
+
+  return lines.join('\n');
+}
+
 module.exports = {
   estimateTokens,
+  estimateDocTokens,
   selectDocsByBudget,
   sliceVttForSegment,
   buildProgressiveContext,
   buildSegmentFocus,
+  buildBatchSegmentFocus,
   detectBoundaryContext,
+  planSegmentBatches,
   VTT_FALLBACK_MAX_CHARS,
+  VIDEO_TOKENS_PER_SEC,
 };

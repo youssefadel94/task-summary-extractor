@@ -26,7 +26,9 @@ const {
   sliceVttForSegment,
   buildProgressiveContext,
   buildSegmentFocus,
+  buildBatchSegmentFocus,
   estimateTokens,
+  estimateDocTokens,
 } = require('../utils/context-manager');
 const { formatHMS } = require('../utils/format');
 const { withRetry } = require('../utils/retry');
@@ -564,6 +566,230 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   };
 }
 
+// ======================== MULTI-SEGMENT BATCH ANALYSIS ========================
+
+/**
+ * Process multiple consecutive video segments in a single Gemini call.
+ * This takes advantage of unused context-window headroom (especially after
+ * deep summary) to reduce the number of API calls and give the model a
+ * more holistic view of the meeting.
+ *
+ * @param {object}  ai           – Gemini AI instance
+ * @param {Array<{ segPath: string, segName: string, durSec: number, storageUrl?: string }>} batchSegments
+ * @param {string}  displayName  – label for logging (e.g. "call1_video_batch0-2")
+ * @param {Array}   contextDocs  – prepared context docs
+ * @param {Array}   previousAnalyses – analyses from earlier batches
+ * @param {string}  userName
+ * @param {string}  scriptDir    – where prompt.json lives
+ * @param {object}  batchOpts
+ * @param {number[]} batchOpts.segmentIndices      – 0-based global indices of the segments
+ * @param {number}   batchOpts.totalSegments       – total segment count for the whole file
+ * @param {Array<{startTimeSec: number, endTimeSec: number}>} batchOpts.segmentTimes
+ * @param {number}  [batchOpts.thinkingBudget=24576]
+ * @param {boolean} [batchOpts.noStorageUrl=false]
+ * @returns {Promise<object>} Run record (same shape as processWithGemini)
+ */
+async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, previousAnalyses, userName, scriptDir, batchOpts = {}) {
+  const {
+    segmentIndices = batchSegments.map((_, i) => i),
+    totalSegments = batchSegments.length,
+    segmentTimes = [],
+    thinkingBudget = 24576,
+    noStorageUrl = false,
+  } = batchOpts;
+
+  const { systemInstruction, promptText } = loadPrompt(scriptDir);
+
+  const EXTERNAL_URL_MAX_BYTES = 20 * 1024 * 1024;
+
+  // ── Upload / reference all video files ─────────────────────────────────────
+  const fileRefs = []; // { uri, mimeType, name, usedExternalUrl }
+
+  for (const seg of batchSegments) {
+    const fileSizeBytes = fs.existsSync(seg.segPath) ? fs.statSync(seg.segPath).size : 0;
+
+    if (!noStorageUrl && seg.storageUrl && fileSizeBytes <= EXTERNAL_URL_MAX_BYTES) {
+      fileRefs.push({ uri: seg.storageUrl, mimeType: 'video/mp4', name: null, usedExternalUrl: true });
+      console.log(`    ${seg.segName}: using Storage URL`);
+    } else {
+      // Upload via Gemini File API
+      console.log(`    ${seg.segName}: uploading to Gemini File API...`);
+      let uploaded = await withRetry(
+        () => ai.files.upload({
+          file: seg.segPath,
+          config: { mimeType: 'video/mp4', displayName: `${displayName}_${seg.segName}` },
+        }),
+        { label: `Gemini upload (${seg.segName})`, maxRetries: 3 }
+      );
+
+      let waited = 0;
+      const pollStart = Date.now();
+      while (uploaded.state === 'PROCESSING') {
+        if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
+          throw new Error(`File "${seg.segName}" still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s`);
+        }
+        process.stdout.write(`    Processing ${seg.segName}${'.'.repeat((waited % 3) + 1)}   \r`);
+        await new Promise(r => setTimeout(r, 5000));
+        waited++;
+        uploaded = await withRetry(
+          () => ai.files.get({ name: uploaded.name }),
+          { label: 'Gemini file status', maxRetries: 2, baseDelay: 1000 }
+        );
+      }
+      if (uploaded.state === 'FAILED') {
+        throw new Error(`Gemini processing failed for ${seg.segName}`);
+      }
+      fileRefs.push({ uri: uploaded.uri, mimeType: uploaded.mimeType || 'video/mp4', name: uploaded.name, usedExternalUrl: false });
+      console.log(`    ${seg.segName}: upload complete`);
+    }
+  }
+
+  // ── Build content parts ────────────────────────────────────────────────────
+  const contentParts = [];
+
+  // Video files — one fileData part per segment, in order
+  for (let i = 0; i < fileRefs.length; i++) {
+    const ref = fileRefs[i];
+    const segIdx = segmentIndices[i];
+    contentParts.push({ text: `=== VIDEO SEGMENT ${segIdx + 1} of ${totalSegments} ===` });
+    contentParts.push({ fileData: { mimeType: ref.mimeType, fileUri: ref.uri } });
+  }
+
+  // Context docs — same budget logic as single-segment but account for multiple videos
+  const videoTokenEstimate = batchSegments.reduce((sum, s) => sum + Math.ceil((s.durSec || 280) * 300), 0);
+  const prevContextEstimate = estimateTokens(buildProgressiveContext(previousAnalyses, userName) || '');
+  const docBudget = Math.max(50000, config.GEMINI_CONTEXT_WINDOW - videoTokenEstimate - 120000 - prevContextEstimate);
+  console.log(`    Doc budget: ${(docBudget / 1000).toFixed(0)}K tokens for ${contextDocs.length} doc(s)`);
+
+  const { selected: selectedDocs, excluded } = selectDocsByBudget(contextDocs, docBudget, { segmentIndex: segmentIndices[0] });
+  if (excluded.length > 0) {
+    console.log(`    Context: ${selectedDocs.length} docs included, ${excluded.length} excluded`);
+  }
+
+  // Attach selected docs with VTT time-slicing across the batch range
+  const batchStartSec = segmentTimes.length > 0 ? segmentTimes[0].startTimeSec : null;
+  const batchEndSec = segmentTimes.length > 0 ? segmentTimes[segmentTimes.length - 1].endTimeSec : null;
+
+  for (const doc of selectedDocs) {
+    if (doc.type === 'inlineText') {
+      let content = doc.content;
+      const isVtt = doc.fileName.toLowerCase().endsWith('.vtt') || doc.fileName.toLowerCase().endsWith('.srt');
+      if (isVtt && batchStartSec != null && batchEndSec != null) {
+        content = sliceVttForSegment(content, batchStartSec, batchEndSec);
+        console.log(`    VTT sliced to ${formatHMS(batchStartSec)}–${formatHMS(batchEndSec)} range`);
+      }
+      contentParts.push({ text: `=== Document: ${doc.fileName} ===\n${content}` });
+    } else if (doc.type === 'fileData') {
+      contentParts.push({ fileData: { mimeType: doc.mimeType, fileUri: doc.fileUri } });
+    }
+  }
+
+  // Bridge text
+  const bridgeText = buildDocBridgeText(selectedDocs);
+  if (bridgeText) contentParts.push({ text: bridgeText });
+
+  // Progressive context from previous batches
+  const prevText = buildProgressiveContext(previousAnalyses, userName);
+  if (prevText) contentParts.push({ text: prevText });
+
+  // Multi-segment focus instructions
+  const focusText = buildBatchSegmentFocus(segmentIndices, totalSegments, previousAnalyses, userName);
+  contentParts.push({ text: focusText });
+
+  // User identity
+  if (userName) {
+    contentParts.push({
+      text: `CURRENT USER: "${userName}". Tag tasks assigned to or owned by "${userName}". Populate the "your_tasks" section.`
+    });
+  }
+
+  contentParts.push({ text: promptText });
+
+  // ── Send request ──────────────────────────────────────────────────────────
+  console.log(`    Analyzing batch [segments ${segmentIndices[0] + 1}–${segmentIndices[segmentIndices.length - 1] + 1}] with ${config.GEMINI_MODEL}...`);
+
+  const requestPayload = {
+    model: config.GEMINI_MODEL,
+    contents: [{ role: 'user', parts: contentParts }],
+    config: {
+      systemInstruction,
+      maxOutputTokens: 65536,
+      temperature: 0,
+    },
+  };
+
+  const t0 = Date.now();
+  const response = await withRetry(
+    () => ai.models.generateContent(requestPayload),
+    { label: `Gemini batch analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+  );
+  const durationMs = Date.now() - t0;
+
+  const rawText = response.text;
+
+  // Token usage
+  const usage = response.usageMetadata || {};
+  const tokenUsage = {
+    inputTokens: usage.promptTokenCount || 0,
+    outputTokens: usage.candidatesTokenCount || 0,
+    totalTokens: usage.totalTokenCount || 0,
+    thoughtTokens: usage.thoughtsTokenCount || 0,
+  };
+  const contextRemaining = config.GEMINI_CONTEXT_WINDOW - tokenUsage.inputTokens;
+  const contextUsedPct = ((tokenUsage.inputTokens / config.GEMINI_CONTEXT_WINDOW) * 100).toFixed(1);
+  tokenUsage.contextWindow = config.GEMINI_CONTEXT_WINDOW;
+  tokenUsage.contextRemaining = contextRemaining;
+  tokenUsage.contextUsedPct = parseFloat(contextUsedPct);
+
+  console.log(`    Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()}`);
+  console.log(`    Context — used: ${contextUsedPct}% | remaining: ${contextRemaining.toLocaleString()} tokens`);
+
+  // Parse
+  const parsed = extractJson(rawText);
+
+  // Input summary
+  const inputSummary = contentParts.map(part => {
+    if (part.fileData) return { type: 'fileData', mimeType: part.fileData.mimeType, fileUri: part.fileData.fileUri };
+    if (part.text) return { type: 'text', chars: part.text.length, preview: part.text.substring(0, 300) };
+    return part;
+  });
+
+  // ── Cleanup Gemini File API uploads ────────────────────────────────────────
+  const geminiFileNames = fileRefs.filter(r => r.name && !r.usedExternalUrl).map(r => r.name);
+
+  return {
+    run: {
+      model: config.GEMINI_MODEL,
+      displayName,
+      userName,
+      timestamp: new Date().toISOString(),
+      durationMs,
+      tokenUsage,
+      systemInstruction,
+      batchMode: true,
+      segmentIndices,
+    },
+    input: {
+      videoFiles: fileRefs.map((ref, i) => ({
+        mimeType: ref.mimeType,
+        fileUri: ref.uri,
+        segmentName: batchSegments[i].segName,
+        usedExternalUrl: ref.usedExternalUrl,
+      })),
+      contextDocuments: contextDocs.map(d => ({ fileName: d.fileName, type: d.type })),
+      previousSegmentCount: previousAnalyses.length,
+      parts: inputSummary,
+      promptText,
+    },
+    output: {
+      raw: rawText,
+      parsed,
+      parseSuccess: parsed !== null,
+    },
+    _geminiFileNames: geminiFileNames,
+  };
+}
+
 // ======================== FINAL COMPILATION ========================
 
 /**
@@ -945,7 +1171,12 @@ console.log(`    ${c.success(`Summary: ${summary.length.toLocaleString()} chars 
  */
 async function cleanupGeminiFiles(ai, geminiFileName, contextDocs = []) {
   const toDelete = [];
-  if (geminiFileName) toDelete.push(geminiFileName);
+  // Accept a single name string or an array of names
+  if (Array.isArray(geminiFileName)) {
+    toDelete.push(...geminiFileName.filter(Boolean));
+  } else if (geminiFileName) {
+    toDelete.push(geminiFileName);
+  }
   for (const doc of contextDocs) {
     if (doc.type === 'fileData' && doc.geminiFileName) {
       toDelete.push(doc.geminiFileName);
@@ -970,6 +1201,7 @@ module.exports = {
   prepareDocsForGemini,
   loadPrompt,
   processWithGemini,
+  processSegmentBatch,
   compileFinalResult,
   buildDocBridgeText,
   analyzeVideoForContext,

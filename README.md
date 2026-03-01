@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v9.4.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v9.7.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
-  <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-9.4.0-brightgreen" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-331%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
+  <img src="https://img.shields.io/badge/version-9.7.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-345%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -183,7 +183,7 @@ These are the ones you'll actually use:
 | `--resume` | Continue an interrupted run | `--resume` |
 | `--reanalyze` | Force fresh analysis (ignore cache) | `--reanalyze` |
 | `--dry-run` | Preview what would run, without running | `--dry-run` |
-| `--format <type>` | Output format: `md`, `html`, `json`, `pdf`, `docx`, `all` (default: `md`) | `--format html` |
+| `--format <type>` | Output format: `md`, `html`, `json`, `pdf`, `docx`, `all` (default: `all`) | `--format html` |
 | `--min-confidence <level>` | Filter items by confidence: `high`, `medium`, `low` | `--min-confidence high` |
 | `--no-html` | Suppress HTML report generation | `--no-html` |
 | `--deep-summary` | Pre-summarize context docs (60-80% token savings) | `--deep-summary` |
@@ -273,6 +273,7 @@ Control how video is processed before AI analysis:
 | `--no-focused-pass` | enabled | Disable targeted re-analysis of weak segments |
 | `--no-learning` | enabled | Disable auto-tuning from historical run data |
 | `--no-diff` | enabled | Disable diff comparison with the previous run |
+| `--no-batch` | enabled | Disable multi-segment batching (force 1 segment per API call) |
 
 ### Available Models
 
@@ -304,7 +305,7 @@ DYNAMIC    --request <text>
 PROGRESS   --repo <path>
 TUNING     --thinking-budget  --compilation-thinking-budget  --parallel
            --parallel-analysis  --log-level  --output
-           --no-focused-pass  --no-learning  --no-diff
+           --no-focused-pass  --no-learning  --no-diff  --no-batch
 INFO       --help (-h)  --version (-v)
 ```
 
@@ -472,6 +473,7 @@ GEMINI_API_KEY=your-key-here
 | **Deep Summary** | `--deep-summary` pre-summarizes context docs, 60-80% token savings per segment |
 | **Context Window Safety** | Auto-truncation, pre-flight token checks, RESOURCE_EXHAUSTED recovery |
 | **Multi-Format Output** | `--format` flag: Markdown, HTML, JSON, PDF, DOCX, or all formats at once |
+| **Multi-Segment Batching** | Groups consecutive segments into single API calls when context window has headroom — fewer calls, better cross-segment awareness. `--no-batch` to disable |
 | **Interactive CLI** | Run with no args → guided experience |
 | **Resume / Checkpoint** | `--resume` continues interrupted runs |
 | **Firebase Upload** | Team access via cloud (optional) |
@@ -586,7 +588,7 @@ task-summary-extractor/
 | `npm run check` | Validate environment |
 | `npm start` | Run the pipeline |
 | `npm run help` | Show CLI help |
-| `npm test` | Run test suite (331 tests) |
+| `npm test` | Run test suite (345 tests) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage report |
 
@@ -596,6 +598,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v9.7.0** | **Multi-segment batching** — groups consecutive video segments into single Gemini API calls when context window has headroom, greedy bin-packing by token budget (`planSegmentBatches`), `processSegmentBatch()` multi-video API calls, automatic fallback to single-segment on failure, `--no-batch` to disable, codebase audit fixes (unused imports, variable shadowing) |
 | **v9.6.0** | **Interactive CLI UX** — arrow-key navigation for all selectors (folder, model, run mode, formats, confidence, doc exclusion), zero-dependency prompt engine (`interactive.js`), `selectOne()` with ↑↓+Enter, `selectMany()` with Space toggle + A all/none, non-TTY fallback to number input |
 | **v9.5.0** | **Video processing flags** — `--no-compress`, `--speed`, `--segment-time` CLI flags, hardcoded 1200s for raw mode, deprecated `--skip-compression` |
 | **v9.4.0** | **Context window safety** — pre-flight token checks, auto-truncation for oversized docs/VTTs, RESOURCE_EXHAUSTED recovery with automatic doc shedding, chunked compilation for large segment sets, P0/P1 hard cap (2× budget) prevents context overflow, improved deep-summary prompt quality |

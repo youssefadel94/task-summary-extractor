@@ -15,6 +15,7 @@
   - [Per-Segment Processing](#per-segment-processing)
     - [File Resolution Strategies](#file-resolution-strategies)
     - [Quality Gate Decision Table](#quality-gate-decision-table)
+  - [Multi-Segment Batching](#multi-segment-batching)
   - [Smart Change Detection](#smart-change-detection)
     - [Correlation Strategies](#correlation-strategies)
     - [Assessment Thresholds](#assessment-thresholds)
@@ -246,6 +247,56 @@ After all passes complete, any Gemini File API uploads are cleaned up (fire-and-
 | < 45 | Auto-retry with corrective hints |
 | 45–59 with ≥2 weak dimensions | Focused re-analysis on weak areas |
 | ≥ 60 | Pass |
+
+---
+
+## Multi-Segment Batching
+
+When the Gemini context window has enough headroom, consecutive video segments are grouped into single API calls. This reduces the number of Gemini calls and gives the model better cross-segment awareness.
+
+```mermaid
+flowchart TB
+    START(["All Segments"]) --> CHECK{"Batching enabled?\n!noBatch && !skipGemini\n&& segments > 1"}
+    CHECK -->|No| SINGLE["Single-segment\nprocessing (original)"]
+    CHECK -->|Yes| PLAN["planSegmentBatches()\nGreedy bin-packing"]
+
+    PLAN --> BUDGET["Calculate token budget:\ncontextWindow (1M)\n− promptOverhead (120K)\n− docTokens\n− prevAnalysesTokens\n= available for video"]
+
+    BUDGET --> FIT{"batchSize > 1?"}
+    FIT -->|No| SINGLE
+    FIT -->|Yes| BATCH["Process in batches"]
+
+    BATCH --> B1["Batch 1:\nsegs 1–N"]
+    BATCH --> B2["Batch 2:\nsegs N+1–M"]
+    BATCH --> BN["..."]
+
+    B1 --> CALL["processSegmentBatch()\nMultiple fileData parts\nper Gemini call"]
+    CALL --> PARSE["Parse + Quality Gate\n+ Schema Validation"]
+    PARSE --> TAG["Tag items with\nsource_segment"]
+
+    CALL -->|Error| FALLBACK["Fall back to\nsingle-segment mode"]
+    FALLBACK --> SINGLE
+```
+
+### How It Works
+
+| Step | Detail |
+| ------ | -------- |
+| **Token budget** | `contextWindow − 120K overhead − docTokens − prevAnalysesTokens = available` |
+| **Video cost** | ~300 tokens/sec × segment duration |
+| **Bin-packing** | Greedy: add consecutive segments until budget or max batch size (8) reached |
+| **Deep summary synergy** | Deep summary frees 60–80% of doc tokens → more room for video → larger batches |
+| **Fallback** | Any batch failure → entire remaining file falls back to single-segment processing |
+| **Cache aware** | Cached segment runs are loaded from disk; only uncached batches hit the API |
+| **Disable** | `--no-batch` forces original single-segment behavior |
+
+### Token Math Example
+
+| Scenario | Doc Tokens | Available | Seg Duration | Tokens/Seg | Batch Size |
+| ---------- | ----------- | ----------- | ------------- | ----------- | ----------- |
+| No deep summary | 300K | ~580K | 280s | 84K | 6 |
+| With deep summary | 60K | ~820K | 280s | 84K | 9 |
+| Raw mode | 60K | ~820K | 1200s | 360K | 2 |
 
 ---
 

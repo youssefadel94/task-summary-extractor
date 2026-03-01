@@ -40,11 +40,11 @@ function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun })
   if (cost.totalTokens > 0) {
     console.log('');
     console.log(`  ${c.heading(`Cost estimate (${config.GEMINI_MODEL}):`)}`);
-    console.log(`    Input tokens  : ${c.yellow(cost.inputTokens.toLocaleString())} ${c.dim(`($${cost.inputCost.toFixed(4)})`)}`);
-    console.log(`    Output tokens : ${c.yellow(cost.outputTokens.toLocaleString())} ${c.dim(`($${cost.outputCost.toFixed(4)})`)}`);
-    console.log(`    Thinking tokens: ${c.yellow(cost.thinkingTokens.toLocaleString())} ${c.dim(`($${cost.thinkingCost.toFixed(4)})`)}`);
-    console.log(`    Total         : ${c.highlight(cost.totalTokens.toLocaleString() + ' tokens')} | ${c.green('$' + cost.totalCost.toFixed(4))}`);
-    console.log(`    AI time       : ${c.yellow((cost.totalDurationMs / 1000).toFixed(1) + 's')}`);
+    console.log(`    Input:    ${c.yellow(cost.inputTokens.toLocaleString())} ${c.dim(`($${cost.inputCost.toFixed(4)})`)}`);
+    console.log(`    Output:   ${c.yellow(cost.outputTokens.toLocaleString())} ${c.dim(`($${cost.outputCost.toFixed(4)})`)}`);
+    console.log(`    Thinking: ${c.yellow(cost.thinkingTokens.toLocaleString())} ${c.dim(`($${cost.thinkingCost.toFixed(4)})`)}`);
+    console.log(`    Total:    ${c.highlight(cost.totalTokens.toLocaleString() + ' tokens')} | ${c.green('$' + cost.totalCost.toFixed(4))}`);
+    console.log(`    AI time:  ${c.yellow((cost.totalDurationMs / 1000).toFixed(1) + 's')}`);
   }
 
   if (firebaseReady && !opts.skipUpload) {

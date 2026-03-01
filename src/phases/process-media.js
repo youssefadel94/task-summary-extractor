@@ -9,7 +9,7 @@ const { AUDIO_EXTS, SPEED } = config;
 
 // --- Services ---
 const { uploadToStorage, storageExists } = require('../services/firebase');
-const { processWithGemini, cleanupGeminiFiles } = require('../services/gemini');
+const { processWithGemini, processSegmentBatch, cleanupGeminiFiles } = require('../services/gemini');
 const { compressAndSegment, compressAndSegmentAudio, splitOnly, probeFormat, verifySegment } = require('../services/video');
 
 // --- Utils ---
@@ -19,7 +19,7 @@ const { parallelMap } = require('../utils/retry');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('../utils/quality-gate');
 const { validateAnalysis, formatSchemaLine, schemaScore, normalizeAnalysis } = require('../utils/schema-validator');
 const { calculateThinkingBudget } = require('../utils/adaptive-budget');
-const { detectBoundaryContext, sliceVttForSegment } = require('../utils/context-manager');
+const { detectBoundaryContext, sliceVttForSegment, planSegmentBatches, estimateTokens, buildProgressiveContext } = require('../utils/context-manager');
 
 // --- Modes ---
 const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('../modes/focused-reanalysis');
@@ -244,6 +244,215 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   const previousAnalyses = [];
   const segmentAnalyses = [];
   const segmentReports = []; // Quality reports for health dashboard
+
+  // ════════════════════════════════════════════════════════════
+  //  Multi-Segment Batching — pass multiple segments per call
+  //  when the context window has enough headroom.
+  // ════════════════════════════════════════════════════════════
+  const useBatching = !opts.noBatch && !opts.skipGemini && !opts.dryRun && segments.length > 1;
+  let batchedSuccessfully = false;
+
+  if (useBatching) {
+    const prevTokens = estimateTokens(buildProgressiveContext(previousAnalyses, userName) || '');
+    const { batches, batchSize, reason } = planSegmentBatches(
+      segmentMeta, contextDocs,
+      {
+        contextWindow: config.GEMINI_CONTEXT_WINDOW || 1_048_576,
+        previousAnalysesTokens: prevTokens,
+      }
+    );
+
+    if (batchSize > 1) {
+      console.log(`  ${c.cyan('⚡ Multi-segment batching:')} ${batches.length} batch(es), up to ${batchSize} segments/batch`);
+      console.log(`    ${c.dim(reason)}`);
+      console.log('');
+      batchedSuccessfully = true; // will be set false if we need to fall back
+
+      for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+        if (isShuttingDown()) break;
+        const batchIndices = batches[bIdx];
+        const batchSegs = batchIndices.map(i => ({
+          segPath: segmentMeta[i].segPath,
+          segName: segmentMeta[i].segName,
+          durSec: segmentMeta[i].durSec,
+          storageUrl: segmentMeta[i].storageUrl,
+        }));
+        const batchTimes = batchIndices.map(i => ({
+          startTimeSec: segmentMeta[i].startTimeSec,
+          endTimeSec: segmentMeta[i].endTimeSec,
+        }));
+
+        const batchLabel = batchIndices.length === 1
+          ? `seg ${batchIndices[0] + 1}`
+          : `segs ${batchIndices[0] + 1}–${batchIndices[batchIndices.length - 1] + 1}`;
+        console.log(`  ${c.cyan('══')} Batch ${c.highlight(`${bIdx + 1}/${batches.length}`)} (${batchLabel}) ${c.cyan('══')}`);
+
+        // Skip batches where all segments have cached runs and user didn't force re-analyze
+        if (!forceReanalyze) {
+          const allCached = batchIndices.every(i => {
+            const prefix = `segment_${String(i).padStart(2, '0')}_`;
+            const existing = fs.readdirSync(geminiRunsDir).filter(f => f.startsWith(prefix) && f.endsWith('.json'));
+            return existing.length > 0;
+          });
+          if (allCached) {
+            // Load cached results for all segments in this batch
+            let cacheOk = true;
+            for (const i of batchIndices) {
+              const prefix = `segment_${String(i).padStart(2, '0')}_`;
+              const existing = fs.readdirSync(geminiRunsDir).filter(f => f.startsWith(prefix) && f.endsWith('.json')).sort();
+              const latestFile = existing[existing.length - 1];
+              try {
+                const cached = JSON.parse(fs.readFileSync(path.join(geminiRunsDir, latestFile), 'utf8'));
+                const analysis = normalizeAnalysis(cached.output.parsed || { rawResponse: cached.output.raw });
+                analysis._geminiMeta = {
+                  model: cached.run.model,
+                  processedAt: cached.run.timestamp,
+                  durationMs: cached.run.durationMs,
+                  tokenUsage: cached.run.tokenUsage || null,
+                  runFile: path.relative(PROJECT_ROOT, path.join(geminiRunsDir, latestFile)),
+                  parseSuccess: cached.output.parseSuccess,
+                  skipped: true,
+                };
+                if (cached.run.tokenUsage) {
+                  costTracker.addSegment(segmentMeta[i].segName, cached.run.tokenUsage, cached.run.durationMs, true);
+                }
+                const cachedQuality = assessQuality(analysis, { parseSuccess: cached.output.parseSuccess, rawLength: (cached.output.raw || '').length });
+                segmentReports.push({ segmentName: segmentMeta[i].segName, qualityReport: cachedQuality, retried: false, retryImproved: false });
+                previousAnalyses.push(analysis);
+                segmentAnalyses.push(analysis);
+
+                fileResult.segments.push({
+                  segmentFile: segmentMeta[i].segName, segmentIndex: i,
+                  storagePath: segmentMeta[i].storagePath, storageUrl: segmentMeta[i].storageUrl,
+                  duration: fmtDuration(segmentMeta[i].durSec), durationSeconds: segmentMeta[i].durSec,
+                  fileSizeMB: parseFloat(segmentMeta[i].sizeMB),
+                  geminiRunFile: path.relative(PROJECT_ROOT, path.join(geminiRunsDir, latestFile)),
+                  analysis,
+                });
+                console.log(`    ${c.success(`seg ${i + 1}: loaded from cache (${latestFile})`)}`);
+              } catch (err) {
+                console.warn(`    ${c.warn(`seg ${i + 1}: cache corrupt — will re-analyze`)}`);
+                cacheOk = false;
+                break;
+              }
+            }
+            if (cacheOk) {
+              console.log('');
+              continue; // skip to next batch
+            }
+          }
+        }
+
+        // Verify all segments in batch
+        const invalidInBatch = batchIndices.filter(i => !verifySegment(segmentMeta[i].segPath));
+        if (invalidInBatch.length > 0) {
+          console.warn(`    ${c.warn(`${invalidInBatch.length} corrupt segment(s) in batch — falling back to single-segment mode`)}`);
+          batchedSuccessfully = false;
+          break;
+        }
+
+        try {
+          const batchRun = await processSegmentBatch(
+            ai, batchSegs,
+            `${callName}_${baseName}_batch${bIdx}`,
+            contextDocs, previousAnalyses, userName, PKG_ROOT,
+            {
+              segmentIndices: batchIndices,
+              totalSegments: segments.length,
+              segmentTimes: batchTimes,
+              thinkingBudget: opts.thinkingBudget || 24576,
+              noStorageUrl: !!opts.noStorageUrl,
+            }
+          );
+
+          // Save batch run file
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const batchRunFileName = `batch_${bIdx}_segs_${batchIndices[0]}-${batchIndices[batchIndices.length - 1]}_${ts}.json`;
+          const batchRunPath = path.join(geminiRunsDir, batchRunFileName);
+          fs.writeFileSync(batchRunPath, JSON.stringify(batchRun, null, 2), 'utf8');
+
+          const analysis = normalizeAnalysis(batchRun.output.parsed || { rawResponse: batchRun.output.raw });
+          analysis._geminiMeta = {
+            model: batchRun.run.model,
+            processedAt: batchRun.run.timestamp,
+            durationMs: batchRun.run.durationMs,
+            tokenUsage: batchRun.run.tokenUsage || null,
+            runFile: path.relative(PROJECT_ROOT, batchRunPath),
+            parseSuccess: batchRun.output.parseSuccess,
+            batchMode: true,
+            segmentIndices: batchIndices,
+          };
+
+          // Track cost
+          costTracker.addSegment(`batch_${bIdx}`, batchRun.run.tokenUsage, batchRun.run.durationMs, false);
+
+          // Quality gate
+          const qualityReport = assessQuality(analysis, {
+            parseSuccess: batchRun.output.parseSuccess,
+            rawLength: (batchRun.output.raw || '').length,
+          });
+          console.log(formatQualityLine(qualityReport, `batch ${bIdx + 1}`));
+
+          // Schema validation
+          const schemaReport = validateAnalysis(analysis, 'segment');
+          console.log(formatSchemaLine(schemaReport));
+
+          // Assign batch analysis to each segment in the batch
+          for (const i of batchIndices) {
+            segmentReports.push({ segmentName: segmentMeta[i].segName, qualityReport, retried: false, retryImproved: false });
+            fileResult.segments.push({
+              segmentFile: segmentMeta[i].segName, segmentIndex: i,
+              storagePath: segmentMeta[i].storagePath, storageUrl: segmentMeta[i].storageUrl,
+              duration: fmtDuration(segmentMeta[i].durSec), durationSeconds: segmentMeta[i].durSec,
+              fileSizeMB: parseFloat(segmentMeta[i].sizeMB),
+              geminiRunFile: path.relative(PROJECT_ROOT, batchRunPath),
+              analysis,
+            });
+          }
+
+          // Source-segment tagging
+          const tagSeg = (arr, segNum) => (arr || []).forEach(item => { if (!item.source_segment) item.source_segment = segNum; });
+          for (const i of batchIndices) {
+            tagSeg(analysis.action_items, i + 1);
+            tagSeg(analysis.change_requests, i + 1);
+            tagSeg(analysis.blockers, i + 1);
+            tagSeg(analysis.scope_changes, i + 1);
+          }
+
+          previousAnalyses.push(analysis);
+          segmentAnalyses.push(analysis);
+
+          // Cleanup Gemini File API uploads
+          if (batchRun._geminiFileNames && batchRun._geminiFileNames.length > 0 && ai) {
+            cleanupGeminiFiles(ai, batchRun._geminiFileNames).catch(() => {});
+          }
+
+          const dur = (batchRun.run.durationMs / 1000).toFixed(1);
+          console.log(`    ${c.success(`Batch analysis complete (${dur}s, ${batchIndices.length} segments)`)}`);
+          progress.markAnalyzed(`${baseName}_batch${bIdx}`, path.relative(PROJECT_ROOT, batchRunPath));
+        } catch (err) {
+          console.error(`    ${c.error(`Batch analysis failed: ${err.message}`)}`);
+          console.warn(`    ${c.warn('Falling back to single-segment processing for remaining segments')}`);
+          console.warn(`    ${c.dim('Tip: use --no-batch to disable batching if this persists.')}`);
+          log.error(`Batch ${bIdx} failed — ${err.message}`);
+          batchedSuccessfully = false;
+          break;
+        }
+        console.log('');
+      }
+
+      if (batchedSuccessfully) {
+        const totalSegs = batches.reduce((s, b) => s + b.length, 0);
+        console.log(`  ${c.success(`All ${batches.length} batch(es) complete: ${totalSegs} segments analyzed`)}`);
+        console.log('');
+      }
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  Single-Segment Processing (original path / fallback)
+  // ════════════════════════════════════════════════════════════
+  if (!batchedSuccessfully) {
 
   for (let j = 0; j < segments.length; j++) {
     if (isShuttingDown()) break;
@@ -646,6 +855,8 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
     console.log('');
   }
+
+  } // end if (!batchedSuccessfully) — single-segment fallback
 
   // Compute totals for this file
   fileResult.compressedTotalMB = fileResult.segments

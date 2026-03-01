@@ -35,6 +35,31 @@ const CR   = '\r';
 // ── Render helpers ────────────────────────────────────────────────────────────
 
 /**
+ * Truncate a string that may contain ANSI escape codes to fit within
+ * `maxCols` visible characters.  Preserves ANSI sequences so colours are
+ * not broken, and appends '…' when truncation occurs.
+ */
+function fitToWidth(str, maxCols) {
+  if (!maxCols || maxCols <= 0) return str;
+  const visible = strip(str);
+  if (visible.length <= maxCols) return str;
+
+  let visCount = 0;
+  let i = 0;
+  const target = maxCols - 1; // leave room for '…'
+  while (i < str.length && visCount < target) {
+    if (str[i] === '\x1b') {
+      // Skip full ANSI sequence: ESC [ ... m
+      const end = str.indexOf('m', i);
+      if (end !== -1) { i = end + 1; continue; }
+    }
+    visCount++;
+    i++;
+  }
+  return str.slice(0, i) + '\x1b[0m…';
+}
+
+/**
  * Build display strings for each item.
  *
  * @param {Array<{label: string, hint?: string}>} items
@@ -66,11 +91,14 @@ function renderList(items, cursor, selected, multi = false) {
 /**
  * Write an array of strings to stdout, one per line.
  * Each line is preceded by CR + CLEAR_LINE so the entire row is wiped first.
+ * Lines are truncated to terminal width to prevent wrapping (which breaks
+ * cursor-UP repositioning on redraw).
  */
 function writeLines(lines) {
+  const cols = process.stdout.columns || 80;
   for (let i = 0; i < lines.length; i++) {
     if (i > 0) process.stdout.write('\n');
-    process.stdout.write(`${CR}${CLEAR_LINE}${lines[i]}`);
+    process.stdout.write(`${CR}${CLEAR_LINE}${fitToWidth(lines[i], cols - 1)}`);
   }
 }
 
@@ -89,7 +117,7 @@ function decodeKey(buf) {
   }
   if (buf[0] === 0x0d || buf[0] === 0x0a) return 'enter';
   if (buf[0] === 0x20) return 'space';
-  if (buf[0] === 0x03) return 'escape';
+  if (buf[0] === 0x03) return 'ctrl-c';
   if (buf[0] === 0x61 || buf[0] === 0x41) return 'a';
   return null;
 }
@@ -107,6 +135,10 @@ function decodeKey(buf) {
  * @returns {Promise<{index: number, value: any}>}
  */
 function selectOne({ title, items, default: defaultIdx = 0, footer }) {
+  if (!items || items.length === 0) {
+    return Promise.resolve({ index: -1, value: undefined });
+  }
+
   if (!process.stdin.isTTY) {
     return _fallbackSelectOne({ title, items, default: defaultIdx });
   }
@@ -136,8 +168,9 @@ function selectOne({ title, items, default: defaultIdx = 0, footer }) {
       const lines = renderList(items, cursor);
       writeLines(lines);
       if (hasFooter) {
+        const cols = process.stdout.columns || 80;
         process.stdout.write('\n');
-        process.stdout.write(`${CR}${CLEAR_LINE}${c.dim(`  ${footer}`)}`);
+        process.stdout.write(`${CR}${CLEAR_LINE}${fitToWidth(c.dim(`  ${footer}`), cols - 1)}`);
       }
       // Terminal cursor is now on the LAST rendered line
       firstDraw = false;
@@ -173,6 +206,10 @@ function selectOne({ title, items, default: defaultIdx = 0, footer }) {
         const chosen = items[defaultIdx];
         console.log(c.success(`${strip(chosen.label)}`));
         resolve({ index: defaultIdx, value: chosen.value });
+      } else if (key === 'ctrl-c') {
+        cleanup();
+        console.log('');
+        process.exit(130);
       }
     };
 
@@ -193,6 +230,10 @@ function selectOne({ title, items, default: defaultIdx = 0, footer }) {
  * @returns {Promise<{indices: number[], values: any[]}>}
  */
 function selectMany({ title, items, defaultSelected, footer }) {
+  if (!items || items.length === 0) {
+    return Promise.resolve({ indices: [], values: [] });
+  }
+
   if (!process.stdin.isTTY) {
     return _fallbackSelectMany({ title, items, defaultSelected });
   }
@@ -220,8 +261,9 @@ function selectMany({ title, items, defaultSelected, footer }) {
       }
       const lines = renderList(items, cursor, selected, true);
       writeLines(lines);
+      const cols = process.stdout.columns || 80;
       process.stdout.write('\n');
-      process.stdout.write(`${CR}${CLEAR_LINE}${c.dim(`  ${footerText}`)}`);
+      process.stdout.write(`${CR}${CLEAR_LINE}${fitToWidth(c.dim(`  ${footerText}`), cols - 1)}`);
       firstDraw = false;
     };
 
@@ -271,6 +313,10 @@ function selectMany({ title, items, defaultSelected, footer }) {
         const indices = [...(defaultSelected || [])].sort((a, b) => a - b);
         const values  = indices.map(i => items[i].value);
         resolve({ indices, values });
+      } else if (key === 'ctrl-c') {
+        cleanup();
+        console.log('');
+        process.exit(130);
       }
     };
 

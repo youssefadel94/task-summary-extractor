@@ -66,6 +66,7 @@ async function phaseInit() {
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
     noHtml: !!flags['no-html'],
+    noBatch: !!flags['no-batch'],
     // Video processing flags
     noCompress: !!flags['no-compress'],
     speed: flags.speed ? parseFloat(flags.speed) : null,
@@ -355,6 +356,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.deepDive) features.push(c.cyan('deep-dive'));
   if (opts.deepSummary) features.push(c.cyan('deep-summary'));
   if (opts.dynamic) features.push(c.cyan('dynamic'));
+  if (!opts.noBatch) features.push(c.green('batch'));
   if (opts.resume) features.push(c.yellow('resume'));
   if (opts.dryRun) features.push(c.yellow('dry-run'));
   if (opts.skipUpload) features.push(c.dim('skip-upload'));
@@ -363,6 +365,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.disableFocusedPass) disabled.push(c.dim('no-focused'));
   if (opts.disableLearning) disabled.push(c.dim('no-learning'));
   if (opts.disableDiff) disabled.push(c.dim('no-diff'));
+  if (opts.noBatch) disabled.push(c.dim('no-batch'));
 
   if (features.length > 0) {
     console.log(`    ${c.dim('Features:')}    ${features.join(c.dim(' · '))}`);

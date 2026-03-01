@@ -238,10 +238,10 @@ function renderDiffMarkdown(diff) {
   for (const { name, d } of categories) {
     const a = d.added?.length || 0;
     const r = d.removed?.length || 0;
-    const c = d.changed?.length || 0;
+    const ch = d.changed?.length || 0;
     const u = d.unchanged?.length || 0;
-    if (a + r + c > 0) {
-      ln(`| ${name} | ${a > 0 ? `+${a}` : '-'} | ${r > 0 ? `-${r}` : '-'} | ${c > 0 ? `~${c}` : '-'} | ${u} |`);
+    if (a + r + ch > 0) {
+      ln(`| ${name} | ${a > 0 ? `+${a}` : '-'} | ${r > 0 ? `-${r}` : '-'} | ${ch > 0 ? `~${ch}` : '-'} | ${u} |`);
     }
   }
   ln('');
@@ -293,10 +293,10 @@ function renderDiffMarkdown(diff) {
   if (allChanged.length > 0) {
     ln('### 🔀 Changed Items');
     ln('');
-    for (const c of allChanged) {
-      const title = c.item.title || c.item.description || c.item.ticket_id || c.id;
-      ln(`- **[${c.type}]** ${c.id}: ${title}`);
-      for (const ch of c.changes) {
+    for (const change of allChanged) {
+      const title = change.item.title || change.item.description || change.item.ticket_id || change.id;
+      ln(`- **[${change.type}]** ${change.id}: ${title}`);
+      for (const ch of change.changes) {
         ln(`  - \`${ch.field}\`: ${ch.from || '_empty_'} → **${ch.to || '_empty_'}**`);
       }
     }

@@ -13,7 +13,7 @@
 'use strict';
 
 const {
-  stripParens, clusterNames, resolve,
+  clusterNames, resolve,
   dedupBy,
 } = require('./shared');
 

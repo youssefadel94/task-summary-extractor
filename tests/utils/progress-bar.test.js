@@ -16,8 +16,8 @@ function mockStream(isTTY = true) {
 }
 
 describe('PHASES constant', () => {
-  it('has 10 phase definitions', () => {
-    expect(PHASES).toHaveLength(10);
+  it('has 11 phase definitions', () => {
+    expect(PHASES).toHaveLength(11);
   });
 
   it('each phase has key, label, index', () => {
@@ -31,16 +31,16 @@ describe('PHASES constant', () => {
     }
   });
 
-  it('indexes are sequential 1 through 10', () => {
+  it('indexes are sequential 1 through 11', () => {
     const indexes = PHASES.map(p => p.index);
-    expect(indexes).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(indexes).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 });
 
 describe('PHASE_MAP', () => {
   it('maps keys to phase objects', () => {
     expect(PHASE_MAP.init.label).toBe('Init');
-    expect(PHASE_MAP.analyze.index).toBe(6);
+    expect(PHASE_MAP.analyze.index).toBe(7);
     expect(PHASE_MAP['deep-dive'].label).toBe('Deep Dive');
   });
 
@@ -98,7 +98,7 @@ describe('setPhase()', () => {
     bar.setPhase('analyze');
     expect(bar.phaseKey).toBe('analyze');
     expect(bar.phaseLabel).toBe('Analyze');
-    expect(bar.phaseIndex).toBe(6);
+    expect(bar.phaseIndex).toBe(7);
   });
 
   it('handles unknown phase key gracefully', () => {

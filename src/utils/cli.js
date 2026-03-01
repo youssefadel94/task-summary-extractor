@@ -38,7 +38,7 @@ function parseArgs(argv) {
     'resume', 'reanalyze', 'dry-run',
     'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
-    'no-html',
+    'no-html', 'no-batch',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -329,6 +329,7 @@ ${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (defau
 ${f('--no-focused-pass', 'Disable focused re-analysis')}
 ${f('--no-learning', 'Disable learning loop')}
 ${f('--no-diff', 'Disable diff comparison')}
+${f('--no-batch', 'Disable multi-segment batching')}
 ${f('--no-html', 'Skip HTML output (Markdown only)')}
 ${f('--log-level <level>', 'debug, info, warn, error (default: info)')}
 

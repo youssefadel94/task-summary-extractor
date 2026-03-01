@@ -3,11 +3,15 @@ const fs = require('fs');
 
 const {
   estimateTokens,
+  estimateDocTokens,
   selectDocsByBudget,
   sliceVttForSegment,
   buildProgressiveContext,
   buildSegmentFocus,
+  buildBatchSegmentFocus,
   detectBoundaryContext,
+  planSegmentBatches,
+  VIDEO_TOKENS_PER_SEC,
 } = require('../../src/utils/context-manager');
 
 // ── Fixture helpers ──────────────────────────────────────────
@@ -371,5 +375,127 @@ describe('detectBoundaryContext', () => {
     };
     const result = detectBoundaryContext(MINI_VTT, 11, 30, 1, prevAnalysis);
     expect(result).toContain('topics carry over');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════
+//  VIDEO_TOKENS_PER_SEC
+// ═════════════════════════════════════════════════════════════
+
+describe('VIDEO_TOKENS_PER_SEC', () => {
+  it('is 300 (Google docs rate)', () => {
+    expect(VIDEO_TOKENS_PER_SEC).toBe(300);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════
+//  estimateDocTokens
+// ═════════════════════════════════════════════════════════════
+
+describe('estimateDocTokens', () => {
+  it('estimates inline text doc bytes → tokens', () => {
+    const doc = makeDoc('readme.md', 'a'.repeat(1000));
+    const tokens = estimateDocTokens(doc);
+    // ~0.3 tokens per byte
+    expect(tokens).toBeGreaterThan(200);
+    expect(tokens).toBeLessThan(500);
+  });
+
+  it('returns rough estimate for fileData docs', () => {
+    const doc = makeFileDoc('uploaded.pdf');
+    expect(estimateDocTokens(doc)).toBe(2000);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════
+//  planSegmentBatches
+// ═════════════════════════════════════════════════════════════
+
+describe('planSegmentBatches', () => {
+  const makeMeta = (durSec) => ({ durSec });
+
+  it('returns 1-per-batch when no headroom', () => {
+    const metas = [makeMeta(280), makeMeta(280), makeMeta(280)];
+    const docs = [makeDoc('large.md', 'x'.repeat(3_000_000))]; // ~900K tokens → no headroom
+    const result = planSegmentBatches(metas, docs, { contextWindow: 1_048_576 });
+    expect(result.batchSize).toBe(1);
+    expect(result.batches).toHaveLength(3);
+    expect(result.reason).toContain('1');
+  });
+
+  it('batches multiple segments when there is headroom', () => {
+    const metas = [makeMeta(280), makeMeta(280), makeMeta(280), makeMeta(280)];
+    const docs = [makeDoc('small.md', 'x'.repeat(100))]; // tiny ~30 tokens
+    const result = planSegmentBatches(metas, docs, { contextWindow: 1_048_576 });
+    // 1M - 120K overhead - ~30 doc tokens = ~928K available, each seg ~84K → can fit all 4
+    expect(result.batchSize).toBeGreaterThan(1);
+    expect(result.batches.length).toBeLessThan(4);
+  });
+
+  it('respects maxBatchSize cap', () => {
+    const metas = Array.from({ length: 20 }, () => makeMeta(60)); // tiny segments
+    const docs = [];
+    const result = planSegmentBatches(metas, docs, { contextWindow: 1_048_576, maxBatchSize: 5 });
+    for (const batch of result.batches) {
+      expect(batch.length).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('produces correct batch indices', () => {
+    const metas = [makeMeta(280), makeMeta(280)];
+    const docs = [];
+    const result = planSegmentBatches(metas, docs, { contextWindow: 1_048_576 });
+    // All indices should be present
+    const allIndices = result.batches.flat();
+    expect(allIndices).toContain(0);
+    expect(allIndices).toContain(1);
+  });
+
+  it('falls back gracefully with enormous segments', () => {
+    // A single segment that takes most of the context window
+    const metas = [makeMeta(3000), makeMeta(3000)]; // 900K tokens each
+    const docs = [];
+    const result = planSegmentBatches(metas, docs, { contextWindow: 1_048_576 });
+    expect(result.batchSize).toBe(1);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════
+//  buildBatchSegmentFocus
+// ═════════════════════════════════════════════════════════════
+
+describe('buildBatchSegmentFocus', () => {
+  it('generates multi-segment instructions for a batch', () => {
+    const result = buildBatchSegmentFocus([0, 1, 2], 6, [], 'Alice');
+    expect(result).toContain('MULTI-SEGMENT BATCH');
+    expect(result).toContain('segments 1–3 of 6');
+    expect(result).toContain('source_segment');
+  });
+
+  it('generates single-segment instructions for batch size 1', () => {
+    const result = buildBatchSegmentFocus([0], 3, [], 'Bob');
+    expect(result).toContain('SEGMENT POSITION');
+    expect(result).toContain('1 of 3');
+    expect(result).not.toContain('MULTI-SEGMENT BATCH');
+  });
+
+  it('includes previous analysis awareness for non-first batches', () => {
+    const prev = [{ tickets: [{ ticket_id: 'T-1' }], change_requests: [{ id: 'CR-1' }], action_items: [], blockers: [] }];
+    const result = buildBatchSegmentFocus([2, 3], 6, prev, 'Alice');
+    expect(result).toContain('ALREADY FOUND');
+    expect(result).toContain('T-1');
+    expect(result).toContain('CR-1');
+  });
+
+  it('includes LAST SEGMENT SPECIAL when range includes last segment', () => {
+    const prev = [{ tickets: [], change_requests: [], action_items: [], blockers: [] }];
+    const result = buildBatchSegmentFocus([4, 5], 6, prev, 'Alice');
+    expect(result).toContain('LAST SEGMENT SPECIAL');
+    expect(result).toContain('FINAL DECISIONS');
+  });
+
+  it('marks FIRST position for index 0', () => {
+    const result = buildBatchSegmentFocus([0, 1], 4, [], 'Alice');
+    expect(result).toContain('FIRST');
   });
 });

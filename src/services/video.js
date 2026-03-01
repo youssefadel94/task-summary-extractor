@@ -237,7 +237,7 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
     const fbResult = spawnSync(getFFmpeg(), fbArgs, { stdio: 'inherit' });
     if (fbResult.status === 0 && verifySegment(fallbackPath)) {
       // Remove all corrupt segments and replace with the fallback
-      for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch {} }
+      for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch { /* best-effort cleanup */ } }
       // If this was the only segment, just rename it
       if (segments.length === 1) {
         const dest = path.join(outputDir, 'segment_00.mp4');
@@ -261,8 +261,8 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
         for (const f of reSegs) {
           fs.renameSync(path.join(reSegDir, f), path.join(outputDir, f));
         }
-        try { fs.rmSync(reSegDir, { recursive: true }); } catch {}
-        try { fs.unlinkSync(fallbackPath); } catch {}
+        try { fs.rmSync(reSegDir, { recursive: true }); } catch { /* best-effort cleanup */ }
+        try { fs.unlinkSync(fallbackPath); } catch { /* best-effort cleanup */ }
         // Re-collect
         segments = fs.readdirSync(outputDir)
           .filter(f => f.startsWith('segment_') && f.endsWith('.mp4'))
@@ -272,13 +272,13 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
       }
     } else {
       console.error(`  ${c.error('Fallback re-encode also failed')}`);
-      try { fs.unlinkSync(fallbackPath); } catch {}
+      try { fs.unlinkSync(fallbackPath); } catch { /* best-effort cleanup */ }
     }
   } else if (corrupt.length > 0 && !needsSegmentation) {
     // Single-output mode also failed — try once more without segment muxer flags
     console.log(`  Retrying single-output compression...`);
     const retryPath = path.join(outputDir, 'segment_00.mp4');
-    try { fs.unlinkSync(retryPath); } catch {}
+    try { fs.unlinkSync(retryPath); } catch { /* best-effort cleanup */ }
     const retryArgs = [
       '-y',
       '-i', inputFile,
@@ -373,7 +373,7 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
     const fbArgs = ['-y', '-i', inputFile, ...encodingArgs, fallbackPath];
     const fbResult = spawnSync(getFFmpeg(), fbArgs, { stdio: 'inherit' });
     if (fbResult.status === 0 && verifySegment(fallbackPath)) {
-      for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch {} }
+      for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch { /* best-effort cleanup */ } }
       if (segments.length === 1) {
         const dest = path.join(outputDir, 'segment_00.m4a');
         fs.renameSync(fallbackPath, dest);
@@ -394,8 +394,8 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
         for (const f of reSegs) {
           fs.renameSync(path.join(reSegDir, f), path.join(outputDir, f));
         }
-        try { fs.rmSync(reSegDir, { recursive: true }); } catch {}
-        try { fs.unlinkSync(fallbackPath); } catch {}
+        try { fs.rmSync(reSegDir, { recursive: true }); } catch { /* best-effort cleanup */ }
+        try { fs.unlinkSync(fallbackPath); } catch { /* best-effort cleanup */ }
         segments = fs.readdirSync(outputDir)
           .filter(f => f.startsWith('segment_') && (f.endsWith('.m4a') || f.endsWith('.mp4')))
           .sort()
@@ -404,7 +404,7 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
       }
     } else {
       console.error(`  ${c.error('Fallback audio re-encode failed')}`);
-      try { fs.unlinkSync(fallbackPath); } catch {}
+      try { fs.unlinkSync(fallbackPath); } catch { /* best-effort cleanup */ }
     }
   }
 

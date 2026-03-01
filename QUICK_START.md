@@ -236,6 +236,17 @@ my-project/runs/{timestamp}/
 
 ---
 
+## Advanced Features
+
+| Feature | Flag | Description |
+| --------- | ------ | ------------- |
+| **Deep Summary** | `--deep-summary` | Pre-summarizes context docs — saves 60-80% input tokens per segment |
+| **Deep Dive** | `--deep-dive` | Generates explanatory docs for each discussion topic |
+| **Multi-Segment Batching** | enabled by default | When context window has headroom, groups consecutive segments into single API calls — fewer requests, better cross-segment awareness. Use `--no-batch` to disable |
+| **Raw Video Mode** | `--no-compress` | Skip re-encoding — pass video directly to Gemini |
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |

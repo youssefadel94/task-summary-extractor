@@ -18,16 +18,17 @@ const { fmtDuration } = require('./format');
 // ======================== PHASE DEFINITIONS ========================
 
 const PHASES = [
-  { key: 'init',       label: 'Init',         index: 1 },
-  { key: 'discover',   label: 'Discover',     index: 2 },
-  { key: 'services',   label: 'Services',     index: 3 },
-  { key: 'compress',   label: 'Compress',     index: 4 },
-  { key: 'upload',     label: 'Upload',       index: 5 },
-  { key: 'analyze',    label: 'Analyze',      index: 6 },
-  { key: 'compile',    label: 'Compile',      index: 7 },
-  { key: 'output',     label: 'Output',       index: 8 },
-  { key: 'summary',    label: 'Summary',      index: 9 },
-  { key: 'deep-dive',  label: 'Deep Dive',    index: 10 },
+  { key: 'init',         label: 'Init',         index: 1 },
+  { key: 'discover',     label: 'Discover',     index: 2 },
+  { key: 'services',     label: 'Services',     index: 3 },
+  { key: 'deep-summary', label: 'Deep Summary', index: 4 },
+  { key: 'compress',     label: 'Compress',     index: 5 },
+  { key: 'upload',       label: 'Upload',       index: 6 },
+  { key: 'analyze',      label: 'Analyze',      index: 7 },
+  { key: 'compile',      label: 'Compile',      index: 8 },
+  { key: 'output',       label: 'Output',       index: 9 },
+  { key: 'summary',      label: 'Summary',      index: 10 },
+  { key: 'deep-dive',    label: 'Deep Dive',    index: 11 },
 ];
 
 const PHASE_MAP = Object.fromEntries(PHASES.map(p => [p.key, p]));
