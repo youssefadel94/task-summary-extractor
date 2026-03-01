@@ -90,6 +90,7 @@ const SKIP_FOLDER_NAMES = new Set([
  */
 function discoverFolders(projectRoot) {
   const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.webm']);
+  const AUDIO_EXTS = new Set(['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma']);
   const DOC_EXTS = new Set([
     '.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md',
     '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub',
@@ -110,6 +111,7 @@ function discoverFolders(projectRoot) {
 
     const absPath = path.join(projectRoot, entry.name);
     let hasVideo = false;
+    let hasAudio = false;
     let docCount = 0;
     let hasRuns = false;
 
@@ -121,6 +123,7 @@ function discoverFolders(projectRoot) {
         if (item.isFile()) {
           const ext = path.extname(item.name).toLowerCase();
           if (VIDEO_EXTS.has(ext)) hasVideo = true;
+          if (AUDIO_EXTS.has(ext)) hasAudio = true;
           if (DOC_EXTS.has(ext)) docCount++;
         } else if (item.isDirectory() && depth === 0) {
           if (item.name === 'runs') hasRuns = true;
@@ -133,15 +136,17 @@ function discoverFolders(projectRoot) {
     scan(absPath);
 
     // Only include folders with at least some content
-    if (hasVideo || docCount > 0) {
+    if (hasVideo || hasAudio || docCount > 0) {
       const parts = [];
       if (hasVideo) parts.push('video');
+      if (hasAudio) parts.push('audio');
       if (docCount > 0) parts.push(`${docCount} doc(s)`);
       if (hasRuns) parts.push('has runs');
       folders.push({
         name: entry.name,
         absPath,
         hasVideo,
+        hasAudio,
         docCount,
         hasRuns,
         description: parts.join(', '),
@@ -173,8 +178,8 @@ async function selectFolder(projectRoot) {
   console.log('  Available folders:');
   console.log('  ─────────────────');
   folders.forEach((f, i) => {
-    const icon = f.hasVideo ? '🎥' : '📄';
-    const mode = f.hasVideo ? '' : ' (docs only → use --dynamic)';
+    const icon = f.hasVideo ? '🎥' : f.hasAudio ? '🎵' : '📄';
+    const mode = f.hasVideo || f.hasAudio ? '' : ' (docs only → use --dynamic)';
     console.log(`    [${i + 1}] ${icon} ${f.name}  — ${f.description}${mode}`);
   });
   console.log('');
