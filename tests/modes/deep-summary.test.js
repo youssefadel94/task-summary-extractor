@@ -1,0 +1,371 @@
+const {
+  buildBatches,
+  deepSummarize,
+  summarizeBatch,
+  BATCH_MAX_CHARS,
+  MIN_SUMMARIZE_LENGTH,
+} = require('../../src/modes/deep-summary');
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeDoc(name, contentLength = 1000) {
+  return {
+    type: 'inlineText',
+    fileName: name,
+    content: 'x'.repeat(contentLength),
+  };
+}
+
+function makeFileDataDoc(name) {
+  return {
+    type: 'fileData',
+    fileName: name,
+    mimeType: 'application/pdf',
+    fileUri: 'gs://bucket/file.pdf',
+  };
+}
+
+/** Create a mock AI whose generateContent resolves with a JSON summary */
+function makeMockAi(responseFn) {
+  return {
+    models: {
+      generateContent: vi.fn(async (req) => {
+        if (responseFn) return responseFn(req);
+        return {
+          text: JSON.stringify({
+            summaries: {},
+            metadata: { originalTokensEstimate: 0, summaryTokensEstimate: 0, compressionRatio: 1 },
+          }),
+          usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 },
+        };
+      }),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// buildBatches tests
+// ---------------------------------------------------------------------------
+
+describe('buildBatches', () => {
+  it('puts all small docs in one batch when under limit', () => {
+    const docs = [makeDoc('a.md', 100), makeDoc('b.md', 200), makeDoc('c.md', 300)];
+    const batches = buildBatches(docs, 1000);
+    expect(batches.length).toBe(1);
+    expect(batches[0].length).toBe(3);
+  });
+
+  it('splits docs across batches when they exceed the char limit', () => {
+    const docs = [
+      makeDoc('a.md', 600),
+      makeDoc('b.md', 600),
+      makeDoc('c.md', 600),
+    ];
+    const batches = buildBatches(docs, 1000);
+    expect(batches.length).toBe(3);
+    batches.forEach(b => expect(b.length).toBe(1));
+  });
+
+  it('puts an oversized doc in its own batch', () => {
+    const docs = [
+      makeDoc('small.md', 100),
+      makeDoc('huge.md', 5000),
+      makeDoc('another.md', 200),
+    ];
+    const batches = buildBatches(docs, 1000);
+    // small + another could fit → 1 batch, huge → separate
+    expect(batches.length).toBeGreaterThanOrEqual(2);
+    const hugeBatch = batches.find(b => b.some(d => d.fileName === 'huge.md'));
+    expect(hugeBatch.length).toBe(1);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(buildBatches([])).toEqual([]);
+  });
+
+  it('handles single doc', () => {
+    const batches = buildBatches([makeDoc('sole.md', 500)], 1000);
+    expect(batches.length).toBe(1);
+    expect(batches[0].length).toBe(1);
+  });
+
+  it('respects docs with zero content length', () => {
+    const docs = [makeDoc('empty.md', 0), makeDoc('ok.md', 100)];
+    const batches = buildBatches(docs, 1000);
+    expect(batches.length).toBe(1);
+    expect(batches[0].length).toBe(2);
+  });
+
+  it('groups adjacent docs until limit, then starts new batch', () => {
+    const docs = [
+      makeDoc('d1.md', 400),
+      makeDoc('d2.md', 400),
+      makeDoc('d3.md', 400), // first two fill 800, d3 starts new batch at limit=800
+    ];
+    const batches = buildBatches(docs, 800);
+    expect(batches.length).toBe(2);
+    expect(batches[0].length).toBe(2);
+    expect(batches[1].length).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// summarizeBatch tests (isolated with mock AI)
+// ---------------------------------------------------------------------------
+
+describe('summarizeBatch', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('returns null when batch has no inlineText docs', async () => {
+    const ai = makeMockAi();
+    const result = await summarizeBatch(ai, [makeFileDataDoc('a.pdf')]);
+    expect(result).toBeNull();
+    expect(ai.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('returns summaries and token usage from a successful call', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: { 'doc.md': 'Condensed content' },
+        metadata: { compressionRatio: 0.3 },
+      }),
+      usageMetadata: { promptTokenCount: 500, candidatesTokenCount: 80, totalTokenCount: 580 },
+    }));
+
+    const result = await summarizeBatch(ai, [makeDoc('doc.md', 2000)]);
+    expect(result).not.toBeNull();
+    expect(result.summaries['doc.md']).toBe('Condensed content');
+    expect(result.tokenUsage.inputTokens).toBe(500);
+    expect(result.tokenUsage.outputTokens).toBe(80);
+  });
+
+  it('returns null on API error (does not throw)', async () => {
+    const ai = makeMockAi(() => { throw new Error('rate limit'); });
+    const result = await summarizeBatch(ai, [makeDoc('fail.md', 2000)]);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when response text is not valid JSON', async () => {
+    const ai = makeMockAi(() => ({
+      text: 'This is not JSON at all',
+      usageMetadata: {},
+    }));
+    const result = await summarizeBatch(ai, [makeDoc('bad.md', 2000)]);
+    expect(result).toBeNull();
+  });
+
+  it('injects focus topics into the prompt', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'x.md': 'ok' }, metadata: {} }),
+      usageMetadata: {},
+    }));
+
+    await summarizeBatch(ai, [makeDoc('x.md', 2000)], {
+      focusTopics: ['sprint-board.md', 'blockers.md'],
+    });
+
+    const call = ai.models.generateContent.mock.calls[0][0];
+    const prompt = call.contents[0].parts[0].text;
+    expect(prompt).toContain('sprint-board.md');
+    expect(prompt).toContain('blockers.md');
+    expect(prompt).toContain('FOCUS AREAS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deepSummarize integration tests (with mock AI)
+// ---------------------------------------------------------------------------
+
+describe('deepSummarize', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('returns original docs untouched when none are eligible for summarization', async () => {
+    const ai = makeMockAi();
+    const docs = [
+      makeDoc('tiny.md', 100),  // Below MIN_SUMMARIZE_LENGTH
+      makeFileDataDoc('report.pdf'),  // Non-inlineText
+    ];
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+    expect(result.stats.summarized).toBe(0);
+    expect(result.stats.keptFull).toBe(2);
+    expect(result.docs.length).toBe(2);
+    expect(ai.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('excludes specified docs from summarization', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: { 'summarize-me.md': 'Short summary' },
+        metadata: {},
+      }),
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 },
+    }));
+
+    const docs = [
+      makeDoc('keep-me.md', 2000),
+      makeDoc('summarize-me.md', 2000),
+    ];
+
+    const result = await deepSummarize(ai, docs, {
+      excludeFileNames: ['keep-me.md'],
+    });
+
+    // keep-me.md should retain its original content
+    const keptDoc = result.docs.find(d => d.fileName === 'keep-me.md');
+    expect(keptDoc.content).toBe('x'.repeat(2000));
+    expect(keptDoc._deepSummarized).toBeUndefined();
+
+    // summarize-me.md should have been replaced
+    const sumDoc = result.docs.find(d => d.fileName === 'summarize-me.md');
+    expect(sumDoc._deepSummarized).toBe(true);
+    expect(sumDoc.content).toContain('Short summary');
+    expect(sumDoc.content).toContain('[Deep Summary');
+
+    expect(result.stats.keptFull).toBe(1);
+    expect(result.stats.summarized).toBe(1);
+  });
+
+  it('keeps fileData docs as-is (not summarizable)', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: { 'normal.md': 'Condensed' },
+        metadata: {},
+      }),
+      usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, totalTokenCount: 70 },
+    }));
+
+    const docs = [
+      makeFileDataDoc('report.pdf'),
+      makeDoc('normal.md', 2000),
+    ];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    const pdfDoc = result.docs.find(d => d.fileName === 'report.pdf');
+    expect(pdfDoc.type).toBe('fileData');
+    expect(pdfDoc._deepSummarized).toBeUndefined();
+  });
+
+  it('handles AI failure gracefully, returning original content', async () => {
+    const ai = makeMockAi(() => { throw new Error('API error'); });
+    const docs = [makeDoc('fail.md', 2000)];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    // No summary was returned so doc keeps original content
+    expect(result.docs.length).toBe(1);
+    expect(result.docs[0].content).toBe('x'.repeat(2000));
+    expect(result.docs[0]._deepSummarized).toBeUndefined();
+    expect(result.stats.summarized).toBe(0);
+  });
+
+  it('returns correct token stats for successful summarization', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: {
+          'big.md': 'Big summary',
+          'medium.md': 'Med summary',
+        },
+        metadata: {},
+      }),
+      usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 100, totalTokenCount: 300 },
+    }));
+
+    const docs = [
+      makeDoc('big.md', 5000),
+      makeDoc('medium.md', 3000),
+    ];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    expect(result.stats.summarized).toBe(2);
+    expect(result.stats.savedTokens).toBeGreaterThan(0);
+    expect(result.stats.savingsPercent).toBeGreaterThan(0);
+    expect(result.stats.totalInputTokens).toBe(200);
+    expect(result.stats.totalOutputTokens).toBe(100);
+  });
+
+  it('handles case-insensitive exclude matching', async () => {
+    const ai = makeMockAi();
+    const docs = [makeDoc('MyDoc.MD', 2000)];
+
+    const result = await deepSummarize(ai, docs, {
+      excludeFileNames: ['mydoc.md'],
+    });
+
+    expect(result.stats.keptFull).toBe(1);
+    expect(result.stats.summarized).toBe(0);
+    expect(ai.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('passes focus topics from excluded docs to the AI prompt', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'other.md': 'Summary' }, metadata: {} }),
+      usageMetadata: {},
+    }));
+
+    const docs = [
+      makeDoc('focus.md', 2000),
+      makeDoc('other.md', 2000),
+    ];
+
+    await deepSummarize(ai, docs, {
+      excludeFileNames: ['focus.md'],
+    });
+
+    // Verify AI was called and the prompt contains focus fileName
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(1);
+    const call = ai.models.generateContent.mock.calls[0][0];
+    const promptText = call.contents[0].parts[0].text;
+    expect(promptText).toContain('focus.md');
+  });
+
+  it('preserves original token estimate in _originalLength', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'doc.md': 'short' }, metadata: {} }),
+      usageMetadata: {},
+    }));
+
+    const docs = [makeDoc('doc.md', 3000)];
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    const doc = result.docs[0];
+    expect(doc._deepSummarized).toBe(true);
+    expect(doc._originalLength).toBe(3000);
+    expect(doc._summaryLength).toBe(5); // 'short'.length
+  });
+
+  it('calls onProgress callback for each batch', async () => {
+    // Create enough docs that they require 2 batches at a low limit
+    // Force small maxChars so it batches into multiple calls
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: {}, metadata: {} }),
+      usageMetadata: {},
+    }));
+
+    // Both docs are above MIN_SUMMARIZE_LENGTH so they go to summarization
+    const docs = [makeDoc('a.md', 800), makeDoc('b.md', 800)];
+    const progressCalls = [];
+
+    await deepSummarize(ai, docs, {
+      excludeFileNames: [],
+      onProgress: (done, total) => progressCalls.push({ done, total }),
+    });
+
+    // At minimum, onProgress should have been called (1 batch)
+    expect(progressCalls.length).toBeGreaterThanOrEqual(1);
+    // Last call should have done === total
+    const last = progressCalls[progressCalls.length - 1];
+    expect(last.done).toBe(last.total);
+  });
+});

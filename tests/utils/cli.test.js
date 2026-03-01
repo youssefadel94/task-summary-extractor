@@ -90,6 +90,12 @@ describe('parseArgs', () => {
     expect(flags['no-html']).toBe(true);
     expect(flags['dry-run']).toBe(true);
   });
+
+  it('parses --deep-summary as a boolean flag', () => {
+    const { flags, positional } = parseArgs(['--deep-summary', 'call 1']);
+    expect(flags['deep-summary']).toBe(true);
+    expect(positional).toContain('call 1');
+  });
 });
 
 // ─── showHelp ────────────────────────────────────────────────────────────────

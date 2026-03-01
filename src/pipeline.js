@@ -32,7 +32,7 @@ const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT } = require('./phases/_sh
 // --- Pipeline phases ---
 const phaseInit        = require('./phases/init');
 const phaseDiscover    = require('./phases/discover');
-const phaseServices    = require('./phases/services');
+const { phaseServices, phaseDeepSummary } = require('./phases/services');
 const phaseProcessVideo = require('./phases/process-media');
 const phaseCompile     = require('./phases/compile');
 const phaseOutput      = require('./phases/output');
@@ -46,7 +46,7 @@ const phaseDeepDive    = require('./phases/deep-dive');
 // --- Utils (for run orchestration + alt modes) ---
 const { c } = require('./utils/colors');
 const { findDocsRecursive } = require('./utils/fs');
-const { promptUserText } = require('./utils/cli');
+const { promptUserText, selectDocsToExclude } = require('./utils/cli');
 const { createProgressBar } = require('./utils/progress-bar');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
 const { saveHistory, buildHistoryEntry } = require('./utils/learning-loop');
@@ -92,8 +92,20 @@ async function run() {
 
   // Phase 3: Services
   bar.setPhase('services');
-  const fullCtx = await phaseServices(ctx);
+  let fullCtx = await phaseServices(ctx);
   bar.tick('Services ready');
+
+  // Phase 3.5 (optional): Deep Summary — pre-summarize context docs
+  if (fullCtx.opts.deepSummary && fullCtx.ai && fullCtx.contextDocs.length > 0) {
+    // Interactive picker: let user choose docs to keep at full fidelity
+    if (process.stdin.isTTY && fullCtx.opts.deepSummaryExclude.length === 0) {
+      const excluded = await selectDocsToExclude(fullCtx.contextDocs);
+      fullCtx.opts.deepSummaryExclude = excluded;
+    }
+    bar.setPhase('deep-summary', 1);
+    fullCtx = await phaseDeepSummary(fullCtx);
+    bar.tick('Docs summarized');
+  }
 
   // Phase 4: Process each media file (video or audio)
   const allSegmentAnalyses = [];
@@ -117,6 +129,7 @@ async function run() {
     contextDocuments: fullCtx.contextDocs.map(d => d.fileName),
     documentStorageUrls: fullCtx.docStorageUrls,
     firebaseAuthenticated: fullCtx.firebaseReady,
+    deepSummary: fullCtx.deepSummaryStats || null,
     files: [],
   };
 

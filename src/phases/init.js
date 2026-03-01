@@ -67,6 +67,8 @@ async function phaseInit() {
     disableDiff: !!flags['no-diff'],
     noHtml: !!flags['no-html'],
     deepDive: !!flags['deep-dive'],
+    deepSummary: !!flags['deep-summary'],
+    deepSummaryExclude: [],  // populated by interactive picker or kept empty
     dynamic: !!flags.dynamic,
     request: typeof flags.request === 'string' ? flags.request : null,
     updateProgress: !!flags['update-progress'],
@@ -322,6 +324,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (!opts.disableLearning) features.push(c.green('learning'));
   if (!opts.disableDiff) features.push(c.green('diff'));
   if (opts.deepDive) features.push(c.cyan('deep-dive'));
+  if (opts.deepSummary) features.push(c.cyan('deep-summary'));
   if (opts.dynamic) features.push(c.cyan('dynamic'));
   if (opts.resume) features.push(c.yellow('resume'));
   if (opts.dryRun) features.push(c.yellow('dry-run'));

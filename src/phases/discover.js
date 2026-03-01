@@ -85,6 +85,7 @@ async function phaseDiscover(ctx) {
   if (opts.resume) activeFlags.push('resume');
   if (opts.reanalyze) activeFlags.push('reanalyze');
   if (opts.dryRun) activeFlags.push('dry-run');
+  if (opts.deepSummary) activeFlags.push('deep-summary');
   if (activeFlags.length > 0) {
     console.log(`  Flags: ${c.yellow(activeFlags.join(', '))}`);
   }

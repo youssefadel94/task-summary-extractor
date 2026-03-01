@@ -35,7 +35,7 @@ function parseArgs(argv) {
     'skip-upload', 'force-upload', 'no-storage-url',
     'skip-compression', 'skip-gemini',
     'resume', 'reanalyze', 'dry-run',
-    'dynamic', 'deep-dive', 'update-progress',
+    'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
     'no-html',
   ]);
@@ -371,6 +371,7 @@ ${f('(default)', 'Video/audio analysis — compress, analyze, compile')}
 ${f('--dynamic', 'Document generation — no media required')}
 ${f('--update-progress', 'Track item completion via git changes')}
 ${f('--deep-dive', 'Generate explanatory docs per topic')}
+${f('--deep-summary', 'Pre-summarize context docs (saves ~60-80% input tokens)')}
 
   ${h('CORE OPTIONS')}
 ${f('--name <name>', 'Your name (skip interactive prompt)')}
@@ -435,6 +436,7 @@ ${f('--version, -v', 'Show version')}
     ${c.dim('$')} taskex --format pdf "call 1" ${c.dim('# PDF report')}
     ${c.dim('$')} taskex --format docx "call 1" ${c.dim('# Word document')}
     ${c.dim('$')} taskex --resume "call 1" ${c.dim('# Resume interrupted run')}
+    ${c.dim('$')} taskex --deep-summary "call 1" ${c.dim('# Pre-summarize docs, save tokens')}
     ${c.dim('$')} taskex --update-progress --repo ./my-project "call 1"
   `);
   // Signal early exit — pipeline checks for help flag before calling this
@@ -444,6 +446,7 @@ ${f('--version, -v', 'Show version')}
 module.exports = {
   parseArgs, showHelp, discoverFolders, selectFolder, selectModel,
   promptUser, promptUserText, selectRunMode, selectFormats, selectConfidence,
+  selectDocsToExclude,
 };
 
 // ======================== INTERACTIVE PROMPTS ========================
@@ -718,6 +721,79 @@ async function selectConfidence() {
 
       console.log(c.warn(`Unknown "${trimmed}" — keeping all`));
       resolve(null);
+    });
+  });
+}
+
+// ======================== DEEP SUMMARY DOC EXCLUSION PICKER ========================
+
+/**
+ * Interactive picker: let user select documents to EXCLUDE from deep summary.
+ * Excluded docs stay at full fidelity; the summary pass focuses on their topics.
+ *
+ * @param {Array<{fileName: string, type: string, content?: string}>} contextDocs - Prepared docs
+ * @returns {Promise<string[]>} Array of excluded fileName strings
+ */
+async function selectDocsToExclude(contextDocs) {
+  const readline = require('readline');
+
+  // Only show inlineText docs with actual content
+  const eligible = contextDocs
+    .filter(d => d.type === 'inlineText' && d.content && d.content.length > 0)
+    .map(d => ({
+      fileName: d.fileName,
+      chars: d.content.length,
+      tokensEst: Math.ceil(d.content.length * 0.3),
+    }));
+
+  if (eligible.length === 0) return [];
+
+  console.log('');
+  console.log(`  ${c.bold('📋 Deep Summary — Select Focus Documents')}`);
+  console.log(c.dim('  ' + '─'.repeat(60)));
+  console.log(`  ${c.dim('Selected docs will be kept at FULL fidelity (not summarized).')}`);
+  console.log(`  ${c.dim('The summary pass will focus on extracting info about these topics.')}`);
+  console.log(`  ${c.dim('Press Enter to summarize all (no exclusions).')}`);
+  console.log('');
+
+  eligible.forEach((d, i) => {
+    const num = c.cyan(`[${i + 1}]`);
+    const tokens = c.dim(`~${(d.tokensEst / 1000).toFixed(0)}K tokens`);
+    console.log(`    ${num} ${c.bold(d.fileName)} ${tokens}`);
+  });
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question('  Keep full (e.g. 1,3,5 or Enter = summarize all): ', answer => {
+      rl.close();
+      const trimmed = (answer || '').trim();
+
+      if (!trimmed) {
+        console.log(c.success('All documents will be summarized'));
+        resolve([]);
+        return;
+      }
+
+      const parts = trimmed.split(/[\s,]+/).filter(Boolean);
+      const excluded = [];
+
+      for (const p of parts) {
+        const num = parseInt(p, 10);
+        if (num >= 1 && num <= eligible.length) {
+          excluded.push(eligible[num - 1].fileName);
+        }
+      }
+
+      if (excluded.length === 0) {
+        console.log(c.warn('No valid selections — summarizing all'));
+        resolve([]);
+        return;
+      }
+
+      console.log(c.success(`Keeping ${excluded.length} doc(s) at full fidelity:`));
+      excluded.forEach(f => console.log(`    ${c.dim('•')} ${c.cyan(f)}`));
+      resolve(excluded);
     });
   });
 }

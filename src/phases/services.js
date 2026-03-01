@@ -7,6 +7,9 @@ const path = require('path');
 const { initFirebase, uploadToStorage, storageExists } = require('../services/firebase');
 const { initGemini, prepareDocsForGemini } = require('../services/gemini');
 
+// --- Modes ---
+const { deepSummarize } = require('../modes/deep-summary');
+
 // --- Utils ---
 const { parallelMap } = require('../utils/retry');
 
@@ -101,4 +104,61 @@ async function phaseServices(ctx) {
   return { ...ctx, storage, firebaseReady, ai, contextDocs, docStorageUrls, callName };
 }
 
-module.exports = phaseServices;
+// ======================== PHASE: DEEP SUMMARY ========================
+
+/**
+ * Pre-summarize context documents to save input tokens per segment.
+ * Runs only when --deep-summary flag is active.
+ *
+ * @param {object} ctx - Pipeline context with ai, contextDocs, opts
+ * @returns {object} Updated ctx with summarized contextDocs and deepSummaryStats
+ */
+async function phaseDeepSummary(ctx) {
+  const log = getLog();
+  const { opts, ai, contextDocs } = ctx;
+
+  if (!opts.deepSummary || !ai || contextDocs.length === 0) {
+    return { ...ctx, deepSummaryStats: null };
+  }
+
+  console.log('');
+  console.log(c.cyan('  ── Deep Summary — Pre-summarizing context documents ──'));
+  log.step('Deep summary: starting context document pre-summarization');
+  if (log && log.phaseStart) log.phaseStart('deep_summary');
+
+  const excludeNames = opts.deepSummaryExclude || [];
+  let updatedDocs = contextDocs;
+  let deepSummaryStats = null;
+
+  try {
+    const result = await deepSummarize(ai, contextDocs, {
+      excludeFileNames: excludeNames,
+      thinkingBudget: Math.min(8192, opts.thinkingBudget),
+    });
+
+    updatedDocs = result.docs;
+    deepSummaryStats = result.stats;
+
+    if (deepSummaryStats.summarized > 0) {
+      console.log(`  ${c.success(`Summarized ${c.highlight(deepSummaryStats.summarized)} doc(s) — saved ~${c.highlight(deepSummaryStats.savedTokens.toLocaleString())} tokens (${c.yellow(deepSummaryStats.savingsPercent + '%')} reduction)`)}`);
+      console.log(`    ${c.dim('Original:')} ~${deepSummaryStats.originalTokens.toLocaleString()} tokens → ${c.dim('Condensed:')} ~${deepSummaryStats.summaryTokens.toLocaleString()} tokens`);
+      if (deepSummaryStats.keptFull > 0) {
+        console.log(`    ${c.dim('Kept full:')} ${deepSummaryStats.keptFull} doc(s) (excluded from summary)`);
+      }
+      log.step(`Deep summary: ${deepSummaryStats.summarized} docs summarized, ${deepSummaryStats.savedTokens} tokens saved (${deepSummaryStats.savingsPercent}%)`);
+      log.metric('deep_summary', deepSummaryStats);
+    } else {
+      console.log(`  ${c.dim('No documents needed summarization')}`);
+    }
+  } catch (err) {
+    console.warn(`  ${c.warn(`Deep summary failed (continuing with full docs): ${err.message}`)}`);
+    log.warn(`Deep summary failed: ${err.message}`);
+  }
+
+  if (log && log.phaseEnd) log.phaseEnd({ stats: deepSummaryStats });
+  console.log('');
+
+  return { ...ctx, contextDocs: updatedDocs, deepSummaryStats };
+}
+
+module.exports = { phaseServices, phaseDeepSummary };
