@@ -370,7 +370,7 @@ async function runDocOnly(ctx) {
   const jsonPath = path.join(runDir, 'results.json');
   fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
 
-  const shouldRender = (type) => opts.format === 'all' || opts.format === type;
+  const shouldRender = (type) => opts.formats ? opts.formats.has(type) : (opts.format === 'all' || opts.format === type);
 
   if (compiledAnalysis) {
     const mdMeta = {

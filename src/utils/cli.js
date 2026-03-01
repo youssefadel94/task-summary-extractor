@@ -370,7 +370,7 @@ ${f('--deep-dive', 'Generate explanatory docs per topic')}
   ${h('CORE OPTIONS')}
 ${f('--name <name>', 'Your name (skip interactive prompt)')}
 ${f('--model <id>', 'Gemini model (skip interactive selector)')}
-${f('--format <type>', 'Output formats: md, html, json, pdf, docx, all (default: all)')}
+${f('--format <type>', 'Output: md, html, json, pdf, docx, all — comma-separated (default: all)')}
 ${f('--min-confidence <level>', 'Filter: high, medium, low (default: all)')}
 ${f('--output <dir>', 'Custom output directory for results')}
 ${f('--skip-upload', 'Skip Firebase Storage uploads')}
@@ -424,6 +424,7 @@ ${f('--version, -v', 'Show version')}
     ${c.dim('$')} taskex --dynamic --request "Plan API migration" "specs"
     ${c.dim('$')} taskex --min-confidence medium "call 1" ${c.dim('# Filter low-confidence')}
     ${c.dim('$')} taskex --format md "call 1" ${c.dim('# Markdown only')}
+    ${c.dim('$')} taskex --format md,html,pdf "call 1" ${c.dim('# Multiple formats')}
     ${c.dim('$')} taskex --format pdf "call 1" ${c.dim('# PDF report')}
     ${c.dim('$')} taskex --format docx "call 1" ${c.dim('# Word document')}
     ${c.dim('$')} taskex --resume "call 1" ${c.dim('# Resume interrupted run')}

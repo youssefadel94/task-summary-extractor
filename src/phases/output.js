@@ -25,6 +25,8 @@ const { getLog, phaseTimer, PROJECT_ROOT } = require('./_shared');
 
 /** Check whether a given output type should be rendered. */
 function shouldRender(opts, type) {
+  if (opts.formats) return opts.formats.has(type);
+  // Fallback for legacy callers
   if (opts.format === 'all') return true;
   return opts.format === type;
 }
@@ -59,14 +61,11 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
   // Attach cost summary to results
   results.costSummary = costTracker.getSummary();
 
-  // Write results JSON (always written unless --format excludes it)
+  // Write results JSON (always written; logged only when JSON format is requested)
   const jsonPath = path.join(runDir, 'results.json');
-  if (shouldRender(opts, 'json') || opts.format === 'all') {
-    fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
+  fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
+  if (shouldRender(opts, 'json')) {
     log.step(`Results JSON saved → ${jsonPath}`);
-  } else {
-    // Still write JSON internally (needed for uploads/diffs) but don't advertise
-    fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
   }
 
   // Generate Markdown

@@ -86,11 +86,19 @@ async function phaseInit() {
     opts.minConfidence = check.normalised.toLowerCase();
   }
 
-  // --- Validate --format flag ---
+  // --- Validate --format flag (supports comma-separated: md,html,pdf) ---
   const VALID_FORMATS = new Set(['md', 'html', 'json', 'pdf', 'docx', 'all']);
-  if (!VALID_FORMATS.has(opts.format)) {
-    throw new Error(`Invalid --format "${opts.format}". Must be: md, html, json, pdf, docx, or all`);
+  const requestedFormats = opts.format.split(',').map(f => f.trim()).filter(Boolean);
+  const invalidFormats = requestedFormats.filter(f => !VALID_FORMATS.has(f));
+  if (invalidFormats.length > 0) {
+    throw new Error(`Invalid --format "${invalidFormats.join(', ')}". Valid: md, html, json, pdf, docx, all`);
   }
+  // Normalise: "all" or set of specific formats
+  opts.formats = requestedFormats.includes('all')
+    ? new Set(['md', 'html', 'json', 'pdf', 'docx'])
+    : new Set(requestedFormats);
+  // Keep opts.format as the original string for backwards compatibility
+  opts.format = requestedFormats.includes('all') ? 'all' : requestedFormats.join(',');
 
   // --- Resolve folder: positional arg or interactive selection ---
   let folderArg = positional[0];
