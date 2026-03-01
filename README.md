@@ -596,6 +596,8 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v9.6.0** | **Interactive CLI UX** — arrow-key navigation for all selectors (folder, model, run mode, formats, confidence, doc exclusion), zero-dependency prompt engine (`interactive.js`), `selectOne()` with ↑↓+Enter, `selectMany()` with Space toggle + A all/none, non-TTY fallback to number input |
+| **v9.5.0** | **Video processing flags** — `--no-compress`, `--speed`, `--segment-time` CLI flags, hardcoded 1200s for raw mode, deprecated `--skip-compression` |
 | **v9.4.0** | **Context window safety** — pre-flight token checks, auto-truncation for oversized docs/VTTs, RESOURCE_EXHAUSTED recovery with automatic doc shedding, chunked compilation for large segment sets, P0/P1 hard cap (2× budget) prevents context overflow, improved deep-summary prompt quality |
 | **v9.3.1** | **Audit & polish** — VIDEO_SPEED 1.5→1.6, `--exclude-docs` flag for non-interactive deep-summary exclusion, friendlier Gemini error messages, dead code removal, DRY RUN_PRESETS |
 | **v9.3.0** | **Deep summary** — `--deep-summary` pre-summarizes context documents (60-80% token savings), interactive doc picker, `--exclude-docs` for CLI automation, batch processing |

@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const { c } = require('./colors');
+const { selectOne, selectMany } = require('./interactive');
 
 /**
  * Parse command-line arguments into flags and positional args.
@@ -166,7 +167,6 @@ function discoverFolders(projectRoot) {
  * @returns {Promise<string|null>} - Folder name or null
  */
 async function selectFolder(projectRoot) {
-  const readline = require('readline');
   const folders = discoverFolders(projectRoot);
 
   if (folders.length === 0) {
@@ -177,37 +177,24 @@ async function selectFolder(projectRoot) {
     return null;
   }
 
-  console.log('');
-  console.log(c.heading('  📂 Available Folders'));
-  console.log(c.dim('  ' + '─'.repeat(50)));
-  folders.forEach((f, i) => {
+  const items = folders.map(f => {
     const icon = f.hasVideo ? '🎥' : f.hasAudio ? '🎵' : '📄';
-    const num = c.cyan(`[${i + 1}]`);
-    const name = c.bold(f.name);
-    const desc = c.dim(f.description);
     const mode = (!f.hasVideo && !f.hasAudio) ? c.yellow(' (docs only)') : '';
-    console.log(`    ${num} ${icon} ${name}  ${desc}${mode}`);
+    return {
+      label: `${icon} ${c.bold(f.name)}${mode}`,
+      hint: f.description,
+      value: f.name,
+    };
   });
-  console.log('');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question('  Select folder (number, or type a path): ', answer => {
-      rl.close();
-      const trimmed = (answer || '').trim();
-      if (!trimmed) { resolve(null); return; }
-
-      // Number selection
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= folders.length) {
-        resolve(folders[num - 1].name);
-        return;
-      }
-
-      // Direct path input
-      resolve(trimmed);
-    });
+  const result = await selectOne({
+    title: c.bold('📂 Select Folder'),
+    items,
+    default: 0,
+    footer: '↑↓ navigate · Enter select',
   });
+
+  return result.value;
 }
 
 // ======================== INTERACTIVE MODEL SELECTOR ========================
@@ -232,24 +219,26 @@ function fmtContext(tokens) {
  * @returns {Promise<string>} Selected model ID
  */
 async function selectModel(GEMINI_MODELS, currentModel) {
-  const readline = require('readline');
   const modelIds = Object.keys(GEMINI_MODELS);
 
-  // Group by tier for organized display
-  const tiers = {
-    premium:  { label: 'Premium (highest quality)',  icon: '🏆', models: [] },
-    balanced: { label: 'Balanced (recommended)',      icon: '⚡', models: [] },
-    economy:  { label: 'Economy (lowest cost)',       icon: '💰', models: [] },
-  };
+  // Build items with tier grouping info in hints
+  const items = [];
+  let defaultIdx = 0;
 
-  let idx = 0;
-  const indexMap = {}; // index → modelId
   for (const id of modelIds) {
     const m = GEMINI_MODELS[id];
-    const tier = tiers[m.tier] || tiers.economy;
-    idx++;
-    indexMap[idx] = id;
-    tier.models.push({ idx, id, ...m });
+    const thinkTag = m.thinking ? c.magenta(' [thinking]') : '';
+    const ctxStr = fmtContext(m.contextWindow);
+    const tierIcon = m.tier === 'premium' ? '🏆' : m.tier === 'balanced' ? '⚡' : '💰';
+    const costLabel = m.costEstimate || '';
+
+    if (id === currentModel) defaultIdx = items.length;
+
+    items.push({
+      label: `${tierIcon} ${c.bold(m.name)}${thinkTag}`,
+      hint: `${ctxStr} ctx · ${costLabel} · ${m.description}`,
+      value: id,
+    });
   }
 
   console.log('');
@@ -257,79 +246,14 @@ async function selectModel(GEMINI_MODELS, currentModel) {
   console.log(c.heading('  │                        🤖  Gemini Model Selection                            │'));
   console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
 
-  for (const [, tier] of Object.entries(tiers)) {
-    if (tier.models.length === 0) continue;
-    console.log('');
-    console.log(`  ${tier.icon} ${c.bold(tier.label)}`);
-    console.log(c.dim('  ' + '─'.repeat(76)));
-
-    for (const m of tier.models) {
-      const isDefault = m.id === currentModel;
-      const marker = isDefault ? c.green(' ← default') : '';
-      const thinkTag = m.thinking ? c.magenta(' [thinking]') : '';
-
-      // Line 1: number, name, description
-      console.log(`    ${c.cyan(`[${m.idx}]`)} ${c.bold(m.name)}${thinkTag}${marker}`);
-      console.log(`        ${c.dim(m.description)}`);
-
-      // Line 2: specs
-      const ctxStr = fmtContext(m.contextWindow);
-      const outStr = fmtContext(m.maxOutput);
-      const inPrice = `$${m.pricing.inputPerM.toFixed(m.pricing.inputPerM < 0.1 ? 4 : 2)}/1M in`;
-      const outPrice = `$${m.pricing.outputPerM.toFixed(m.pricing.outputPerM < 1 ? 2 : 2)}/1M out`;
-      const thinkPrice = m.thinking ? ` · $${m.pricing.thinkingPerM.toFixed(2)}/1M think` : '';
-      console.log(`        ${c.dim('Context:')} ${ctxStr} · ${c.dim('Max output:')} ${outStr} · ${c.highlight(m.costEstimate)}`);
-      console.log(`        ${c.dim('Pricing:')} ${inPrice} · ${outPrice}${thinkPrice}`);
-    }
-  }
-
-  console.log('');
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question(`  Select model [1-${idx}] (Enter = keep default): `, answer => {
-      rl.close();
-      const trimmed = (answer || '').trim();
-
-      // Enter = keep default
-      if (!trimmed) {
-        console.log(c.success(`Using ${GEMINI_MODELS[currentModel].name}`));
-        resolve(currentModel);
-        return;
-      }
-
-      // Number selection
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && indexMap[num]) {
-        const chosen = indexMap[num];
-        console.log(c.success(`Selected ${GEMINI_MODELS[chosen].name}`));
-        resolve(chosen);
-        return;
-      }
-
-      // Direct model ID input
-      if (GEMINI_MODELS[trimmed]) {
-        console.log(c.success(`Selected ${GEMINI_MODELS[trimmed].name}`));
-        resolve(trimmed);
-        return;
-      }
-
-      // Fuzzy match: partial name
-      const lower = trimmed.toLowerCase();
-      const match = modelIds.find(id =>
-        id.toLowerCase().includes(lower) ||
-        GEMINI_MODELS[id].name.toLowerCase().includes(lower)
-      );
-      if (match) {
-        console.log(c.success(`Matched ${GEMINI_MODELS[match].name}`));
-        resolve(match);
-        return;
-      }
-
-      console.log(c.warn(`Unknown selection "${trimmed}" — using default (${currentModel})`));
-      resolve(currentModel);
-    });
+  const result = await selectOne({
+    title: null, // banner already printed
+    items,
+    default: defaultIdx,
+    footer: '↑↓ navigate · Enter select',
   });
+
+  return result.value;
 }
 
 /**
@@ -552,59 +476,32 @@ module.exports.RUN_PRESETS = RUN_PRESETS;
  * @returns {Promise<string>} Preset key: 'fast' | 'balanced' | 'detailed' | 'custom'
  */
 async function selectRunMode() {
-  const readline = require('readline');
   const presetKeys = Object.keys(RUN_PRESETS);
 
   console.log('');
   console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
   console.log(c.heading('  │                        🚀  Run Mode                                          │'));
   console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
-  console.log('');
 
-  presetKeys.forEach((key, i) => {
+  const defaultIdx = presetKeys.indexOf('balanced');
+
+  const items = presetKeys.map(key => {
     const p = RUN_PRESETS[key];
-    const num = c.cyan(`[${i + 1}]`);
-    const label = c.bold(`${p.icon} ${p.label}`);
-    const desc = c.dim(p.description);
-    const marker = key === 'balanced' ? c.green(' ← default') : '';
-    console.log(`    ${num} ${label}${marker}`);
-    console.log(`        ${desc}`);
+    return {
+      label: `${p.icon} ${c.bold(p.label)}`,
+      hint: p.description,
+      value: key,
+    };
   });
-  console.log('');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question('  Select run mode [1-4] (Enter = balanced): ', answer => {
-      rl.close();
-      const trimmed = (answer || '').trim();
-
-      if (!trimmed) {
-        console.log(c.success('Using balanced mode'));
-        resolve('balanced');
-        return;
-      }
-
-      const num = parseInt(trimmed, 10);
-      if (num >= 1 && num <= presetKeys.length) {
-        const key = presetKeys[num - 1];
-        console.log(c.success(`Using ${RUN_PRESETS[key].label} mode`));
-        resolve(key);
-        return;
-      }
-
-      // Try matching by name
-      const lower = trimmed.toLowerCase();
-      const match = presetKeys.find(k => k === lower || RUN_PRESETS[k].label.toLowerCase() === lower);
-      if (match) {
-        console.log(c.success(`Using ${RUN_PRESETS[match].label} mode`));
-        resolve(match);
-        return;
-      }
-
-      console.log(c.warn(`Unknown "${trimmed}" — using balanced mode`));
-      resolve('balanced');
-    });
+  const result = await selectOne({
+    title: null, // banner already printed
+    items,
+    default: defaultIdx >= 0 ? defaultIdx : 0,
+    footer: '↑↓ navigate · Enter select',
   });
+
+  return result.value;
 }
 
 // ======================== FORMAT PICKER ========================
@@ -624,56 +521,27 @@ const ALL_FORMATS = [
  * @returns {Promise<Set<string>>}
  */
 async function selectFormats() {
-  const readline = require('readline');
+  const items = ALL_FORMATS.map(f => ({
+    label: `${f.icon} ${c.bold(f.label)}`,
+    hint: f.desc,
+    value: f.key,
+  }));
 
-  console.log('');
-  console.log(`  ${c.bold('📦 Output Formats')} ${c.dim('(select one or more)')}`);
-  console.log(c.dim('  ' + '─'.repeat(50)));
+  // Default: all selected
+  const defaultSelected = new Set(items.map((_, i) => i));
 
-  ALL_FORMATS.forEach((f, i) => {
-    const num = c.cyan(`[${i + 1}]`);
-    console.log(`    ${num} ${f.icon} ${c.bold(f.label.padEnd(12))} ${c.dim(f.desc)}`);
+  const result = await selectMany({
+    title: c.bold('📦 Output Formats'),
+    items,
+    defaultSelected,
   });
-  console.log(`    ${c.cyan('[A]')} ${c.bold('All formats')}`);
-  console.log('');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question('  Formats (e.g. 1,2,3 or A for all) [Enter = all]: ', answer => {
-      rl.close();
-      const trimmed = (answer || '').trim().toLowerCase();
+  // If none selected, default to all
+  if (result.values.length === 0) {
+    return new Set(ALL_FORMATS.map(f => f.key));
+  }
 
-      if (!trimmed || trimmed === 'a' || trimmed === 'all') {
-        const all = new Set(ALL_FORMATS.map(f => f.key));
-        console.log(c.success('All formats selected'));
-        resolve(all);
-        return;
-      }
-
-      const parts = trimmed.split(/[\s,]+/).filter(Boolean);
-      const chosen = new Set();
-      for (const p of parts) {
-        const num = parseInt(p, 10);
-        if (num >= 1 && num <= ALL_FORMATS.length) {
-          chosen.add(ALL_FORMATS[num - 1].key);
-        } else {
-          // Try matching format key by name
-          const match = ALL_FORMATS.find(f => f.key === p || f.label.toLowerCase() === p);
-          if (match) chosen.add(match.key);
-        }
-      }
-
-      if (chosen.size === 0) {
-        console.log(c.warn('No valid formats selected — using all'));
-        resolve(new Set(ALL_FORMATS.map(f => f.key)));
-        return;
-      }
-
-      const labels = [...chosen].map(k => ALL_FORMATS.find(f => f.key === k)?.label || k);
-      console.log(c.success(`Formats: ${labels.join(', ')}`));
-      resolve(chosen);
-    });
-  });
+  return new Set(result.values);
 }
 
 // ======================== CONFIDENCE PICKER ========================
@@ -685,59 +553,27 @@ async function selectFormats() {
  * @returns {Promise<string|null>}
  */
 async function selectConfidence() {
-  const readline = require('readline');
-
   const levels = [
-    { key: null,     icon: '🌐', label: 'All',    desc: 'Keep everything — no filtering' },
-    { key: 'low',    icon: '🟡', label: 'Low+',   desc: 'Keep low, medium & high confidence' },
+    { key: null,     icon: '🌐', label: 'All',     desc: 'Keep everything — no filtering' },
+    { key: 'low',    icon: '🟡', label: 'Low+',    desc: 'Keep low, medium & high confidence' },
     { key: 'medium', icon: '🟠', label: 'Medium+', desc: 'Keep medium & high confidence' },
-    { key: 'high',   icon: '🔴', label: 'High',   desc: 'Only high-confidence items' },
+    { key: 'high',   icon: '🔴', label: 'High',    desc: 'Only high-confidence items' },
   ];
 
-  console.log('');
-  console.log(`  ${c.bold('🎯 Confidence Filter')}`);
-  console.log(c.dim('  ' + '─'.repeat(50)));
+  const items = levels.map(l => ({
+    label: `${l.icon} ${c.bold(l.label)}`,
+    hint: l.desc,
+    value: l.key,
+  }));
 
-  levels.forEach((l, i) => {
-    const num = c.cyan(`[${i + 1}]`);
-    const marker = i === 0 ? c.green(' ← default') : '';
-    console.log(`    ${num} ${l.icon} ${c.bold(l.label.padEnd(10))} ${c.dim(l.desc)}${marker}`);
+  const result = await selectOne({
+    title: c.bold('🎯 Confidence Filter'),
+    items,
+    default: 0,
+    footer: '↑↓ navigate · Enter select',
   });
-  console.log('');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question('  Confidence filter [1-4] (Enter = keep all): ', answer => {
-      rl.close();
-      const trimmed = (answer || '').trim();
-
-      if (!trimmed) {
-        console.log(c.success('Keeping all confidence levels'));
-        resolve(null);
-        return;
-      }
-
-      const num = parseInt(trimmed, 10);
-      if (num >= 1 && num <= levels.length) {
-        const chosen = levels[num - 1];
-        console.log(c.success(`Confidence filter: ${chosen.label}`));
-        resolve(chosen.key);
-        return;
-      }
-
-      // Try matching by name
-      const lower = trimmed.toLowerCase();
-      const match = levels.find(l => l.key === lower || l.label.toLowerCase() === lower);
-      if (match) {
-        console.log(c.success(`Confidence filter: ${match.label}`));
-        resolve(match.key);
-        return;
-      }
-
-      console.log(c.warn(`Unknown "${trimmed}" — keeping all`));
-      resolve(null);
-    });
-  });
+  return result.value;
 }
 
 // ======================== DEEP SUMMARY DOC EXCLUSION PICKER ========================
@@ -750,8 +586,6 @@ async function selectConfidence() {
  * @returns {Promise<string[]>} Array of excluded fileName strings
  */
 async function selectDocsToExclude(contextDocs) {
-  const readline = require('readline');
-
   // Only show inlineText docs with actual content
   const eligible = contextDocs
     .filter(d => d.type === 'inlineText' && d.content && d.content.length > 0)
@@ -764,58 +598,28 @@ async function selectDocsToExclude(contextDocs) {
   if (eligible.length === 0) return [];
 
   console.log('');
-  console.log(`  ${c.bold('📋 Deep Summary — Choose What to Keep in Full')}`);
-  console.log(c.dim('  ' + '─'.repeat(60)));
-  console.log('');
-  console.log(`  ${c.dim('To save processing time, we can create short summaries of your')}`);
-  console.log(`  ${c.dim('reference documents. The AI will still read them — just faster.')}`);
-  console.log('');
-  console.log(`  ${c.bold('If a document is especially important to you, select it below')}`);
-  console.log(`  ${c.bold('to keep it in full.')} The rest will be smartly condensed.`);
+  console.log(`  ${c.dim('Deep Summary will create short summaries of your reference documents.')}`);
+  console.log(`  ${c.bold('Select documents to keep in FULL')} ${c.dim('(the rest will be condensed).')}`);
   console.log('');
 
-  eligible.forEach((d, i) => {
-    const num = c.cyan(`[${i + 1}]`);
+  const items = eligible.map(d => {
     const size = d.tokensEst >= 1000
-      ? c.dim(`~${(d.tokensEst / 1000).toFixed(0)}K words`)
-      : c.dim(`~${d.tokensEst} words`);
-    console.log(`    ${num} ${c.bold(d.fileName)} ${size}`);
+      ? `~${(d.tokensEst / 1000).toFixed(0)}K words`
+      : `~${d.tokensEst} words`;
+    return {
+      label: c.bold(d.fileName),
+      hint: size,
+      value: d.fileName,
+    };
   });
-  console.log('');
-  console.log(c.dim('  Tip: Enter = condense all · Type numbers to keep full (e.g. 1,3)'));
-  console.log('');
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question('  Keep full (e.g. 1,3 or Enter = condense all): ', answer => {
-      rl.close();
-      const trimmed = (answer || '').trim();
-
-      if (!trimmed) {
-        console.log(c.success('Got it — all documents will be condensed for faster processing'));
-        resolve([]);
-        return;
-      }
-
-      const parts = trimmed.split(/[\s,]+/).filter(Boolean);
-      const excluded = [];
-
-      for (const p of parts) {
-        const num = parseInt(p, 10);
-        if (num >= 1 && num <= eligible.length) {
-          excluded.push(eligible[num - 1].fileName);
-        }
-      }
-
-      if (excluded.length === 0) {
-        console.log(c.warn('No valid selections — condensing all documents'));
-        resolve([]);
-        return;
-      }
-
-      console.log(c.success(`Keeping ${excluded.length} doc(s) in full — the rest will be condensed:`));
-      excluded.forEach(f => console.log(`    ${c.dim('•')} ${c.cyan(f)}`));
-      resolve(excluded);
-    });
+  // Default: none selected (all will be condensed)
+  const result = await selectMany({
+    title: c.bold('📋 Deep Summary — Keep in Full'),
+    items,
+    defaultSelected: new Set(),
+    footer: '↑↓ navigate · Space toggle · A all/none · Enter confirm (Enter = condense all)',
   });
+
+  return result.values;
 }
