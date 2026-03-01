@@ -321,16 +321,17 @@ class Logger {
   /** Flush buffers and close the logger. Safe to call multiple times. */
   close() {
     if (this.closed) return;
-    this.closed = true;
     clearInterval(this._flushInterval);
     this.unpatchConsole();
 
-    // End active phase if any
+    // End active phase if any (must happen BEFORE setting closed flag
+    // so _writeStructured inside phaseEnd is not blocked)
     if (this._activePhase) {
       this.phaseEnd();
     }
 
-    // Write footer
+    // Write footer and session_end BEFORE setting closed flag
+    // so _writeStructured is not blocked by the guard
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
     const footer = `\n=== CLOSED | elapsed: ${elapsed}s | ${new Date().toISOString()} ===\n`;
     this._detailedBuffer.push(footer);
@@ -342,6 +343,8 @@ class Logger {
       timestamp: new Date().toISOString(),
       level: 'info',
     });
+
+    this.closed = true;
     this._flush(true); // sync flush on close to ensure data is written before process exits
   }
 

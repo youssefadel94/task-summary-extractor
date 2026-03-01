@@ -195,6 +195,9 @@ function repairDoubledClosers(text) {
  * Returns parsed object or null.
  */
 function extractJson(rawText) {
+  // Guard: null/undefined input (e.g. Gemini returns no text)
+  if (!rawText || typeof rawText !== 'string') return null;
+
   // Strategy 1: Strip all markdown fences and try to parse
   const cleaned = rawText.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
   let parsed = tryParseWithSanitize(cleaned);

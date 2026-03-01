@@ -278,4 +278,21 @@ describe('extractJson', () => {
     expect(result.tickets[0].ticket_id).toBe('T-1');
     expect(console.warn).toHaveBeenCalled();
   });
+
+  // 26. Null / undefined / non-string input returns null (no crash)
+  it('returns null for null input without throwing', () => {
+    expect(extractJson(null)).toBeNull();
+  });
+
+  it('returns null for undefined input without throwing', () => {
+    expect(extractJson(undefined)).toBeNull();
+  });
+
+  it('returns null for numeric input without throwing', () => {
+    expect(extractJson(42)).toBeNull();
+  });
+
+  it('returns null for empty string input', () => {
+    expect(extractJson('')).toBeNull();
+  });
 });
