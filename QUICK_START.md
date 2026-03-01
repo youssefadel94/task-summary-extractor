@@ -222,9 +222,9 @@ my-project/runs/{timestamp}/
 | **Deep dive docs** | `taskex --deep-dive "my-meeting"` |
 | **Generate docs (no video)** | `taskex --dynamic "my-project"` |
 | **Track progress via git** | `taskex --update-progress --repo "C:\project" "my-meeting"` |
+| **Debug mode** | `taskex --log-level debug "my-meeting"` |
 
 > **Tip:** If the call folder isn't already a git repo, `--update-progress` auto-initializes one for baseline tracking.
-| **Debug mode** | `taskex --log-level debug "my-meeting"` |
 
 > Full CLI reference with all flags → [README.md — CLI Flags](README.md#cli-flags)
 

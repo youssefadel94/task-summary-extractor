@@ -323,6 +323,7 @@ async function selectModel(GEMINI_MODELS, currentModel) {
 function showHelp() {
   console.log(`
   Usage: taskex [options] [folder]
+         taskex setup [--check | --silent]
          taskex config [--show | --clear]
          node process_and_upload.js [options] [folder]
 
@@ -331,6 +332,9 @@ function showHelp() {
   If you cd into a folder, just run: taskex
 
   Subcommands:
+    setup                             Full interactive setup (prerequisites, deps, .env, sample folder)
+    setup --check                     Validation only — verify environment without changes
+    setup --silent                    Non-interactive setup (use defaults, no prompts)
     config                            Interactive global config setup (~/.taskexrc)
     config --show                     Show saved config (masked secrets)
     config --clear                    Remove global config file
@@ -404,6 +408,8 @@ function showHelp() {
     taskex --update-progress --repo "C:\\my-project" "call 1"               Progress tracking via git
 
   First-time setup:
+    taskex setup                                                            Full setup wizard (Node, ffmpeg, deps, .env)
+    taskex setup --check                                                    Validate environment only
     taskex config                                                           Save API keys globally (~/.taskexrc)
     taskex config --show                                                    View saved config
     taskex config --clear                                                   Remove saved config

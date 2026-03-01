@@ -19,7 +19,8 @@
   ],
   "scripts": {
     "setup": "node setup.js",
-    "check": "node setup.js --check",
+    "setup:check": "node setup.js --check",
+    "setup:silent": "node setup.js --silent",
     "start": "node process_and_upload.js",
 
     "process": "node process_and_upload.js",

@@ -7,6 +7,8 @@
  * Usage:   taskex [options] [folder]
  *
  * Subcommands:
+ *   taskex setup               Full interactive setup (prerequisites, deps, .env, sample folder)
+ *   taskex setup --check       Validation only (no changes)
  *   taskex config              Interactive global config setup (~/.taskexrc)
  *   taskex config --show       Show saved config (masked secrets)
  *   taskex config --clear      Remove global config file
@@ -24,7 +26,7 @@
 
 'use strict';
 
-// ── Handle `taskex config` subcommand before anything else ────────────────
+// ── Handle subcommands before anything else ──────────────────────────────
 const rawArgs = process.argv.slice(2);
 if (rawArgs[0] === 'config') {
   const hasShow  = rawArgs.includes('--show');
@@ -36,6 +38,10 @@ if (rawArgs[0] === 'config') {
     process.stderr.write(`\nError: ${err.message}\n`);
     process.exit(1);
   });
+} else if (rawArgs[0] === 'setup') {
+  // Delegate to setup.js — supports --check and --silent
+  const setupPath = require('path').join(__dirname, '..', 'setup.js');
+  require('child_process').execFileSync(process.execPath, [setupPath, ...rawArgs.slice(1)], { stdio: 'inherit' });
 } else {
   // ── Inject CLI config flags into process.env ────────────────────────────
   // Must run BEFORE any require() that touches config.js / dotenv

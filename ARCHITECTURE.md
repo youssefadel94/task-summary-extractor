@@ -549,7 +549,7 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 31 files · ~10,300 lines** · npm package: `task-summary-extractor` · CLI: `taskex`
+**Codebase: 32 files · ~9,300 lines** · npm package: `task-summary-extractor` · CLI: `taskex`
 
 ---
 

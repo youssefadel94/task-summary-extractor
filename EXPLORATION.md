@@ -18,7 +18,7 @@
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
-│                       pipeline.js (1,738 lines)                     │
+│                       pipeline.js (1,769 lines)                     │
 │                    8-Phase Orchestrator                              │
 │                                                                     │
 │  Init ──────► Discover ──► Services ──► ProcessVideo ──► Compile    │
@@ -59,15 +59,16 @@
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Pipeline orchestrator | 1 | 1,985 |
-| Services (Gemini, Firebase, Video, Git) | 4 | 1,330 |
-| Utilities (21 modules) | 21 | 4,890 |
-| Renderers | 1 | 969 |
-| Config + Logger | 2 | 578 |
-| Entry points (taskex + legacy) | 2 | 165 |
-| Setup script | 1 | 505 |
-| Prompt (JSON) | 1 | 308 |
-| **Total** | **33 files** | **~10,600 lines** |
+| Pipeline orchestrator | 1 | 1,769 |
+| Services (Gemini, Firebase, Video, Git) | 4 | 1,306 |
+| Modes (AI pipeline phases) | 5 | 2,054 |
+| Utilities (15 modules) | 15 | 3,347 |
+| Renderers | 1 | 879 |
+| Config + Logger | 2 | 597 |
+| Entry points (taskex + legacy) | 2 | 79 |
+| Setup script | 1 | 418 |
+| Prompt (JSON) | 1 | 333 |
+| **Total** | **32 files** | **~9,300 lines** |
 
 ### Version History
 
@@ -84,11 +85,11 @@
 | **v7.2** | Model Selection | Interactive model selector, `--model` flag, 5-model registry with pricing, runtime model switching |
 | **v7.2.1** | Storage URL + Audit | Firebase Storage URLs as Gemini External URLs (skip File API upload), 3-strategy file resolution, URI reuse for retry/focused pass, Gemini file cleanup, confidence % fix, logger/firebase/git/version fixes |
 | **v7.2.2** | Upload Control | `--force-upload` to re-upload existing files, `--no-storage-url` to force Gemini File API, production-ready docs |
+| **v7.2.3** | Production Hardening | Cross-platform ffmpeg detection, shell injection fix (spawnSync), auto git init for `--update-progress`, `runs/` excluded from doc discovery, entry point docs updated |
+| **v8.0.0** | npm Package | Global CLI (`taskex`), `--gemini-key`/`--firebase-*` config flags, CWD-based path resolution, CWD-first `.env`, `bin/taskex.js` entry point, npm publish-ready `package.json` |
 | **v8.1.0** | Smart Global Config | Persistent `~/.taskexrc` config, `taskex config` subcommand, first-run API key prompting, 5-level config resolution, production audit (14 fixes), shared CLI flag injection, boolean flag parser fix |
 | **v8.2.0** | Architecture Cleanup | `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.3.0** | Universal Content Analysis | prompt.json v4.0.0 — input type auto-detection (video/audio/document/mixed), timestamps conditional, domain-adaptive extraction for any content source, gemini.js bridge text generalized |
-| **v8.0.0** | npm Package | Global CLI (`taskex`), `--gemini-key`/`--firebase-*` config flags, CWD-based path resolution, CWD-first `.env`, `bin/taskex.js` entry point, npm publish-ready `package.json` |
-| **v7.2.3** | Production Hardening | Cross-platform ffmpeg detection, shell injection fix (spawnSync), auto git init for `--update-progress`, `runs/` excluded from doc discovery, entry point docs updated |
 
 ### What v6 Delivers
 
@@ -102,11 +103,11 @@ Every ticket, action item, CR, blocker, and scope change now carries a `confiden
 | **LOW** | Inferred from context, not directly stated | "Implied from related discussion, not explicitly assigned" |
 
 **Where it shows up:**
-- **Quality Gate** (`quality-gate.js` — 430 lines): New 15-point confidence coverage dimension in density scoring. Flags missing confidence fields and suspicious uniformity (all HIGH = likely not calibrated). Generates retry hints for poor confidence.
-- **Markdown Renderer** (`markdown.js` — 969 lines): Confidence badges (🟢 🟡 🔴) on every ticket header, action item row, CR row, blocker, scope change, and todo item. "📊 Confidence Distribution" summary table near report header.
-- **Prompt** (`prompt.json` — 265 lines): Explicit confidence scoring instructions injected into extraction prompt. Self-verification checklist updated.
+- **Quality Gate** (`quality-gate.js` — 366 lines): New 15-point confidence coverage dimension in density scoring. Flags missing confidence fields and suspicious uniformity (all HIGH = likely not calibrated). Generates retry hints for poor confidence.
+- **Markdown Renderer** (`markdown.js` — 879 lines): Confidence badges (🟢 🟡 🔴) on every ticket header, action item row, CR row, blocker, scope change, and todo item. "📊 Confidence Distribution" summary table near report header.
+- **Prompt** (`prompt.json` — 333 lines): Explicit confidence scoring instructions injected into extraction prompt. Self-verification checklist updated.
 
-#### 2. Focused Re-Analysis (`focused-reanalysis.js` — 318 lines)
+#### 2. Focused Re-Analysis (`focused-reanalysis.js` — 268 lines)
 When the quality gate identifies specific weak dimensions (score <60, ≥2 weak areas), a **targeted second pass** runs instead of a full re-analysis.
 
 | Component | What It Does |
@@ -117,7 +118,7 @@ When the quality gate identifies specific weak dimensions (score <60, ≥2 weak 
 
 **Pipeline integration**: Runs after the quality gate + retry cycle for each segment. Controlled by `--no-focused-pass` flag. Costs tracked separately in cost tracker.
 
-#### 3. Learning & Improvement Loop (`learning-loop.js` — 302 lines)
+#### 3. Learning & Improvement Loop (`learning-loop.js` — 269 lines)
 The pipeline remembers its past performance and auto-tunes for the future.
 
 **How it works:**
@@ -136,7 +137,7 @@ The pipeline remembers its past performance and auto-tunes for the future.
       • Focused re-analysis was used in 3/10 runs — system is self-correcting effectively
 ```
 
-#### 4. Diff-Aware Compilation (`diff-engine.js` — 316 lines)
+#### 4. Diff-Aware Compilation (`diff-engine.js` — 277 lines)
 Compares the current run's compiled analysis against the previous run to produce a delta report.
 
 | Diff Category | What's Detected |
@@ -148,7 +149,7 @@ Compares the current run's compiled analysis against the previous run to produce
 
 **Output**: Appended to `results.md` as a "🔄 Changes Since Previous Run" section with summary table + detailed new/removed/changed listings. Also saved as `diff.json` in the run folder.
 
-#### 5. Structured Logging & Observability (`logger.js` — 352 lines)
+#### 5. Structured Logging & Observability (`logger.js` — 306 lines)
 The logger now writes **three parallel outputs**:
 
 | Output | Format | Purpose |
@@ -163,7 +164,7 @@ The logger now writes **three parallel outputs**:
 - **Structured metrics**: `metric(name, value)` for recording quantitative data (confidence coverage, token counts, etc.)
 - All phase timers auto-emit structured span events
 
-#### 6. Enhanced Quality Gate (`quality-gate.js` — 430 lines)
+#### 6. Enhanced Quality Gate (`quality-gate.js` — 366 lines)
 **New in v6:** Confidence coverage is now a scoring dimension within density (15 points):
 - Checks percentage of items with valid confidence fields
 - Detects suspicious uniformity (all same confidence = likely not calibrated)
@@ -266,12 +267,12 @@ Info:
 
 ```
 bin/
-└── taskex.js                 72 ln  ★ v8.0.0 — Global CLI entry point, config flag injection
+└── taskex.js                 65 ln  ★ v8.0.0 — Global CLI entry point, config flag injection
 
 src/
-├── config.js                277 ln  Central config, env vars, model registry, validation
+├── config.js                291 ln  Central config, env vars, model registry, validation
 ├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
-├── pipeline.js            1,985 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic, auto git init
+├── pipeline.js            1,769 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic, auto git init
 ├── modes/                          ★ v8.2.0 — AI-heavy pipeline phase modules
 │   ├── change-detector.js   417 ln  Git-based change correlation engine
 │   ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
@@ -283,28 +284,28 @@ src/
 ├── services/
 │   ├── firebase.js           92 ln  Init, upload, exists check (with retry, async I/O)
 │   ├── gemini.js            677 ln  ★ v7.2.1 — 3-strategy file resolution, External URL support, cleanup, doc prep, analysis, compilation
-│   ├── git.js               310 ln  ★ v7.2.3 — Git CLI wrapper: log, diff, status, changed files, auto-init
-│   └── video.js             285 ln  ★ v7.2.3 — ffmpeg compress, segment, probe (cross-platform, spawnSync)
+│   ├── git.js               264 ln  ★ v7.2.3 — Git CLI wrapper: log, diff, status, changed files, auto-init
+│   └── video.js             273 ln  ★ v7.2.3 — ffmpeg compress, segment, probe (cross-platform, spawnSync)
 └── utils/                          Pure utilities — parsing, retry, budget, config
-    ├── adaptive-budget.js   232 ln  ★ v5 — Transcript complexity → dynamic budget
+    ├── adaptive-budget.js   230 ln  ★ v5 — Transcript complexity → dynamic budget
     ├── checkpoint.js        145 ln  Checkpoint/resume persistence (renamed from progress.js in v8.2.0)
-    ├── cli.js               415 ln  ★ v8.0.0 — Interactive prompts, model selector, folder picker, config flags, taskex help
-    ├── context-manager.js   424 ln  4-tier priority, VTT slicing, progressive context, boundary detection
+    ├── cli.js               391 ln  ★ v8.0.0 — Interactive prompts, model selector, folder picker, config flags, taskex help
+    ├── context-manager.js   420 ln  4-tier priority, VTT slicing, progressive context, boundary detection
     ├── cost-tracker.js      140 ln  Token counting, USD cost estimation (+ focused pass tracking)
-    ├── diff-engine.js       280 ln  ★ v6 — Cross-run delta: new/removed/changed items, Markdown rendering
+    ├── diff-engine.js       277 ln  ★ v6 — Cross-run delta: new/removed/changed items, Markdown rendering
     ├── format.js             27 ln  Duration, bytes formatting
-    ├── fs.js                 40 ln  Recursive doc finder (skips runs/)
-    ├── global-config.js     320 ln  ★ v8.1.0 — ~/.taskexrc persistent config, interactive setup
+    ├── fs.js                 34 ln  Recursive doc finder (skips runs/)
+    ├── global-config.js     274 ln  ★ v8.1.0 — ~/.taskexrc persistent config, interactive setup
     ├── health-dashboard.js  191 ln  ★ v5 — Quality report, density bars, efficiency metrics
-    ├── inject-cli-flags.js   58 ln  ★ v8.1.0 — CLI flag → env var injection
+    ├── inject-cli-flags.js   49 ln  ★ v8.1.0 — CLI flag → env var injection
     ├── json-parser.js       216 ln  5-strategy JSON extraction + repair
-    ├── learning-loop.js     270 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
-    ├── quality-gate.js      372 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
-    └── retry.js             112 ln  Exponential backoff, parallel map (self-contained defaults)
+    ├── learning-loop.js     269 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
+    ├── quality-gate.js      366 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
+    └── retry.js             118 ln  Exponential backoff, parallel map (self-contained defaults)
 
-prompt.json                  308 ln  ★ v4.0.0 — Universal content analysis: video, audio, documents, mixed input; auto-detects input type + domain
+prompt.json                  333 ln  ★ v4.0.0 — Universal content analysis: video, audio, documents, mixed input; auto-detects input type + domain
 process_and_upload.js         14 ln  Backward-compatible shim — delegates to bin/taskex.js
-setup.js                     505 ln  Automated first-time setup & environment validation (v8.0.0)
+setup.js                     418 ln  Automated first-time setup & environment validation (v8.0.0)
 ```
 
 ---
@@ -442,7 +443,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v8.0.0 codebase — 31 files, ~10,300 lines of self-improving pipeline intelligence. npm: `task-summary-extractor` · CLI: `taskex`*
+*Generated from the v8.3.0 codebase — 32 files, ~9,300 lines of self-improving pipeline intelligence. npm: `task-summary-extractor` · CLI: `taskex`*
 
 ---
 
