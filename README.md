@@ -241,6 +241,23 @@ Skip parts of the pipeline you don't need:
 | `--skip-compression` | Video compression | You already compressed/segmented the video |
 | `--skip-gemini` | AI analysis entirely | You just want to compress & upload |
 
+### Video Processing Flags
+
+Control how video is processed before AI analysis:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-compress` | off | Skip re-encoding — pass raw video to Gemini (auto-splits at 20 min) |
+| `--speed <n>` | `1.6` | Playback speed multiplier (compress mode only) |
+| `--segment-time <n>` | `280` | Segment duration in seconds, compress mode only (30–3600) |
+
+**Duration constraints** (per [Google Gemini docs](https://ai.google.dev/gemini-api/docs/vision#video)):
+- Default resolution: ~300 tokens/sec → max ~55 min/segment (recommended: ≤20 min)
+- File API limit: 2 GB/file (free) / 20 GB (paid)
+- Supported formats: mp4, mpeg, mov, avi, x-flv, mpg, webm, wmv, 3gpp
+
+> **Tip:** Use `--no-compress` for large, high-quality recordings that you want to analyze at original quality. Raw video is auto-split at 20-minute intervals via `ffmpeg -c copy` (stream-copy). `--speed` and `--segment-time` only apply to compression mode.
+
 ### Tuning Flags
 
 **You probably don't need these.** The defaults work well. These are for power users:
@@ -282,6 +299,7 @@ OUTPUT     --format <md|html|json|pdf|docx|all>  --min-confidence <high|medium|l
            --no-html
 UPLOAD     --force-upload  --no-storage-url
 SKIP       --skip-compression  --skip-gemini
+VIDEO      --no-compress  --speed <n>  --segment-time <n>
 DYNAMIC    --request <text>
 PROGRESS   --repo <path>
 TUNING     --thinking-budget  --compilation-thinking-budget  --parallel

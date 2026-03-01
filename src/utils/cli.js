@@ -33,7 +33,7 @@ function parseArgs(argv) {
   const BOOLEAN_FLAGS = new Set([
     'help', 'h', 'version', 'v',
     'skip-upload', 'force-upload', 'no-storage-url',
-    'skip-compression', 'skip-gemini',
+    'skip-compression', 'skip-gemini', 'no-compress',
     'resume', 'reanalyze', 'dry-run',
     'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
@@ -381,11 +381,21 @@ ${f('--format <type>', 'Output: md, html, json, pdf, docx, all — comma-separat
 ${f('--min-confidence <level>', 'Filter: high, medium, low (default: all)')}
 ${f('--output <dir>', 'Custom output directory for results')}
 ${f('--skip-upload', 'Skip Firebase Storage uploads')}
-${f('--skip-compression', 'Use existing segments (no re-compress)')}
+${f('--skip-compression', 'Use existing segments from previous run (deprecated: auto-detected)')}
 ${f('--skip-gemini', 'Skip AI analysis')}
 ${f('--resume', 'Resume from last checkpoint')}
 ${f('--reanalyze', 'Force re-analysis of all segments')}
 ${f('--dry-run', 'Preview without executing')}
+
+  ${h('VIDEO PROCESSING')}
+${f('--no-compress', 'Skip re-encoding — pass raw video to Gemini (fast, no quality loss)')}
+${f2('Auto-splits at 20 min (1200s) if needed. --speed and --segment-time are ignored.')}
+${f2('Gemini File API: up to 2 GB/file, ~300 tok/sec at default resolution.')}
+${f('--speed <n>', 'Playback speed multiplier for compression mode (default: 1.6)')}
+${f('--segment-time <n>', 'Segment duration in seconds for compression mode (default: 280)')}
+${f2('Duration constraints (per Google Gemini docs):')}
+${f2('  • Default res: ~300 tok/sec → max ~55 min/segment (safe: ≤20 min)')}
+${f2('  • File API limit: 2 GB (free) / 20 GB (paid) per file')}
 
   ${h('TUNING')}
 ${f('--parallel <n>', 'Max parallel uploads (default: 3)')}

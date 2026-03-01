@@ -13,7 +13,7 @@ const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { SPEED, SEG_TIME, PRESET } = require('../config');
-const { fmtDuration } = require('../utils/format');
+const { fmtDuration, fmtBytes } = require('../utils/format');
 const { c } = require('../utils/colors');
 
 // ======================== BINARY DETECTION ========================
@@ -103,17 +103,19 @@ function verifySegment(segPath) {
 
 /**
  * Build the common ffmpeg encoding args (video + audio filters/codecs).
+ * @param {string} inputFile
+ * @param {{ speed?: number }} [overrides]
  * Returns { encodingArgs, effectiveDuration }.
  */
-function buildEncodingArgs(inputFile) {
+function buildEncodingArgs(inputFile, { speed = SPEED } = {}) {
   const width = parseInt(probe(inputFile, 'v:0', 'width') || '0');
   const channels = parseInt(probe(inputFile, 'a:0', 'channels') || '1');
   const sampleRate = probe(inputFile, 'a:0', 'sample_rate') || '16000';
   const duration = probeFormat(inputFile, 'duration');
   const durationSec = duration ? parseFloat(duration) : null;
-  const effectiveDuration = durationSec ? durationSec / SPEED : null;
+  const effectiveDuration = durationSec ? durationSec / speed : null;
 
-  let vf = `setpts=PTS/${SPEED}`;
+  let vf = `setpts=PTS/${speed}`;
   let crf = 24;
   let tune = ['-tune', 'stillimage'];
   let profile = ['-profile:v', 'main'];
@@ -122,21 +124,21 @@ function buildEncodingArgs(inputFile) {
 
   if (width > 1920) {
     // 4K+ → scale to 1080p
-    vf = `scale=1920:1080,unsharp=3:3:0.3,setpts=PTS/${SPEED}`;
+    vf = `scale=1920:1080,unsharp=3:3:0.3,setpts=PTS/${speed}`;
     crf = 20;
     tune = [];
     profile = ['-profile:v', 'high'];
     audioBr = '128k';
   } else if (width > 0) {
     // Meeting / screenshare
-    vf = `unsharp=3:3:0.3,setpts=PTS/${SPEED}`;
+    vf = `unsharp=3:3:0.3,setpts=PTS/${speed}`;
   }
 
   if (channels === 2) audioBr = '128k';
 
   const encodingArgs = [
     '-vf', vf,
-    '-af', `atempo=${SPEED}`,
+    '-af', `atempo=${speed}`,
     '-c:v', 'libx264', '-crf', String(crf), '-preset', PRESET,
     ...tune,
     '-x264-params', x264p,
@@ -146,7 +148,7 @@ function buildEncodingArgs(inputFile) {
     '-movflags', '+faststart',
   ];
 
-  return { encodingArgs, effectiveDuration, width, crf, audioBr, duration };
+  return { encodingArgs, effectiveDuration, width, crf, audioBr, duration, speed };
 }
 
 /**
@@ -155,27 +157,28 @@ function buildEncodingArgs(inputFile) {
  * - Long videos → segment muxer for splitting.
  * - Post-compression validation: verifies each output has a valid moov atom.
  *   Corrupt segments are re-encoded individually with the regular MP4 muxer.
+ * @param {{ segTime?: number, speed?: number }} [opts]
  * Returns sorted array of segment file paths.
  */
-function compressAndSegment(inputFile, outputDir) {
-  const { encodingArgs, effectiveDuration, width, crf, audioBr, duration } = buildEncodingArgs(inputFile);
+function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
+  const { encodingArgs, effectiveDuration, width, crf, audioBr, duration } = buildEncodingArgs(inputFile, { speed });
 
   fs.mkdirSync(outputDir, { recursive: true });
 
   console.log(`  Resolution : ${width > 0 ? width + 'p' : 'unknown'}`);
-  console.log(`  Duration   : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${SPEED}x)` : ''}`);
-  console.log(`  CRF ${crf} | ${audioBr} audio | ${SPEED}x speed`);
+  console.log(`  Duration   : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${speed}x)` : ''}`);
+  console.log(`  CRF ${crf} | ${audioBr} audio | ${speed}x speed`);
 
   // Decide: single output vs segmented
-  const needsSegmentation = effectiveDuration === null || effectiveDuration > SEG_TIME;
+  const needsSegmentation = effectiveDuration === null || effectiveDuration > segTime;
 
   if (needsSegmentation) {
-    console.log(`  Compressing (segmented, ${SEG_TIME}s chunks)...`);
+    console.log(`  Compressing (segmented, ${segTime}s chunks)...`);
     const args = [
       '-y', '-err_detect', 'ignore_err', '-fflags', '+genpts+discardcorrupt',
       '-i', inputFile,
       ...encodingArgs,
-      '-f', 'segment', '-segment_time', String(SEG_TIME), '-reset_timestamps', '1',
+      '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
       '-map', '0:v:0', '-map', '0:a:0',
       path.join(outputDir, 'segment_%02d.mp4'),
     ];
@@ -248,7 +251,7 @@ function compressAndSegment(inputFile, outputDir) {
         const rsArgs = [
           '-y', '-i', fallbackPath,
           '-c', 'copy',
-          '-f', 'segment', '-segment_time', String(SEG_TIME), '-reset_timestamps', '1',
+          '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
           '-movflags', '+faststart',
           path.join(reSegDir, 'segment_%02d.mp4'),
         ];
@@ -302,34 +305,34 @@ function compressAndSegment(inputFile, outputDir) {
  *
  * Returns sorted array of segment file paths.
  */
-function compressAndSegmentAudio(inputFile, outputDir) {
+function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
   fs.mkdirSync(outputDir, { recursive: true });
 
   const duration = probeFormat(inputFile, 'duration');
   const durationSec = duration ? parseFloat(duration) : null;
-  const effectiveDuration = durationSec ? durationSec / SPEED : null;
+  const effectiveDuration = durationSec ? durationSec / speed : null;
   const channels = parseInt(probe(inputFile, 'a:0', 'channels') || '1', 10);
   const sampleRate = probe(inputFile, 'a:0', 'sample_rate') || '16000';
   const audioBr = channels >= 2 ? '128k' : '64k';
 
-  console.log(`  Duration : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${SPEED}x)` : ''}`);
-  console.log(`  Audio-only mode | ${SPEED}x speed | ${audioBr} bitrate`);
+  console.log(`  Duration : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${speed}x)` : ''}`);
+  console.log(`  Audio-only mode | ${speed}x speed | ${audioBr} bitrate`);
 
   const encodingArgs = [
-    '-af', `atempo=${SPEED}`,
+    '-af', `atempo=${speed}`,
     '-c:a', 'aac', '-b:a', audioBr, '-ar', sampleRate, '-ac', String(channels),
     '-vn',  // no video
     '-movflags', '+faststart',
   ];
 
-  const needsSegmentation = effectiveDuration === null || effectiveDuration > SEG_TIME;
+  const needsSegmentation = effectiveDuration === null || effectiveDuration > segTime;
 
   if (needsSegmentation) {
-    console.log(`  Compressing (segmented, ${SEG_TIME}s chunks)...`);
+    console.log(`  Compressing (segmented, ${segTime}s chunks)...`);
     const args = [
       '-y', '-i', inputFile,
       ...encodingArgs,
-      '-f', 'segment', '-segment_time', String(SEG_TIME), '-reset_timestamps', '1',
+      '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
       path.join(outputDir, 'segment_%02d.m4a'),
     ];
     const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
@@ -383,7 +386,7 @@ function compressAndSegmentAudio(inputFile, outputDir) {
         const rsArgs = [
           '-y', '-i', fallbackPath,
           '-c', 'copy', '-vn',
-          '-f', 'segment', '-segment_time', String(SEG_TIME), '-reset_timestamps', '1',
+          '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
           path.join(reSegDir, 'segment_%02d.m4a'),
         ];
         spawnSync(getFFmpeg(), rsArgs, { stdio: 'inherit' });
@@ -408,12 +411,100 @@ function compressAndSegmentAudio(inputFile, outputDir) {
   return segments;
 }
 
+/**
+ * Split a media file into segments WITHOUT re-encoding (stream copy).
+ * No compression, no speed-up — just fast keyframe-aligned splitting.
+ * For use with --no-compress: passes raw video to Gemini via File API.
+ *
+ * @param {string} inputFile - Path to input media file
+ * @param {string} outputDir - Directory for output segments
+ * @param {{ segTime?: number }} opts - Options (segTime defaults to 1200s for raw mode)
+ * @returns {string[]} Sorted array of segment file paths
+ */
+function splitOnly(inputFile, outputDir, { segTime = 1200 } = {}) {
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const duration = probeFormat(inputFile, 'duration');
+  const durationSec = duration ? parseFloat(duration) : null;
+  const ext = path.extname(inputFile).toLowerCase();
+  const isAudio = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'].includes(ext);
+  const outExt = isAudio ? '.m4a' : '.mp4';
+  const width = isAudio ? 0 : parseInt(probe(inputFile, 'v:0', 'width') || '0');
+
+  console.log(`  Mode     : ${c.cyan('raw split')} (no re-encoding, no speed-up)`);
+  if (!isAudio) console.log(`  Resolution : ${width > 0 ? width + 'p' : 'unknown'}`);
+  console.log(`  Duration : ${duration ? fmtDuration(durationSec) : 'unknown'}`);
+  console.log(`  File size: ${fmtBytes(fs.statSync(inputFile).size)}`);
+
+  const needsSegmentation = durationSec === null || durationSec > segTime;
+
+  if (needsSegmentation) {
+    console.log(`  Splitting at keyframes (~${segTime}s chunks)...`);
+    const args = [
+      '-y', '-err_detect', 'ignore_err', '-fflags', '+genpts+discardcorrupt',
+      '-i', inputFile,
+      '-c', 'copy',
+      '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
+      ...(isAudio ? ['-vn'] : ['-map', '0:v:0', '-map', '0:a:0']),
+      '-movflags', '+faststart',
+      path.join(outputDir, `segment_%02d${outExt}`),
+    ];
+    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    if (result.status !== 0) {
+      console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status} (output may still be usable)`)}`);
+    }
+  } else {
+    console.log(`  Single segment (duration ${fmtDuration(durationSec)} ≤ ${segTime}s) — copying...`);
+    const outPath = path.join(outputDir, `segment_00${outExt}`);
+    const args = [
+      '-y', '-err_detect', 'ignore_err', '-fflags', '+genpts+discardcorrupt',
+      '-i', inputFile,
+      '-c', 'copy',
+      ...(isAudio ? ['-vn'] : ['-map', '0:v:0', '-map', '0:a:0']),
+      '-movflags', '+faststart',
+      outPath,
+    ];
+    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    if (result.status !== 0) {
+      console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status}`)}`);
+    }
+  }
+
+  // Collect segments
+  const segments = fs.readdirSync(outputDir)
+    .filter(f => f.startsWith('segment_') && (f.endsWith('.mp4') || f.endsWith('.m4a')))
+    .sort()
+    .map(f => path.join(outputDir, f));
+
+  // Validate
+  const corrupt = segments.filter(s => !verifySegment(s));
+  if (corrupt.length > 0) {
+    console.warn(`  ${c.warn(`${corrupt.length} segment(s) may be corrupt (no moov atom):`)}`);
+    corrupt.forEach(s => console.warn(`    ${c.error(path.basename(s))}`));
+    console.warn(`  ${c.dim('Stream-copy splits at keyframes — some containers may need re-mux.')}`);
+    console.warn(`  ${c.dim('Remove --no-compress to re-encode instead.')}`);
+  }
+
+  // Duration validation: warn if any segment exceeds 1 hour (Gemini sweet spot)
+  for (const seg of segments) {
+    const dur = probeFormat(seg, 'duration');
+    if (dur && parseFloat(dur) > 3600) {
+      console.warn(`  ${c.warn(`${path.basename(seg)} is ${fmtDuration(parseFloat(dur))} — very long segments use more Gemini tokens.`)}`);
+      console.warn(`  ${c.dim('  Consider removing --no-compress to re-encode into shorter segments.')}`);
+      break; // warn once
+    }
+  }
+
+  return segments;
+}
+
 module.exports = {
   findBin,
   probe,
   probeFormat,
   compressAndSegment,
   compressAndSegmentAudio,
+  splitOnly,
   verifySegment,
   getFFmpeg,
   getFFprobe,

@@ -525,6 +525,7 @@ Directories skipped during recursive discovery: `node_modules`, `.git`, `compres
 | Stage | Skip Condition |
 |-------|----------------|
 | **Compression** | `compressed/{video}/segment_*.mp4` exist on disk |
+| **No-compress split** | `--no-compress` flag: raw keyframe split via `ffmpeg -c copy` (no re-encoding) |
 | **Firebase upload** | File already exists at `calls/{name}/segments/{video}/` (bypassed by `--force-upload`) |
 | **Storage URL → Gemini** | Firebase download URL available (bypassed by `--no-storage-url`) |
 | **Gemini analysis** | Run file exists in `gemini_runs/` AND user chooses not to re-analyze |
@@ -577,6 +578,11 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | Sharpening | `unsharp=3:3:0.3` | Preserve text clarity |
 | x264 params | `aq-mode=3:deblock=-1,-1:psy-rd=1.0,0.0` | Text readability |
 | Audio | AAC, 64–128k, original sample rate | Clear speech |
+| Speed | 1.6× default (`--speed` flag, env `VIDEO_SPEED`) | Reduce tokens per segment |
+| Segment Duration | 280s default, compress mode only (`--segment-time` flag) | Context budget per segment |
+| No-Compress Mode | Off by default (`--no-compress` flag) | Stream-copy split at 1200s (20 min), no re-encoding |
+
+> **Google Gemini constraints:** ~300 tokens/sec (default res), ~100 tok/sec (low res). File API: 2 GB/file (free), 20 GB (paid). Max ~1 hour at default res per 1M context window.
 
 ---
 

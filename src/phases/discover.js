@@ -80,6 +80,7 @@ async function phaseDiscover(ctx) {
   if (opts.skipUpload) activeFlags.push('skip-upload');
   if (opts.forceUpload) activeFlags.push('force-upload');
   if (opts.noStorageUrl) activeFlags.push('no-storage-url');
+  if (opts.noCompress) activeFlags.push('no-compress');
   if (opts.skipCompression) activeFlags.push('skip-compression');
   if (opts.skipGemini) activeFlags.push('skip-gemini');
   if (opts.resume) activeFlags.push('resume');

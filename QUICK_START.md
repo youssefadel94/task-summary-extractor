@@ -150,8 +150,8 @@ taskex --name "Your Name" --skip-upload "my-meeting"
 ### What happens
 
 The pipeline will:
-1. **Compress** the video (~30s)
-2. **Segment** it into ≤5 min chunks
+1. **Compress** the video (~30s) — or **split raw** with `--no-compress`
+2. **Segment** it into ≤5 min chunks (configurable with `--segment-time` in compress mode)
 3. **Upload** segments to Firebase Storage (if configured)
 4. **Analyze** each segment with Gemini AI — uses Firebase Storage URL directly when available (skips separate Gemini upload)
 5. **Quality check** — retry weak segments automatically (reuses file reference — no re-upload)
@@ -161,6 +161,8 @@ The pipeline will:
 > **Tip:** Use `--format html` to get only HTML output, `--format pdf` for PDF, `--format docx` for Word, or `--format all` for Markdown + HTML + JSON + PDF + DOCX. Use `--min-confidence high` to filter out low-confidence items.
 
 > **Tip:** Use `--force-upload` to re-upload files that already exist in Storage. Use `--no-storage-url` to bypass Storage URL optimization and force Gemini File API uploads.
+
+> **Tip:** Use `--no-compress` to skip re-encoding (auto-splits at 20 min). Use `--speed 2.0` to speed up compressed playback (saves tokens), or `--segment-time 600` for longer compressed segments.
 
 This takes **~2-5 minutes** depending on video length.
 

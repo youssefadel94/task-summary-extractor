@@ -50,7 +50,7 @@ async function phaseInit() {
     skipUpload: !!flags['skip-upload'],
     forceUpload: !!flags['force-upload'],
     noStorageUrl: !!flags['no-storage-url'],
-    skipCompression: !!flags['skip-compression'],
+    skipCompression: !!flags['skip-compression'], // DEPRECATED — use --no-compress
     skipGemini: !!flags['skip-gemini'],
     resume: !!flags.resume,
     reanalyze: !!flags.reanalyze,
@@ -66,6 +66,10 @@ async function phaseInit() {
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
     noHtml: !!flags['no-html'],
+    // Video processing flags
+    noCompress: !!flags['no-compress'],
+    speed: flags.speed ? parseFloat(flags.speed) : null,
+    segmentTime: flags['segment-time'] ? parseInt(flags['segment-time'], 10) : null,
     deepDive: !!flags['deep-dive'],
     deepSummary: !!flags['deep-summary'],
     deepSummaryExclude: typeof flags['exclude-docs'] === 'string'
@@ -119,6 +123,55 @@ async function phaseInit() {
       const chosenConfidence = await selectConfidence();
       if (chosenConfidence) {
         opts.minConfidence = chosenConfidence;
+      }
+    }
+  }
+
+  // --- Validate video processing flags ---
+  if (opts.noCompress) {
+    // --no-compress: raw passthrough — speed and segment-time are not user-configurable
+    if (opts.speed !== null) {
+      console.log(c.warn('  ⚠  --speed is ignored with --no-compress (raw video is not re-encoded)'));
+      opts.speed = null;
+    }
+    if (opts.segmentTime !== null) {
+      console.log(c.warn('  ⚠  --segment-time is ignored with --no-compress (auto: 1200s / 20 min per segment)'));
+      opts.segmentTime = null;
+    }
+    if (opts.skipCompression) {
+      console.log(c.warn('  ⚠  --skip-compression is redundant with --no-compress — ignoring'));
+      opts.skipCompression = false;
+    }
+  } else {
+    if (opts.speed !== null) {
+      if (Number.isNaN(opts.speed) || opts.speed < 0.1 || opts.speed > 10) {
+        throw new Error(`Invalid --speed "${flags.speed}". Must be between 0.1 and 10.`);
+      }
+    }
+    if (opts.segmentTime !== null) {
+      if (Number.isNaN(opts.segmentTime) || opts.segmentTime < 30 || opts.segmentTime > 3600) {
+        throw new Error(`Invalid --segment-time "${flags['segment-time']}". Must be between 30 and 3600 seconds.`);
+      }
+      // Duration-aware validation (Google Gemini: ~300 tokens/sec at default resolution)
+      const TOKENS_PER_SEC = 300;
+      const CONTEXT_LIMIT = 1_048_576;
+      const SAFE_VIDEO_BUDGET = CONTEXT_LIMIT * 0.6; // 60% for video, rest for prompt+docs+output
+      const effectiveSpeed = opts.speed || 1.0;
+      const effectiveVideoSec = opts.segmentTime / effectiveSpeed;
+      const estimatedTokens = Math.round(effectiveVideoSec * TOKENS_PER_SEC);
+
+      if (estimatedTokens > CONTEXT_LIMIT) {
+        throw new Error(
+          `--segment-time ${opts.segmentTime}s exceeds Gemini context window! ` +
+          `Estimated ${(estimatedTokens / 1000).toFixed(0)}K tokens/segment (limit: 1,048K). ` +
+          `Reduce to ≤${Math.floor((CONTEXT_LIMIT / TOKENS_PER_SEC) * effectiveSpeed)}s.`
+        );
+      }
+      if (estimatedTokens > SAFE_VIDEO_BUDGET) {
+        console.log(c.warn(
+          `  ⚠  --segment-time ${opts.segmentTime}s is very large (~${(estimatedTokens / 1000).toFixed(0)}K tokens/segment). ` +
+          `Recommended: ≤${Math.floor((SAFE_VIDEO_BUDGET / TOKENS_PER_SEC) * effectiveSpeed)}s to leave room for prompt & output.`
+        ));
       }
     }
   }
@@ -317,6 +370,15 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (disabled.length > 0) {
     console.log(`    ${c.dim('Disabled:')}    ${disabled.join(c.dim(' · '))}`);
   }
+
+  // Video processing settings
+  const { SPEED, SEG_TIME } = require('../config');
+  const effectiveSpeed = opts.noCompress ? 1.0 : (opts.speed || SPEED);
+  const effectiveSegTime = opts.noCompress ? 1200 : (opts.segmentTime || SEG_TIME);
+  const videoMode = opts.noCompress
+    ? c.cyan('raw (stream-copy, auto-split at 20 min)')
+    : c.green(`compress × ${effectiveSpeed}x  |  ${effectiveSegTime}s segments`);
+  console.log(`    ${c.dim('Video:')}       ${videoMode}`);
 
   if (opts.runMode) {
     console.log(`    ${c.dim('Run mode:')}    ${c.bold(opts.runMode)}`);

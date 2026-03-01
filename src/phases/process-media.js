@@ -10,7 +10,7 @@ const { AUDIO_EXTS, SPEED } = config;
 // --- Services ---
 const { uploadToStorage, storageExists } = require('../services/firebase');
 const { processWithGemini, cleanupGeminiFiles } = require('../services/gemini');
-const { compressAndSegment, compressAndSegmentAudio, probeFormat, verifySegment } = require('../services/video');
+const { compressAndSegment, compressAndSegmentAudio, splitOnly, probeFormat, verifySegment } = require('../services/video');
 
 // --- Utils ---
 const { fmtDuration, fmtBytes } = require('../utils/format');
@@ -60,6 +60,12 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
     ? fs.readdirSync(segmentDir).filter(f => f.startsWith('segment_') && (f.endsWith('.mp4') || f.endsWith('.m4a'))).sort()
     : [];
 
+  // Build video processing options from CLI flags
+  // --no-compress uses hardcoded 1200s (splitOnly default); --segment-time only for compress mode
+  const videoOpts = {};
+  if (!opts.noCompress && opts.segmentTime) videoOpts.segTime = opts.segmentTime;
+  if (!opts.noCompress && opts.speed) videoOpts.speed = opts.speed;
+
   if (opts.skipCompression || opts.dryRun) {
     if (existingSegments.length > 0) {
       segments = existingSegments.map(f => path.join(segmentDir, f));
@@ -70,18 +76,23 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         console.log(`  ${c.dim(`[DRY-RUN] Would compress "${path.basename(videoPath)}" into segments`)}`);
         return { fileResult: null, segmentAnalyses: [] };
       }
-      segments = compressAndSegment(videoPath, segmentDir);
+      segments = compressAndSegment(videoPath, segmentDir, videoOpts);
       log.step(`Compressed → ${segments.length} segment(s)`);
     }
   } else if (existingSegments.length > 0) {
     segments = existingSegments.map(f => path.join(segmentDir, f));
     log.step(`SKIP compression — ${segments.length} segment(s) already on disk`);
     console.log(`  ${c.success(`Skipped compression \u2014 ${c.highlight(segments.length)} segment(s) already exist`)}`);
+  } else if (opts.noCompress) {
+    // --no-compress: split raw video at keyframes, no re-encoding
+    segments = splitOnly(videoPath, segmentDir, videoOpts);
+    log.step(`Split (raw) → ${segments.length} segment(s)`);
+    console.log(`  \u2192 ${c.highlight(segments.length)} raw segment(s) created`);
   } else {
     if (isAudio) {
-      segments = compressAndSegmentAudio(videoPath, segmentDir);
+      segments = compressAndSegmentAudio(videoPath, segmentDir, videoOpts);
     } else {
-      segments = compressAndSegment(videoPath, segmentDir);
+      segments = compressAndSegment(videoPath, segmentDir, videoOpts);
     }
     log.step(`Compressed → ${segments.length} segment(s)`);
     console.log(`  \u2192 ${c.highlight(segments.length)} segment(s) created`);
@@ -90,6 +101,20 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   progress.markCompressed(baseName, segments.length);
   const origSize = fs.statSync(videoPath).size;
   log.step(`original=${(origSize / 1048576).toFixed(2)}MB (${fmtBytes(origSize)}) | ${segments.length} segment(s)`);
+
+  // Duration-aware warnings for raw segments
+  if (opts.noCompress && segments.length > 0) {
+    const totalSegSize = segments.reduce((s, p) => s + fs.statSync(p).size, 0);
+    const avgSegMB = totalSegSize / segments.length / 1048576;
+    if (avgSegMB > 500) {
+      console.warn(`  ${c.warn(`Avg segment ~${avgSegMB.toFixed(0)} MB — large raw segments take longer to upload.`)}`);
+      console.warn(`  ${c.dim('  Tip: remove --no-compress to re-encode into smaller segments.')}`);
+    }
+    // All raw segments must use Gemini File API (>20 MB external URL limit)
+    if (avgSegMB > 20) {
+      console.log(`  ${c.dim('Raw segments >20 MB — will use Gemini File API upload (not storage URLs).')}`);
+    }
+  }
   console.log('');
 
   const fileResult = {
@@ -178,10 +203,12 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   }
 
   // Calculate cumulative time offsets for VTT time-slicing
+  // When --no-compress is active, segments play at real time (speed = 1.0)
+  const effectiveSpeed = opts.noCompress ? 1.0 : (opts.speed || SPEED);
   let cumulativeTimeSec = 0;
   for (const meta of segmentMeta) {
     meta.startTimeSec = cumulativeTimeSec;
-    meta.endTimeSec = cumulativeTimeSec + (meta.durSec || 0) * SPEED;
+    meta.endTimeSec = cumulativeTimeSec + (meta.durSec || 0) * effectiveSpeed;
     cumulativeTimeSec = meta.endTimeSec;
   }
 

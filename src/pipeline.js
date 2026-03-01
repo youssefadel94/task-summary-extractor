@@ -136,9 +136,10 @@ async function run() {
     userName: fullCtx.userName,
     inputMode: ctx.inputMode,
     settings: {
-      speed: SPEED,
-      segmentTimeSec: SEG_TIME,
-      preset: PRESET,
+      speed: fullCtx.opts.noCompress ? 1.0 : (fullCtx.opts.speed || SPEED),
+      segmentTimeSec: fullCtx.opts.noCompress ? 1200 : (fullCtx.opts.segmentTime || SEG_TIME),
+      noCompress: !!fullCtx.opts.noCompress,
+      ...(fullCtx.opts.noCompress ? {} : { preset: PRESET }),
       geminiModel: config.GEMINI_MODEL,
       thinkingBudget: fullCtx.opts.thinkingBudget,
     },
