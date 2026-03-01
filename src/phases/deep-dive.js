@@ -5,6 +5,9 @@ const path = require('path');
 // --- Modes ---
 const { discoverTopics, generateAllDocuments, writeDeepDiveOutput } = require('../modes/deep-dive');
 
+// --- Utils ---
+const { c } = require('../utils/colors');
+
 // --- Shared state ---
 const { getLog, phaseTimer, PROJECT_ROOT } = require('./_shared');
 
@@ -20,9 +23,9 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
   const { ai, callName, userName, costTracker, opts, contextDocs } = ctx;
 
   console.log('');
-  console.log('══════════════════════════════════════════════');
-  console.log('  DEEP DIVE — Generating Explanatory Documents');
-  console.log('══════════════════════════════════════════════');
+  console.log(c.cyan('══════════════════════════════════════════════'));
+  console.log(c.heading('  DEEP DIVE — Generating Explanatory Documents'));
+  console.log(c.cyan('══════════════════════════════════════════════'));
   console.log('');
 
   const thinkingBudget = opts.thinkingBudget ||
@@ -40,14 +43,14 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
   }
 
   // Phase 1: Discover topics
-  console.log('  Phase 1: Discovering topics...');
+  console.log(`  ${c.dim('Phase 1:')} Discovering topics...`);
   let topicResult;
   try {
     topicResult = await discoverTopics(ai, compiledAnalysis, {
       callName, userName, thinkingBudget, contextSnippets,
     });
   } catch (err) {
-    console.error(`  ✗ Topic discovery failed: ${err.message}`);
+    console.error(`  ${c.error(`Topic discovery failed: ${err.message}`)}`);
     log.error(`Deep dive topic discovery failed: ${err.message}`);
     timer.end();
     return;
@@ -55,14 +58,14 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
 
   const topics = topicResult.topics;
   if (!topics || topics.length === 0) {
-    console.log('  ℹ No topics identified for deep dive');
+    console.log(`  ${c.info('No topics identified for deep dive')}`);
     log.step('Deep dive: no topics discovered');
     timer.end();
     return;
   }
 
-  console.log(`  ✓ Found ${topics.length} topic(s):`);
-  topics.forEach(t => console.log(`    ${t.id} [${t.category}] ${t.title}`));
+  console.log(`  ${c.success(`Found ${c.highlight(topics.length)} topic(s):`)}`);
+  topics.forEach(t => console.log(`    ${c.cyan(t.id)} ${c.dim(`[${t.category}]`)} ${t.title}`));
   console.log('');
 
   if (topicResult.tokenUsage) {
@@ -71,7 +74,7 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
   log.step(`Deep dive: ${topics.length} topics discovered in ${(topicResult.durationMs / 1000).toFixed(1)}s`);
 
   // Phase 2: Generate documents
-  console.log(`  Phase 2: Generating ${topics.length} document(s)...`);
+  console.log(`  ${c.dim('Phase 2:')} Generating ${c.highlight(topics.length)} document(s)...`);
   const documents = await generateAllDocuments(ai, topics, compiledAnalysis, {
     callName,
     userName,
@@ -79,7 +82,7 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
     contextSnippets,
     concurrency: Math.min(opts.parallelAnalysis || 2, 3), // match pipeline parallelism
     onProgress: (done, total, topic) => {
-      console.log(`    [${done}/${total}] ✓ ${topic.title}`);
+      console.log(`    ${c.dim(`[${done}/${total}]`)} ${c.success(topic.title)}`);
     },
   });
 
@@ -99,13 +102,13 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
   });
 
   console.log('');
-  console.log(`  ✓ Deep dive complete: ${stats.successful}/${stats.total} documents generated`);
-  console.log(`    Output: ${path.relative(PROJECT_ROOT, deepDiveDir)}/`);
-  console.log(`    Index:  ${path.relative(PROJECT_ROOT, indexPath)}`);
+  console.log(`  ${c.success(`Deep dive complete: ${c.highlight(stats.successful + '/' + stats.total)} documents generated`)}`);
+  console.log(`    Output: ${c.cyan(path.relative(PROJECT_ROOT, deepDiveDir) + '/')}`);
+  console.log(`    Index:  ${c.cyan(path.relative(PROJECT_ROOT, indexPath))}`);
   if (stats.failed > 0) {
-    console.log(`    ⚠ ${stats.failed} document(s) failed`);
+    console.log(`    ${c.warn(`${stats.failed} document(s) failed`)}`);
   }
-  console.log(`    Tokens: ${stats.totalTokens.toLocaleString()} | Time: ${(stats.totalDurationMs / 1000).toFixed(1)}s`);
+  console.log(`    Tokens: ${c.yellow(stats.totalTokens.toLocaleString())} | Time: ${c.yellow((stats.totalDurationMs / 1000).toFixed(1) + 's')}`);
   console.log('');
 
   log.step(`Deep dive complete: ${stats.successful} docs, ${stats.totalTokens} tokens, ${(stats.totalDurationMs / 1000).toFixed(1)}s`);

@@ -15,6 +15,7 @@ history.json
 # Environment
 .env
 .env.local
+.taskexrc
 
 # OS / Editor
 .DS_Store
@@ -25,6 +26,15 @@ Thumbs.db
 # Git
 .git/
 .gitignore
+
+# Development files (not needed in published package)
+tests/
+vitest.config.js
+PLAN.md
+EXPLORATION.md
+ARCHITECTURE.md
+QUICK_START.md
+.env.example
 
 # Other
 node_modules/

@@ -10,6 +10,8 @@
 
 'use strict';
 
+const { c } = require('./colors');
+
 /** Default retry attempts — overridable via opts.maxRetries */
 const DEFAULT_MAX_RETRIES = 3;
 /** Default base delay in ms — overridable via opts.baseDelay */
@@ -94,7 +96,7 @@ async function withRetry(fn, opts = {}) {
         onRetry(attempt + 1, delay, err);
       } else {
         const msg = err.message || String(err);
-        console.warn(`  ⚠ ${label} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${msg.slice(0, 120)}`);
+        console.warn(`  ${c.warn(`${label} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${msg.slice(0, 120)}`)}`);
         console.warn(`    → Retrying in ${(delay / 1000).toFixed(1)}s...`);
       }
 

@@ -14,6 +14,8 @@
 
 'use strict';
 
+const { c } = require('./colors');
+
 // ======================== QUALITY THRESHOLDS ========================
 
 const THRESHOLDS = {
@@ -374,9 +376,9 @@ function buildRetryHints(analysis, issues) {
  * @returns {string}
  */
 function formatQualityLine(report, segmentName) {
-  const icon = report.grade === 'PASS' ? '✓' : report.grade === 'WARN' ? '⚠' : '✗';
+  const icon = report.grade === 'PASS' ? c.success : report.grade === 'WARN' ? c.warn : c.error;
   const dims = report.dimensions;
-  return `    ${icon} Quality: ${report.score}/100 (${report.grade}) — ` +
+  return `    ${icon(`Quality: ${report.score}/100 (${report.grade})`)} — ` +
     `struct:${dims.structure.score} density:${dims.density.score} ` +
     `integrity:${dims.integrity.score} xref:${dims.crossRef.score}`;
 }

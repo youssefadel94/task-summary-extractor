@@ -10,6 +10,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { c } = require('./colors');
 
 // ======================== PREVIOUS RUN LOADING ========================
 
@@ -61,7 +62,7 @@ function loadPreviousCompilation(targetDir, currentRunTs = null) {
       }
     }
   } catch (err) {
-    console.warn(`  ⚠ Could not load previous compilation: ${err.message}`);
+    console.warn(`  ${c.warn(`Could not load previous compilation: ${err.message}`)}`);
   }
 
   return null;

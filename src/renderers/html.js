@@ -218,6 +218,16 @@ function renderResultsHtml({ compiled, meta }) {
   }
   ln('</dl>');
 
+  // Confidence filter notice
+  if (compiled._filterMeta && compiled._filterMeta.minConfidence !== 'LOW') {
+    const fm = compiled._filterMeta;
+    const levelLabel = fm.minConfidence === 'HIGH' ? 'HIGH' : 'MEDIUM and HIGH';
+    ln('<div class="notice" style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin:12px 0;color:#664d03;">');
+    ln(`⚠️ <strong>Confidence filter active:</strong> showing only ${e(levelLabel)} confidence items. `);
+    ln(`Kept ${fm.filteredCounts.total}/${fm.originalCounts.total} items (${fm.removed} removed). Full unfiltered data in <code>results.json</code>.`);
+    ln('</div>');
+  }
+
   // Segment details (collapsible)
   const segs = meta.segments || [];
   if (segs.length > 0) {

@@ -8,6 +8,7 @@
 'use strict';
 
 const Ajv = require('ajv');
+const { c } = require('./colors');
 
 // Load schemas (require works for JSON files)
 const segmentSchema = require('../schemas/analysis-segment.schema.json');
@@ -297,12 +298,12 @@ function schemaScore(report) {
  */
 function formatSchemaLine(report) {
   if (report.valid) {
-    return '    ✓ Schema: valid';
+    return `    ${c.success('Schema: valid')}`;
   }
   if (report.errorCount === 0) {
     return '    ○ Schema: skipped (error/raw response)';
   }
-  return `    ⚠ Schema: ${report.errorCount} error(s) — ${report.errors.slice(0, 2).map(e => e.message).join('; ')}`;
+  return `    ${c.warn(`Schema: ${report.errorCount} error(s) — ${report.errors.slice(0, 2).map(e => e.message).join('; ')}`)}`;
 }
 
 module.exports = {

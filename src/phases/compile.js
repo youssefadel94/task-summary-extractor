@@ -9,6 +9,7 @@ const { compileFinalResult } = require('../services/gemini');
 // --- Utils ---
 const { calculateCompilationBudget } = require('../utils/adaptive-budget');
 const { validateAnalysis, formatSchemaLine } = require('../utils/schema-validator');
+const { c } = require('../utils/colors');
 
 // --- Shared state ---
 const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT, phaseTimer } = require('./_shared');
@@ -33,7 +34,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
     try {
       // Adaptive compilation budget
       const compBudget = calculateCompilationBudget(allSegmentAnalyses, opts.compilationThinkingBudget);
-      console.log(`  Compilation thinking budget: ${compBudget.budget.toLocaleString()} tokens (${compBudget.reason})`);
+      console.log(`  Compilation thinking budget: ${c.yellow(compBudget.budget.toLocaleString())} tokens ${c.dim(`(${compBudget.reason})`)}`);
 
       const compilationResult = await compileFinalResult(
         ai, allSegmentAnalyses, userName, callName, PKG_ROOT,
@@ -63,8 +64,8 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
         const hasCRs = Array.isArray(compiledAnalysis.change_requests) && compiledAnalysis.change_requests.length > 0;
 
         if (!hasTickets && !hasActions && !hasBlockers && !hasCRs) {
-          console.warn('  ⚠ Compilation parsed OK but is missing structured data (no tickets, actions, blockers, or CRs)');
-          console.warn('  → Falling back to raw segment merge for full data');
+          console.warn(`  ${c.warn('Compilation parsed OK but is missing structured data (no tickets, actions, blockers, or CRs)')}`);
+          console.warn(`  ${c.dim('→ Falling back to raw segment merge for full data')}`);
           log.warn('Compilation incomplete — missing all structured fields, using segment merge fallback');
           compiledAnalysis._incomplete = true;
         }
@@ -87,9 +88,9 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
       timer.end();
       return { compiledAnalysis, compilationRun, compilationPayload, compilationFile };
     } catch (err) {
-      console.error(`  ✗ Final compilation failed: ${err.message}`);
+      console.error(`  ${c.error(`Final compilation failed: ${err.message}`)}`);
       log.error(`Compilation FAIL — ${err.message}`);
-      console.warn('  → Falling back to raw segment merge for MD');
+      console.warn(`  ${c.dim('→ Falling back to raw segment merge for MD')}`);
     }
   }
 

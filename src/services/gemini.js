@@ -30,6 +30,7 @@ const {
 } = require('../utils/context-manager');
 const { formatHMS } = require('../utils/format');
 const { withRetry } = require('../utils/retry');
+const { c } = require('../utils/colors');
 
 // ======================== INIT ========================
 
@@ -62,17 +63,17 @@ async function prepareDocsForGemini(ai, docFileList) {
         console.log(`    Reading ${name} (inline text)...`);
         const content = await fs.promises.readFile(docPath, 'utf8');
         prepared.push({ type: 'inlineText', fileName: name, content });
-        console.log(`    ✓ ${name} ready (${(content.length / 1024).toFixed(1)} KB)`);
+        console.log(`    ${c.success(`${name} ready (${(content.length / 1024).toFixed(1)} KB)`)}`);
       } else if (DOC_PARSER_EXTS.includes(ext)) {
         // Binary document — convert to text via doc-parser
         console.log(`    Parsing ${name} (${ext} → text)...`);
         const result = await parseDocument(docPath, { silent: true });
         if (result.success && result.text) {
           prepared.push({ type: 'inlineText', fileName: name, content: result.text });
-          console.log(`    ✓ ${name} parsed (${(result.text.length / 1024).toFixed(1)} KB text extracted)`);
+          console.log(`    ${c.success(`${name} parsed (${(result.text.length / 1024).toFixed(1)} KB text extracted)`)}`);
         } else {
           const reason = result.warnings.length > 0 ? result.warnings[0] : 'empty output';
-          console.warn(`    ⚠ ${name} — parse failed (${reason}), will upload to Firebase only`);
+          console.warn(`    ${c.warn(`${name} — parse failed (${reason}), will upload to Firebase only`)}`);
         }
       } else if (GEMINI_FILE_API_EXTS.includes(ext)) {
         const mime = MIME_MAP[ext] || 'application/octet-stream';
@@ -89,7 +90,7 @@ async function prepareDocsForGemini(ai, docFileList) {
         const pollStart = Date.now();
         while (file.state === 'PROCESSING') {
           if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-            console.warn(`    ⚠ ${name} — polling timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s, skipping`);
+            console.warn(`    ${c.warn(`${name} — polling timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s, skipping`)}`);
             file = null;
             break;
           }
@@ -101,7 +102,7 @@ async function prepareDocsForGemini(ai, docFileList) {
         }
 
         if (!file || file.state === 'FAILED') {
-          console.warn(`    ⚠ ${name} — Gemini processing failed, skipping`);
+          console.warn(`    ${c.warn(`${name} — Gemini processing failed, skipping`)}`);
           continue;
         }
 
@@ -112,14 +113,14 @@ async function prepareDocsForGemini(ai, docFileList) {
           fileUri: file.uri,
           geminiFileName: file.name,
         });
-        console.log(`    ✓ ${name} ready (File API)`);
+        console.log(`    ${c.success(`${name} ready (File API)`)}`);
       } else if (GEMINI_UNSUPPORTED.includes(ext)) {
-        console.warn(`    ⚠ ${name} — format not supported by Gemini, will upload to Firebase only`);
+        console.warn(`    ${c.warn(`${name} — format not supported by Gemini, will upload to Firebase only`)}`);
       } else {
-        console.warn(`    ⚠ ${name} — unknown doc type, skipping`);
+        console.warn(`    ${c.warn(`${name} — unknown doc type, skipping`)}`);
       }
     } catch (err) {
-      console.warn(`    ⚠ ${name} — failed: ${err.message}`);
+      console.warn(`    ${c.warn(`${name} — failed: ${err.message}`)}`);
     }
   }
 
@@ -311,7 +312,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
     console.log('    Processing complete.        ');
 
     if (file.state === 'FAILED') {
-      throw new Error(`Gemini file processing failed for ${displayName}`);
+      throw new Error(`Gemini file processing failed for ${displayName}. The file may be corrupt or in an unsupported format — try re-compressing or converting to MP4.`);
     }
   }
 
@@ -607,9 +608,9 @@ ${segmentDumps}`;
   const compiled = extractJson(rawText);
 
   if (!compiled) {
-    console.warn('  ⚠ Failed to parse compiled result — falling back to raw segment merge');
+    console.warn(`  ${c.warn('Failed to parse compiled result — falling back to raw segment merge')}`);
   } else {
-    console.log('  ✓ Final compilation complete');
+    console.log(`  ${c.success('Final compilation complete')}`);
   }
 
   return {
@@ -670,7 +671,7 @@ async function analyzeVideoForContext(ai, filePath, displayName, opts = {}) {
   console.log('    Processing complete.        ');
 
   if (file.state === 'FAILED') {
-    throw new Error(`Gemini file processing failed for ${displayName}`);
+    throw new Error(`Gemini file processing failed for ${displayName}. The file may be corrupt or in an unsupported format — try re-compressing or using a different segment.`);
   }
 
   // 3. Build prompt for comprehensive summary
@@ -731,7 +732,7 @@ FORMAT:
   try {
     await ai.files.delete({ name: file.name });
   } catch (cleanupErr) {
-    console.warn(`    ⚠ Gemini file cleanup failed: ${cleanupErr.message}`);
+    console.warn(`    ${c.warn(`Gemini file cleanup failed: ${cleanupErr.message}`)}`);
   }
 
   const usage = response.usageMetadata || {};
@@ -743,7 +744,7 @@ FORMAT:
   };
 
   console.log(`    Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()}`);
-  console.log(`    ✓ Summary: ${summary.length.toLocaleString()} chars in ${(durationMs / 1000).toFixed(1)}s`);
+console.log(`    ${c.success(`Summary: ${summary.length.toLocaleString()} chars in ${(durationMs / 1000).toFixed(1)}s`)}`);
 
   return { summary, durationMs, tokenUsage };
 }

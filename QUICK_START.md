@@ -156,7 +156,9 @@ The pipeline will:
 4. **Analyze** each segment with Gemini AI — uses Firebase Storage URL directly when available (skips separate Gemini upload)
 5. **Quality check** — retry weak segments automatically (reuses file reference — no re-upload)
 6. **Compile** results across all segments
-7. **Output** `results.md` + `results.json`
+7. **Output** `results.md` + `results.html` + `results.json`
+
+> **Tip:** Use `--format html` to get only HTML output, or `--format all` for Markdown + HTML + JSON. Use `--min-confidence high` to filter out low-confidence items.
 
 > **Tip:** Use `--force-upload` to re-upload files that already exist in Storage. Use `--no-storage-url` to bypass Storage URL optimization and force Gemini File API uploads.
 
@@ -169,6 +171,7 @@ This takes **~2-5 minutes** depending on video length.
 ```
 my-meeting/runs/{timestamp}/
 ├── results.md            ← Open this! Your task document
+├── results.html          ← Interactive HTML report (open in any browser)
 ├── results.json          ← Full pipeline data (JSON)
 └── compilation.json      ← All extracted items (JSON)
 ```

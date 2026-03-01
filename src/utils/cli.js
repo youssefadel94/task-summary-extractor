@@ -17,6 +17,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { c } = require('./colors');
 
 /**
  * Parse command-line arguments into flags and positional args.
@@ -169,18 +170,23 @@ async function selectFolder(projectRoot) {
   const folders = discoverFolders(projectRoot);
 
   if (folders.length === 0) {
-    console.log('\n  No call/project folders found in the current directory.');
-    console.log('  Create a folder with your recording or documents, then run again.\n');
+    console.log('');
+    console.log(c.warn('No call/project folders found in the current directory.'));
+    console.log(c.muted('  Create a folder with your recording or documents, then run again.'));
+    console.log('');
     return null;
   }
 
   console.log('');
-  console.log('  Available folders:');
-  console.log('  ─────────────────');
+  console.log(c.heading('  📂 Available Folders'));
+  console.log(c.dim('  ' + '─'.repeat(50)));
   folders.forEach((f, i) => {
     const icon = f.hasVideo ? '🎥' : f.hasAudio ? '🎵' : '📄';
-    const mode = f.hasVideo || f.hasAudio ? '' : ' (docs only → use --dynamic)';
-    console.log(`    [${i + 1}] ${icon} ${f.name}  — ${f.description}${mode}`);
+    const num = c.cyan(`[${i + 1}]`);
+    const name = c.bold(f.name);
+    const desc = c.dim(f.description);
+    const mode = (!f.hasVideo && !f.hasAudio) ? c.yellow(' (docs only)') : '';
+    console.log(`    ${num} ${icon} ${name}  ${desc}${mode}`);
   });
   console.log('');
 
@@ -247,24 +253,24 @@ async function selectModel(GEMINI_MODELS, currentModel) {
   }
 
   console.log('');
-  console.log('  ┌──────────────────────────────────────────────────────────────────────────────┐');
-  console.log('  │                        🤖  Gemini Model Selection                            │');
-  console.log('  └──────────────────────────────────────────────────────────────────────────────┘');
+  console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
+  console.log(c.heading('  │                        🤖  Gemini Model Selection                            │'));
+  console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
 
   for (const [, tier] of Object.entries(tiers)) {
     if (tier.models.length === 0) continue;
     console.log('');
-    console.log(`  ${tier.icon} ${tier.label}`);
-    console.log('  ' + '─'.repeat(76));
+    console.log(`  ${tier.icon} ${c.bold(tier.label)}`);
+    console.log(c.dim('  ' + '─'.repeat(76)));
 
     for (const m of tier.models) {
       const isDefault = m.id === currentModel;
-      const marker = isDefault ? ' ← default' : '';
-      const thinkTag = m.thinking ? ' [thinking]' : '';
+      const marker = isDefault ? c.green(' ← default') : '';
+      const thinkTag = m.thinking ? c.magenta(' [thinking]') : '';
 
       // Line 1: number, name, description
-      console.log(`    [${m.idx}] ${m.name}${thinkTag}${marker}`);
-      console.log(`        ${m.description}`);
+      console.log(`    ${c.cyan(`[${m.idx}]`)} ${c.bold(m.name)}${thinkTag}${marker}`);
+      console.log(`        ${c.dim(m.description)}`);
 
       // Line 2: specs
       const ctxStr = fmtContext(m.contextWindow);
@@ -272,8 +278,8 @@ async function selectModel(GEMINI_MODELS, currentModel) {
       const inPrice = `$${m.pricing.inputPerM.toFixed(m.pricing.inputPerM < 0.1 ? 4 : 2)}/1M in`;
       const outPrice = `$${m.pricing.outputPerM.toFixed(m.pricing.outputPerM < 1 ? 2 : 2)}/1M out`;
       const thinkPrice = m.thinking ? ` · $${m.pricing.thinkingPerM.toFixed(2)}/1M think` : '';
-      console.log(`        Context: ${ctxStr} tokens · Max output: ${outStr} · ${m.costEstimate}`);
-      console.log(`        Pricing: ${inPrice} · ${outPrice}${thinkPrice}`);
+      console.log(`        ${c.dim('Context:')} ${ctxStr} · ${c.dim('Max output:')} ${outStr} · ${c.highlight(m.costEstimate)}`);
+      console.log(`        ${c.dim('Pricing:')} ${inPrice} · ${outPrice}${thinkPrice}`);
     }
   }
 
@@ -287,7 +293,7 @@ async function selectModel(GEMINI_MODELS, currentModel) {
 
       // Enter = keep default
       if (!trimmed) {
-        console.log(`  → Using ${GEMINI_MODELS[currentModel].name}`);
+        console.log(c.success(`Using ${GEMINI_MODELS[currentModel].name}`));
         resolve(currentModel);
         return;
       }
@@ -296,14 +302,14 @@ async function selectModel(GEMINI_MODELS, currentModel) {
       const num = parseInt(trimmed, 10);
       if (!isNaN(num) && indexMap[num]) {
         const chosen = indexMap[num];
-        console.log(`  → Selected ${GEMINI_MODELS[chosen].name}`);
+        console.log(c.success(`Selected ${GEMINI_MODELS[chosen].name}`));
         resolve(chosen);
         return;
       }
 
       // Direct model ID input
       if (GEMINI_MODELS[trimmed]) {
-        console.log(`  → Selected ${GEMINI_MODELS[trimmed].name}`);
+        console.log(c.success(`Selected ${GEMINI_MODELS[trimmed].name}`));
         resolve(trimmed);
         return;
       }
@@ -315,12 +321,12 @@ async function selectModel(GEMINI_MODELS, currentModel) {
         GEMINI_MODELS[id].name.toLowerCase().includes(lower)
       );
       if (match) {
-        console.log(`  → Matched ${GEMINI_MODELS[match].name}`);
+        console.log(c.success(`Matched ${GEMINI_MODELS[match].name}`));
         resolve(match);
         return;
       }
 
-      console.log(`  ⚠ Unknown selection "${trimmed}" — using default (${currentModel})`);
+      console.log(c.warn(`Unknown selection "${trimmed}" — using default (${currentModel})`));
       resolve(currentModel);
     });
   });
@@ -331,99 +337,97 @@ async function selectModel(GEMINI_MODELS, currentModel) {
  * Callers should catch this and exit cleanly (no process.exit in library code).
  */
 function showHelp() {
+  const h = (s) => c.heading(s);
+  const f = (flag, desc) => `    ${c.green(flag.padEnd(38))}${desc}`;
+  const f2 = (desc) => `    ${''.padEnd(38)}${c.dim(desc)}`;
+
+  const pkg = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')); }
+    catch { return { version: '?.?.?' }; }
+  })();
+
   console.log(`
-  Usage: taskex [options] [folder]
-         taskex setup [--check | --silent]
-         taskex config [--show | --clear]
-         node process_and_upload.js [options] [folder]
+  ${c.bold(c.cyan('taskex'))} ${c.dim(`v${pkg.version}`)} — AI-powered meeting analysis & document generation
 
-  AI-powered meeting analysis & document generation pipeline.
-  If no folder is specified, shows an interactive folder selector.
-  If you cd into a folder, just run: taskex
+  ${h('USAGE')}
+    ${c.bold('taskex')} ${c.dim('[options]')} ${c.cyan('[folder]')}
+    ${c.bold('taskex setup')} ${c.dim('[--check | --silent]')}
+    ${c.bold('taskex config')} ${c.dim('[--show | --clear]')}
 
-  Subcommands:
-    setup                             Full interactive setup (prerequisites, deps, .env, sample folder)
-    setup --check                     Validation only — verify environment without changes
-    setup --silent                    Non-interactive setup (use defaults, no prompts)
-    config                            Interactive global config setup (~/.taskexrc)
-    config --show                     Show saved config (masked secrets)
-    config --clear                    Remove global config file
+  ${h('SUBCOMMANDS')}
+${f('setup', 'Full interactive setup (prerequisites, deps, .env)')}
+${f('setup --check', 'Validation only — verify environment')}
+${f('config', 'Interactive global config (~/.taskexrc)')}
+${f('config --show', 'Show saved config (masked secrets)')}
+${f('config --clear', 'Remove global config')}
 
-  Arguments:
-    [folder]                          Path to the call/project folder (optional — interactive if omitted)
+  ${h('MODES')}
+${f('(default)', 'Video/audio analysis — compress, analyze, compile')}
+${f('--dynamic', 'Document generation — no media required')}
+${f('--update-progress', 'Track item completion via git changes')}
+${f('--deep-dive', 'Generate explanatory docs per topic')}
 
-  Modes:
-    (default)                         Video analysis — compress, analyze, extract, compile
-    --dynamic                         Document-only mode — no video required, generates docs from context + request
-    --update-progress                 Track item completion via git since last analysis
-    --deep-dive                       (after video analysis) Generate explanatory docs per topic discussed
+  ${h('CORE OPTIONS')}
+${f('--name <name>', 'Your name (skip interactive prompt)')}
+${f('--model <id>', 'Gemini model (skip interactive selector)')}
+${f('--format <type>', 'Output formats: md, html, json, pdf, docx, all (default: all)')}
+${f('--min-confidence <level>', 'Filter: high, medium, low (default: all)')}
+${f('--output <dir>', 'Custom output directory for results')}
+${f('--skip-upload', 'Skip Firebase Storage uploads')}
+${f('--skip-compression', 'Use existing segments (no re-compress)')}
+${f('--skip-gemini', 'Skip AI analysis')}
+${f('--resume', 'Resume from last checkpoint')}
+${f('--reanalyze', 'Force re-analysis of all segments')}
+${f('--dry-run', 'Preview without executing')}
 
-  Core Options:
-    --name <name>                     Your name (skips interactive prompt)
-    --model <id>                      Gemini model to use (skips interactive selector)
-                                      Models: gemini-3.1-pro-preview, gemini-3-flash-preview,
-                                      gemini-2.5-pro, gemini-2.5-flash (default), gemini-2.5-flash-lite
-    --skip-upload                     Skip all Firebase Storage uploads
-    --force-upload                    Re-upload files even if they already exist in Storage
-    --no-storage-url                  Disable Storage URL optimization (force Gemini File API)
-    --skip-compression                Skip video compression (use existing segments)
-    --skip-gemini                     Skip Gemini AI analysis
-    --resume                          Resume from last checkpoint (skip completed steps)
-    --reanalyze                       Force re-analysis of all segments
-    --dry-run                         Show what would be done without executing
+  ${h('TUNING')}
+${f('--parallel <n>', 'Max parallel uploads (default: 3)')}
+${f('--parallel-analysis <n>', 'Concurrent analysis batches (default: 2)')}
+${f('--thinking-budget <n>', 'Thinking tokens per segment (default: 24576)')}
+${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (default: 10240)')}
+${f('--no-focused-pass', 'Disable focused re-analysis')}
+${f('--no-learning', 'Disable learning loop')}
+${f('--no-diff', 'Disable diff comparison')}
+${f('--no-html', 'Skip HTML output (Markdown only)')}
+${f('--log-level <level>', 'debug, info, warn, error (default: info)')}
 
-  Dynamic Mode:
-    --dynamic                         Enable document-only mode (no video required)
-    --request <text>                  What to generate — e.g. "Plan migration from X to Y"
-                                      (prompted interactively if omitted)
+  ${h('DYNAMIC MODE')}
+${f('--dynamic', 'Enable document generation mode')}
+${f('--request <text>', 'What to generate (prompted if omitted)')}
 
-  Progress Tracking:
-    --repo <path>                     Path to the project git repo (for change detection)
+  ${h('PROGRESS TRACKING')}
+${f('--update-progress', 'Detect changes via git since last analysis')}
+${f('--repo <path>', 'Path to project git repo')}
 
-  Configuration:
-    --gemini-key <key>                Gemini API key (overrides .env / ~/.taskexrc)
-    --firebase-key <key>              Firebase API key (overrides .env / ~/.taskexrc)
-    --firebase-project <id>           Firebase project ID (overrides .env / ~/.taskexrc)
-    --firebase-bucket <bucket>        Firebase storage bucket (overrides .env / ~/.taskexrc)
-    --firebase-domain <domain>        Firebase auth domain (overrides .env / ~/.taskexrc)
+  ${h('UPLOAD & STORAGE')}
+${f('--skip-upload', 'Skip all Firebase uploads')}
+${f('--force-upload', 'Re-upload even if files exist')}
+${f('--no-storage-url', 'Force Gemini File API (no storage URLs)')}
 
-    Config resolution (highest wins):
-      CLI flags → env vars → CWD .env → ~/.taskexrc → package .env
+  ${h('CONFIGURATION')}
+${f('--gemini-key <key>', 'Gemini API key (overrides .env)')}
+${f('--firebase-key <key>', 'Firebase API key')}
+${f('--firebase-project <id>', 'Firebase project ID')}
+${f('--firebase-bucket <bucket>', 'Firebase storage bucket')}
+${f('--firebase-domain <domain>', 'Firebase auth domain')}
+${f2('Resolution: CLI flags → env → .env → ~/.taskexrc')}
 
-  Tuning:
-    --parallel <n>                    Max parallel uploads (default: 3)
-    --parallel-analysis <n>           Concurrent segment analysis batches (default: 2)
-    --thinking-budget <n>             Thinking token budget per segment (default: 24576)
-    --compilation-thinking-budget <n> Thinking tokens for final compilation (default: 10240)
-    --log-level <level>               Log level: debug, info, warn, error (default: info)
-    --output <dir>                    Custom output directory for results
-    --no-focused-pass                 Disable focused re-analysis for weak segments
-    --no-learning                     Disable learning loop (historical budget adjustments)
-    --no-diff                         Disable diff comparison against previous runs
-    --no-html                         Skip HTML report generation (Markdown only)
+  ${h('INFO')}
+${f('--help, -h', 'Show this help message')}
+${f('--version, -v', 'Show version')}
 
-  Info:
-    --help, -h                        Show this help message
-    --version, -v                     Show version
-
-  Examples:
-    taskex                                                                  Interactive (cd into folder first)
-    taskex "call 1"                                                         Analyze a call (with video)
-    taskex --name "Jane" --skip-upload "call 1"                             Skip Firebase, set name
-    taskex --gemini-key "AIza..." --skip-upload "call 1"                    Pass API key inline (no .env)
-    taskex --model gemini-2.5-pro "call 1"                                  Use Gemini 2.5 Pro model
-    taskex --resume "call 1"                                                Resume interrupted run
-    taskex --deep-dive "call 1"                                             Video analysis + deep dive docs
-    taskex --dynamic "my-project"                                           Doc-only mode (prompted for request)
-    taskex --dynamic --request "Plan API migration" "specs"                 Dynamic with request
-    taskex --update-progress --repo "C:\\my-project" "call 1"               Progress tracking via git
-
-  First-time setup:
-    taskex setup                                                            Full setup wizard (Node, ffmpeg, deps, .env)
-    taskex setup --check                                                    Validate environment only
-    taskex config                                                           Save API keys globally (~/.taskexrc)
-    taskex config --show                                                    View saved config
-    taskex config --clear                                                   Remove saved config
+  ${h('EXAMPLES')}
+    ${c.dim('$')} taskex ${c.dim('# Interactive mode')}
+    ${c.dim('$')} taskex "call 1" ${c.dim('# Analyze a call')}
+    ${c.dim('$')} taskex --name "Jane" --skip-upload "call 1"
+    ${c.dim('$')} taskex --model gemini-2.5-pro --deep-dive "call 1"
+    ${c.dim('$')} taskex --dynamic --request "Plan API migration" "specs"
+    ${c.dim('$')} taskex --min-confidence medium "call 1" ${c.dim('# Filter low-confidence')}
+    ${c.dim('$')} taskex --format md "call 1" ${c.dim('# Markdown only')}
+    ${c.dim('$')} taskex --format pdf "call 1" ${c.dim('# PDF report')}
+    ${c.dim('$')} taskex --format docx "call 1" ${c.dim('# Word document')}
+    ${c.dim('$')} taskex --resume "call 1" ${c.dim('# Resume interrupted run')}
+    ${c.dim('$')} taskex --update-progress --repo ./my-project "call 1"
   `);
   // Signal early exit — pipeline checks for help flag before calling this
   throw Object.assign(new Error('HELP_SHOWN'), { code: 'HELP_SHOWN' });

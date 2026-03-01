@@ -11,11 +11,13 @@ const {
 } = config;
 
 // --- Utils ---
+const { c } = require('../utils/colors');
 const { parseArgs, showHelp, selectFolder, selectModel } = require('../utils/cli');
 const { promptForKey } = require('../utils/global-config');
 const Logger = require('../logger');
 const Progress = require('../utils/checkpoint');
 const CostTracker = require('../utils/cost-tracker');
+const { createProgressBar } = require('../utils/progress-bar');
 const { loadHistory, analyzeHistory, printLearningInsights } = require('../utils/learning-loop');
 
 // --- Shared state ---
@@ -63,7 +65,25 @@ async function phaseInit() {
     updateProgress: !!flags['update-progress'],
     repoPath: flags.repo || null,
     model: typeof flags.model === 'string' ? flags.model : null,
+    minConfidence: typeof flags['min-confidence'] === 'string' ? flags['min-confidence'].toLowerCase() : null,
+    format: typeof flags.format === 'string' ? flags.format.toLowerCase() : 'all',
   };
+
+  // --- Validate min-confidence level ---
+  if (opts.minConfidence) {
+    const { validateConfidenceLevel } = require('../utils/confidence-filter');
+    const check = validateConfidenceLevel(opts.minConfidence);
+    if (!check.valid) {
+      throw new Error(check.error);
+    }
+    opts.minConfidence = check.normalised.toLowerCase();
+  }
+
+  // --- Validate --format flag ---
+  const VALID_FORMATS = new Set(['md', 'html', 'json', 'pdf', 'docx', 'all']);
+  if (!VALID_FORMATS.has(opts.format)) {
+    throw new Error(`Invalid --format "${opts.format}". Must be: md, html, json, pdf, docx, or all`);
+  }
 
   // --- Resolve folder: positional arg or interactive selection ---
   let folderArg = positional[0];
@@ -98,12 +118,12 @@ async function phaseInit() {
   }
 
   if (!configCheck.valid) {
-    console.error('\n  Configuration errors:');
-    configCheck.errors.forEach(e => console.error(`    ✗ ${e}`));
-    console.error('\n  Fix these via:');
-    console.error('    • taskex config          (save globally for all projects)');
-    console.error('    • .env file              (project-specific config)');
-    console.error('    • --gemini-key <key>     (one-time inline)\n');
+    console.error(`\n  ${c.error('Configuration errors:')}`);
+    configCheck.errors.forEach(e => console.error(`    ${c.error(e)}`));
+    console.error(`\n  ${c.dim('Fix these via:')}`);
+    console.error(`    ${c.dim('•')} ${c.cyan('taskex config')}          ${c.dim('(save globally for all projects)')}`);
+    console.error(`    ${c.dim('•')} ${c.cyan('.env file')}              ${c.dim('(project-specific config)')}`);
+    console.error(`    ${c.dim('•')} ${c.cyan('--gemini-key <key>')}     ${c.dim('(one-time inline)')}\n`);
     throw new Error('Invalid configuration. See errors above.');
   }
 
@@ -137,7 +157,7 @@ async function phaseInit() {
   const shutdown = (signal) => {
     if (isShuttingDown()) return;
     setShuttingDown(true);
-    console.warn(`\n  ⚠ Received ${signal} — shutting down gracefully...`);
+    console.warn(`\n  ${c.warn(`Received ${signal} \u2014 shutting down gracefully...`)}`);
     log.step(`SHUTDOWN requested (${signal})`);
     log.close();
   };
@@ -159,8 +179,12 @@ async function phaseInit() {
   // --- Initialize progress tracking ---
   const progress = new Progress(targetDir);
   const costTracker = new CostTracker(getActiveModelPricing());
+  const progressBar = createProgressBar({
+    costTracker,
+    callName: path.basename(targetDir),
+  });
 
-  return { opts, targetDir, progress, costTracker };
+  return { opts, targetDir, progress, costTracker, progressBar };
 }
 
 module.exports = phaseInit;

@@ -173,6 +173,7 @@ flowchart LR
     subgraph P6["Phase 6: Output"]
         JSON["results.json"]
         MDR["results.md"]
+        HTMLR["results.html"]
         FBU["Firebase upload"]
     end
 
@@ -558,7 +559,7 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 35 files · ~12,200 lines** · npm package: `task-summary-extractor` · CLI: `taskex`
+**Codebase: ~45 files · ~13,000+ lines** · npm package: `task-summary-extractor` · CLI: `taskex`
 
 ---
 
@@ -610,6 +611,47 @@ When `usedExternalUrl` is `true`, the `fileUri` contains the Firebase Storage do
 
 ---
 
+## JSON Schema Validation
+
+All AI output is validated against JSON Schema definitions in `src/schemas/`:
+
+| Schema | File | Purpose |
+|--------|------|---------|
+| Segment analysis | `analysis-segment.schema.json` | Validates each segment's extracted data |
+| Compiled analysis | `analysis-compiled.schema.json` | Validates the final cross-segment compilation |
+
+Validation is performed by `src/utils/schema-validator.js` using [ajv](https://ajv.js.org/). Validation errors are reported as warnings with contextual hints for the retry/focused-pass cycle — they do not hard-fail the pipeline but are injected as corrective hints when the quality gate triggers a retry.
+
+---
+
+## Test Suite
+
+The project includes a comprehensive test suite using [vitest](https://vitest.dev/):
+
+| Metric | Value |
+|--------|-------|
+| Test files | 13 |
+| Total tests | 285 |
+| Framework | vitest v4.x |
+| Coverage | `@vitest/coverage-v8` |
+
+**Test categories:**
+
+| Directory | What's Tested |
+|-----------|---------------|
+| `tests/utils/` | Utility modules: adaptive-budget, cli, confidence-filter, context-manager, diff-engine, format, json-parser, progress-bar, quality-gate, retry, schema-validator |
+| `tests/renderers/` | Renderer modules: html, markdown |
+
+**Commands:**
+
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode
+npm run test:coverage # Coverage report
+```
+
+---
+
 ## See Also
 
 | Doc | What's In It |
@@ -617,3 +659,44 @@ When `usedExternalUrl` is `true`, the `fileUri` contains the Firebase Storage do
 | 📖 [README.md](README.md) | Setup, CLI flags, configuration, features |
 | 📖 [QUICK_START.md](QUICK_START.md) | Step-by-step first-time walkthrough |
 | 🔭 [EXPLORATION.md](EXPLORATION.md) | Module map, line counts, future roadmap |
+
+---
+
+## JSON Schema Validation
+
+All AI output is validated against JSON Schema definitions in `src/schemas/`:
+
+| Schema | File | Purpose |
+|--------|------|---------|
+| Segment analysis | `analysis-segment.schema.json` | Validates each segment's extracted data |
+| Compiled analysis | `analysis-compiled.schema.json` | Validates the final cross-segment compilation |
+
+Validation is performed by `src/utils/schema-validator.js` using [ajv](https://ajv.js.org/). Validation errors are reported as warnings with contextual hints for the retry/focused-pass cycle — they do not hard-fail the pipeline but are injected as corrective hints when the quality gate triggers a retry.
+
+---
+
+## Test Suite
+
+The project includes a comprehensive test suite using [vitest](https://vitest.dev/):
+
+| Metric | Value |
+|--------|-------|
+| Test files | 13 |
+| Total tests | 285 |
+| Framework | vitest v4.x |
+| Coverage | `@vitest/coverage-v8` |
+
+**Test categories:**
+
+| Directory | What's Tested |
+|-----------|---------------|
+| `tests/utils/` | Utility modules: adaptive-budget, cli, confidence-filter, context-manager, diff-engine, format, json-parser, progress-bar, quality-gate, retry, schema-validator |
+| `tests/renderers/` | Renderer modules: html, markdown |
+
+**Commands:**
+
+```bash
+npm test              # Run all tests
+npm run test:watch    # Watch mode
+npm run test:coverage # Coverage report
+```

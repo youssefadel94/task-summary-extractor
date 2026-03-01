@@ -1,12 +1,13 @@
 # Task Summary Extractor
 
-> **v8.3.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v9.0.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-8.3.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-9.0.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-285%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -168,6 +169,9 @@ These are the ones you'll actually use:
 | `--resume` | Continue an interrupted run | `--resume` |
 | `--reanalyze` | Force fresh analysis (ignore cache) | `--reanalyze` |
 | `--dry-run` | Preview what would run, without running | `--dry-run` |
+| `--format <type>` | Output format: `md`, `html`, `json`, `all` (default: `md`) | `--format html` |
+| `--min-confidence <level>` | Filter items by confidence: `high`, `medium`, `low` | `--min-confidence high` |
+| `--no-html` | Suppress HTML report generation | `--no-html` |
 
 **Typical usage:**
 
@@ -191,7 +195,7 @@ Choose what the tool does. Only use one at a time:
 
 | Flag | Mode | What You Get |
 |------|------|-------------|
-| *(none)* | **Content analysis** | `results.md` — structured task document |
+| *(none)* | **Content analysis** | `results.md` + `results.html` — structured task document |
 | `--dynamic` | **Doc generation** | `INDEX.md` + 3–15 topic documents |
 | `--deep-dive` | **Topic explainers** | `INDEX.md` + per-topic deep-dive docs |
 | `--update-progress` | **Progress check** | `progress.md` — item status via git |
@@ -257,6 +261,8 @@ CONFIG     --gemini-key  --firebase-key  --firebase-project
            --firebase-bucket  --firebase-domain
 MODES      --dynamic  --deep-dive  --update-progress
 CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
+OUTPUT     --format <md|html|json|all>  --min-confidence <high|medium|low>
+           --no-html
 UPLOAD     --force-upload  --no-storage-url
 SKIP       --skip-compression  --skip-gemini
 DYNAMIC    --request <text>
@@ -276,6 +282,7 @@ INFO       --help (-h)  --version (-v)
 ```
 my-meeting/runs/{timestamp}/
 ├── results.md            ← Open this — your task document
+├── results.html          ← Interactive HTML report (self-contained)
 ├── results.json          ← Full pipeline data
 └── compilation.json      ← All extracted items (JSON)
 ```
@@ -423,6 +430,11 @@ GEMINI_API_KEY=your-key-here
 | **Git Progress Tracking** | Correlates commits with extracted items |
 | **Deep Dive** | Explanatory docs per topic discussed |
 | **Dynamic Mode** | Generate docs from any content mix |
+| **Progress Bar** | Real-time visual progress with phase tracking, ETA, and cost display |
+| **HTML Report** | Self-contained HTML report with collapsible sections, filtering, dark mode |
+| **JSON Schema Validation** | Validates AI output against JSON Schema (segment + compiled) |
+| **Confidence Filter** | `--min-confidence` flag to exclude low-confidence items from output |
+| **Multi-Format Output** | `--format` flag: Markdown, HTML, JSON, or all formats at once |
 | **Interactive CLI** | Run with no args → guided experience |
 | **Resume / Checkpoint** | `--resume` continues interrupted runs |
 | **Firebase Upload** | Team access via cloud (optional) |
@@ -472,16 +484,28 @@ task-summary-extractor/
 ├── setup.js                    First-time setup & validation
 ├── package.json                Dependencies, scripts, bin config
 ├── prompt.json                 Gemini extraction prompt
+├── vitest.config.js            Test configuration
 │
 ├── src/
 │   ├── config.js               Config, model registry, env vars
 │   ├── logger.js               Structured JSONL logger (triple output)
-│   ├── pipeline.js             Multi-mode orchestrator (~2,000 lines)
+│   ├── pipeline.js             Multi-mode orchestrator (~920 lines)
+│   ├── phases/                 Decomposed pipeline phases (9 modules)
+│   │   ├── _shared.js          Shared phase utilities
+│   │   ├── init.js             Phase 1: CLI parsing, config validation
+│   │   ├── discover.js         Phase 2: Find videos, docs, resolve user
+│   │   ├── services.js         Phase 3: Firebase auth, Gemini init
+│   │   ├── process-media.js    Phase 4: Compress, upload, analyze
+│   │   ├── compile.js          Phase 5: Cross-segment compilation
+│   │   ├── output.js           Phase 6: Write JSON, render MD + HTML
+│   │   ├── summary.js          Phase 8: Save learning, print summary
+│   │   └── deep-dive.js        Phase 9: Optional deep-dive generation
 │   ├── services/
 │   │   ├── gemini.js           Gemini AI — 3-strategy file resolution + External URL support
 │   │   ├── firebase.js         Firebase Storage (async I/O)
 │   │   ├── video.js            ffmpeg compression
-│   │   └── git.js              Git CLI wrapper
+│   │   ├── git.js              Git CLI wrapper
+│   │   └── doc-parser.js       Document text extraction (DOCX, XLSX, PPTX, etc.)
 │   ├── modes/                  AI-heavy pipeline phase modules
 │   │   ├── deep-dive.js        Topic discovery & deep-dive doc generation
 │   │   ├── dynamic-mode.js     Dynamic document planning & generation
@@ -489,8 +513,22 @@ task-summary-extractor/
 │   │   ├── progress-updater.js Git-based progress assessment
 │   │   └── change-detector.js  Git change correlation engine
 │   ├── renderers/
-│   │   └── markdown.js         Report renderer
+│   │   ├── markdown.js         Markdown report renderer
+│   │   ├── html.js             HTML report renderer (self-contained)
+│   │   └── shared.js           Shared renderer utilities
+│   ├── schemas/
+│   │   ├── analysis-segment.schema.json   Segment analysis JSON Schema
+│   │   └── analysis-compiled.schema.json  Compiled analysis JSON Schema
 │   └── utils/                  Pure utilities — parsing, retry, budget, config
+│       ├── colors.js           Zero-dep ANSI color utility
+│       ├── progress-bar.js     Visual progress bar (TTY-aware)
+│       ├── confidence-filter.js  Confidence level filtering
+│       ├── schema-validator.js JSON Schema validation (ajv)
+│       └── ... (15 more utility modules)
+│
+├── tests/                      Test suite — 285 tests across 13 files (vitest)
+│   ├── utils/                  Utility module tests
+│   └── renderers/              Renderer tests
 │
 ├── QUICK_START.md              Step-by-step setup guide
 ├── ARCHITECTURE.md             Technical deep dive
@@ -511,6 +549,9 @@ task-summary-extractor/
 | `npm run check` | Validate environment |
 | `npm start` | Run the pipeline |
 | `npm run help` | Show CLI help |
+| `npm test` | Run test suite (285 tests) |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run test:coverage` | Run tests with coverage report |
 
 ---
 
@@ -518,6 +559,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v9.0.0** | **CLI UX upgrade** — colors & progress bar, HTML reports, JSON Schema validation, confidence filter (`--min-confidence`), pipeline decomposition (`src/phases/` — 9 modules), test suite (285 tests via vitest), multi-format output (`--format`), doc-parser service, shared renderer utilities |
 | **v8.3.0** | **Universal content analysis** — prompt v4.0.0 supports video, audio, documents, and mixed content; input type auto-detection; timestamps conditional on content type; gemini.js bridge text generalized; all markdown docs updated |
 | **v8.2.0** | **Architecture cleanup** — `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.1.0** | **Smart global config** — `taskex config` persistent setup (`~/.taskexrc`), first-run prompting, 5-level config resolution, production audit fixes, shared CLI flag injection, boolean flag parser fix |

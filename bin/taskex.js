@@ -50,6 +50,7 @@ if (rawArgs[0] === 'config') {
 
   // ── Delegate to pipeline ────────────────────────────────────────────────
   const { run, getLog } = require('../src/pipeline');
+  const { c } = require('../src/utils/colors');
 
   run().catch(err => {
     if (err.code === 'HELP_SHOWN' || err.code === 'VERSION_SHOWN') {
@@ -63,8 +64,8 @@ if (rawArgs[0] === 'config') {
       log.step('FAILED');
       log.close();
     }
-    process.stderr.write(`\nFATAL: ${err.message || err}\n`);
-    process.stderr.write(`${err.stack || ''}\n`);
+    process.stderr.write(`\n${c.error(`FATAL: ${err.message || err}`)}\n`);
+    process.stderr.write(`${c.dim(err.stack || '')}\n`);
     process.exit(1);
   });
 }

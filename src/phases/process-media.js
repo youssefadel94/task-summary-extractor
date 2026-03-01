@@ -25,6 +25,7 @@ const { detectBoundaryContext, sliceVttForSegment } = require('../utils/context-
 const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('../modes/focused-reanalysis');
 
 // --- Shared state ---
+const { c } = require('../utils/colors');
 const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT } = require('./_shared');
 
 // ======================== PHASE: PROCESS VIDEO ========================
@@ -46,9 +47,9 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   const mediaLabel = isAudio ? 'audio' : 'video';
   const totalMedia = (ctx.inputMode === 'audio' ? ctx.audioFiles : ctx.videoFiles).length;
 
-  console.log('──────────────────────────────────────────────');
-  console.log(`[${videoIndex + 1}/${totalMedia}] ${path.basename(videoPath)} (${mediaLabel})`);
-  console.log('──────────────────────────────────────────────');
+  console.log(c.cyan('──────────────────────────────────────────────'));
+  console.log(`${c.dim(`[${videoIndex + 1}/${totalMedia}]`)} ${c.heading(path.basename(videoPath))} ${c.dim(`(${mediaLabel})`)}`);
+  console.log(c.cyan('──────────────────────────────────────────────'));
 
   // ---- Compress & Segment ----
   log.step(`Compressing "${path.basename(videoPath)}" (${mediaLabel})`);
@@ -62,11 +63,11 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   if (opts.skipCompression || opts.dryRun) {
     if (existingSegments.length > 0) {
       segments = existingSegments.map(f => path.join(segmentDir, f));
-      console.log(`  ✓ Using ${segments.length} existing segment(s) (${opts.dryRun ? '--dry-run' : '--skip-compression'})`);
+      console.log(`  ${c.success(`Using ${c.highlight(segments.length)} existing segment(s) (${opts.dryRun ? '--dry-run' : '--skip-compression'})`)}`);
     } else {
-      console.warn(`  ⚠ No existing segments found — cannot skip compression for "${baseName}"`);
+      console.warn(`  ${c.warn(`No existing segments found \u2014 cannot skip compression for "${baseName}"`)}`);
       if (opts.dryRun) {
-        console.log(`  [DRY-RUN] Would compress "${path.basename(videoPath)}" into segments`);
+        console.log(`  ${c.dim(`[DRY-RUN] Would compress "${path.basename(videoPath)}" into segments`)}`);
         return { fileResult: null, segmentAnalyses: [] };
       }
       segments = compressAndSegment(videoPath, segmentDir);
@@ -75,7 +76,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   } else if (existingSegments.length > 0) {
     segments = existingSegments.map(f => path.join(segmentDir, f));
     log.step(`SKIP compression — ${segments.length} segment(s) already on disk`);
-    console.log(`  ✓ Skipped compression — ${segments.length} segment(s) already exist`);
+    console.log(`  ${c.success(`Skipped compression \u2014 ${c.highlight(segments.length)} segment(s) already exist`)}`);
   } else {
     if (isAudio) {
       segments = compressAndSegmentAudio(videoPath, segmentDir);
@@ -83,7 +84,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       segments = compressAndSegment(videoPath, segmentDir);
     }
     log.step(`Compressed → ${segments.length} segment(s)`);
-    console.log(`  → ${segments.length} segment(s) created`);
+    console.log(`  \u2192 ${c.highlight(segments.length)} segment(s) created`);
   }
 
   progress.markCompressed(baseName, segments.length);
@@ -102,10 +103,10 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   if (!opts.skipGemini && !opts.dryRun) {
     const invalidSegs = segments.filter(s => !verifySegment(s));
     if (invalidSegs.length > 0) {
-      console.warn(`  ⚠ Pre-validation: ${invalidSegs.length}/${segments.length} segment(s) are corrupt:`);
-      invalidSegs.forEach(s => console.warn(`    ✗ ${path.basename(s)}`));
-      console.warn(`    → Corrupt segments will be skipped during analysis.`);
-      console.warn(`    → Delete "${segmentDir}" and re-run to re-compress.`);
+      console.warn(`  ${c.warn(`Pre-validation: ${invalidSegs.length}/${segments.length} segment(s) are corrupt:`)}`);
+      invalidSegs.forEach(s => console.warn(`    ${c.error(path.basename(s))}`));
+      console.warn(`    ${c.dim(`\u2192 Corrupt segments will be skipped during analysis.`)}`);
+      console.warn(`    ${c.dim(`\u2192 Delete "${segmentDir}" and re-run to re-compress.`)}`);
       log.warn(`Pre-validation: ${invalidSegs.length} corrupt segments in ${baseName}`);
     }
   }
@@ -126,13 +127,13 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
     await parallelMap(metaList, async (meta, j) => {
       if (isShuttingDown()) return;
-      console.log(`  ── Segment ${j + 1}/${segments.length}: ${meta.segName} (upload) ──`);
-      console.log(`    Duration: ${fmtDuration(meta.durSec)} | Size: ${meta.sizeMB} MB`);
+      console.log(`  ${c.cyan('──')} Segment ${c.highlight(`${j + 1}/${segments.length}`)}: ${c.cyan(meta.segName)} ${c.dim('(upload)')} ${c.cyan('──')}`);
+      console.log(`    Duration: ${c.yellow(fmtDuration(meta.durSec))} | Size: ${c.yellow(meta.sizeMB + ' MB')}`);
 
       const resumedUrl = progress.getUploadUrl(meta.storagePath);
       if (resumedUrl && opts.resume) {
         meta.storageUrl = resumedUrl;
-        console.log(`    ✓ Upload resumed from checkpoint`);
+        console.log(`    ${c.success('Upload resumed from checkpoint')}`);
         return;
       }
 
@@ -142,18 +143,18 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           if (existingUrl) {
             meta.storageUrl = existingUrl;
             log.step(`SKIP upload — ${meta.segName} already in Storage`);
-            console.log(`    ✓ Already in Storage → ${meta.storagePath}`);
+            console.log(`    ${c.success(`Already in Storage → ${c.cyan(meta.storagePath)}`)}`);
             progress.markUploaded(meta.storagePath, meta.storageUrl);
             return;
           }
         }
-        console.log(`    ${opts.forceUpload ? 'Re-uploading' : 'Uploading'} to Firebase Storage...`);
+        console.log(`    ${c.dim(opts.forceUpload ? 'Re-uploading' : 'Uploading')} to Firebase Storage...`);
         meta.storageUrl = await uploadToStorage(storage, meta.segPath, meta.storagePath);
-        console.log(`    ✓ ${opts.forceUpload ? 'Re-uploaded' : 'Uploaded'} → ${meta.storagePath}`);
+        console.log(`    ${c.success(`${opts.forceUpload ? 'Re-uploaded' : 'Uploaded'} → ${c.cyan(meta.storagePath)}`)}`);
         log.step(`Upload OK: ${meta.segName} → ${meta.storagePath}`);
         progress.markUploaded(meta.storagePath, meta.storageUrl);
       } catch (err) {
-        console.error(`    ✗ Firebase upload failed: ${err.message}`);
+        console.error(`    ${c.error(`Firebase upload failed: ${err.message}`)}`);
         log.error(`Upload FAIL: ${meta.segName} — ${err.message}`);
       }
     }, opts.parallel);
@@ -168,9 +169,9 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       const durSec = durStr ? parseFloat(durStr) : null;
       const sizeMB = (fs.statSync(segPath).size / 1048576).toFixed(2);
 
-      console.log(`  ── Segment ${j + 1}/${segments.length}: ${segName} ──`);
-      console.log(`    Duration: ${fmtDuration(durSec)} | Size: ${sizeMB} MB`);
-      if (opts.skipUpload) console.log(`    ⚠ Upload skipped (--skip-upload)`);
+      console.log(`  ${c.cyan('──')} Segment ${c.highlight(`${j + 1}/${segments.length}`)}: ${c.cyan(segName)} ${c.cyan('──')}`);
+      console.log(`    Duration: ${c.yellow(fmtDuration(durSec))} | Size: ${c.yellow(sizeMB + ' MB')}`);
+      if (opts.skipUpload) console.log(`    ${c.warn('Upload skipped (--skip-upload)')}`);
 
       segmentMeta.push({ segPath, segName, storagePath, storageUrl: null, durSec, sizeMB });
     }
@@ -197,17 +198,17 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   if (!forceReanalyze && !opts.skipGemini && !opts.dryRun) {
     const allExistingRuns = fs.readdirSync(geminiRunsDir).filter(f => f.endsWith('.json'));
     if (allExistingRuns.length > 0) {
-      console.log(`  Found ${allExistingRuns.length} existing Gemini run file(s) in:`);
-      console.log(`    ${geminiRunsDir}`);
+      console.log(`  Found ${c.highlight(allExistingRuns.length)} existing Gemini run file(s) in:`);
+      console.log(`    ${c.cyan(geminiRunsDir)}`);
       console.log('');
       if (!opts.resume) {
         forceReanalyze = await promptUser('  Re-analyze all segments? (y/n, default: n): ');
       }
       if (forceReanalyze) {
-        console.log('  → Will re-analyze all segments (previous runs preserved with timestamps)');
+        console.log(`  → ${c.yellow('Will re-analyze all segments')} ${c.dim('(previous runs preserved with timestamps)')}`);
         log.step('User chose to re-analyze all segments');
       } else {
-        console.log('  → Using cached results where available');
+        console.log(`  → ${c.dim('Using cached results where available')}`);
       }
       console.log('');
     }
@@ -222,10 +223,10 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
     const { segPath, segName, storagePath, storageUrl, durSec, sizeMB } = segmentMeta[j];
 
-    console.log(`  ── Segment ${j + 1}/${segments.length}: ${segName} (AI) ──`);
+    console.log(`  ${c.cyan('──')} Segment ${c.highlight(`${j + 1}/${segments.length}`)}: ${c.cyan(segName)} ${c.dim('(AI)')} ${c.cyan('──')}`);
 
     if (opts.skipGemini) {
-      console.log(`    ⚠ Skipped (--skip-gemini)`);
+      console.log(`    ${c.warn('Skipped (--skip-gemini)')}`);
       fileResult.segments.push({
         segmentFile: segName, segmentIndex: j,
         storagePath, storageUrl,
@@ -237,7 +238,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
     }
 
     if (opts.dryRun) {
-      console.log(`    [DRY-RUN] Would analyze with ${config.GEMINI_MODEL}`);
+      console.log(`    ${c.dim(`[DRY-RUN] Would analyze with ${c.cyan(config.GEMINI_MODEL)}`)}`);
       fileResult.segments.push({
         segmentFile: segName, segmentIndex: j,
         storagePath, storageUrl,
@@ -293,9 +294,9 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
         const ticketCount = analysis.tickets ? analysis.tickets.length : 0;
         log.step(`SKIP Gemini — ${segName} already analyzed (${ticketCount} ticket(s), quality: ${cachedQuality.score}/100, schema: ${cachedSchema.valid ? 'valid' : cachedSchema.errorCount + ' errors'})`);
-        console.log(`    ✓ Already analyzed — loaded from ${latestRunFile}`);
+        console.log(`    ${c.success(`Already analyzed — loaded from ${c.cyan(latestRunFile)}`)}`);
       } catch (err) {
-        console.warn(`    ⚠ Existing run file corrupt, re-analyzing: ${err.message}`);
+        console.warn(`    ${c.warn(`Existing run file corrupt, re-analyzing: ${err.message}`)}`);
         analysis = null;
       }
     }
@@ -303,8 +304,8 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
     if (!analysis) {
       // Pre-flight: verify segment is a valid MP4
       if (!verifySegment(segPath)) {
-        console.error(`    ✗ Segment "${segName}" is corrupt (missing moov atom / unreadable).`);
-        console.error(`      → Delete "${path.dirname(segPath)}" and re-run to re-compress.`);
+        console.error(`    ${c.error(`Segment "${segName}" is corrupt (missing moov atom / unreadable).`)}`);
+        console.error(`      ${c.dim(`→ Delete "${path.dirname(segPath)}" and re-run to re-compress.`)}`);
         log.error(`Segment corrupt: ${segName} — skipping Gemini`);
         analysis = { error: `Segment file corrupt: ${segName}` };
         fileResult.segments.push({
@@ -340,7 +341,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         baseBudget: opts.thinkingBudget,
       });
       const adaptiveBudget = budgetResult.budget;
-      console.log(`    Thinking budget: ${adaptiveBudget.toLocaleString()} tokens (${budgetResult.reason})`);
+      console.log(`    Thinking budget: ${c.highlight(adaptiveBudget.toLocaleString())} tokens ${c.dim(`(${budgetResult.reason})`)}`);
       if (budgetResult.complexity.complexityScore > 0) {
         log.debug(`Segment ${j} complexity: ${budgetResult.complexity.complexityScore}/100 — words:${budgetResult.complexity.wordCount} speakers:${budgetResult.complexity.speakerCount} tech:${budgetResult.complexity.hasTechnicalTerms}`);
       }
@@ -502,16 +503,16 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
                 retryOf: geminiRunFile,
               };
               geminiRunFile = path.relative(PROJECT_ROOT, retryRunFilePath);
-              console.log(`    ✓ Retry improved quality: ${qualityReport.score} → ${retryQuality.score}`);
+              console.log(`    ${c.success(`Retry improved quality: ${qualityReport.score} → ${retryQuality.score}`)}`);
               console.log(formatQualityLine(retryQuality, segName));
               log.step(`Retry improved ${segName}: ${qualityReport.score} → ${retryQuality.score}`);
               segmentReports.push({ segmentName: segName, qualityReport: retryQuality, retried: true, retryImproved: true });
             } else {
-              console.log(`    ⚠ Retry did not improve (${qualityReport.score} → ${retryQuality.score}), keeping original`);
+              console.log(`    ${c.warn(`Retry did not improve (${qualityReport.score} → ${retryQuality.score}), keeping original`)}`);
               segmentReports.push({ segmentName: segName, qualityReport, retried: true, retryImproved: false });
             }
           } catch (retryErr) {
-            console.warn(`    ⚠ Retry failed: ${retryErr.message} — keeping original result`);
+            console.warn(`    ${c.warn(`Retry failed: ${retryErr.message} — keeping original result`)}`);
             segmentReports.push({ segmentName: segName, qualityReport, retried: true, retryImproved: false });
           }
         } else {
@@ -537,13 +538,13 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
                 if (focusedResult._focusedPassMeta) {
                   costTracker.addSegment(`${segName}_focused`, focusedResult._focusedPassMeta, 0, false);
                 }
-                console.log(`    ✓ Focused pass enhanced ${weakness.weakAreas.length} area(s)`);
+                console.log(`    ${c.success(`Focused pass enhanced ${weakness.weakAreas.length} area(s)`)}`);
                 log.step(`Focused re-analysis merged for ${segName}`);
               } else {
-                console.log(`    ℹ Focused pass found no additional items`);
+                console.log(`    ${c.info('Focused pass found no additional items')}`);
               }
             } catch (focErr) {
-              console.warn(`    ⚠ Focused re-analysis error: ${focErr.message}`);
+              console.warn(`    ${c.warn(`Focused re-analysis error: ${focErr.message}`)}`);
               log.warn(`Focused re-analysis failed for ${segName}: ${focErr.message}`);
             }
           }
@@ -569,10 +570,10 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         const sourceLabel = usedExternalUrl ? 'via Storage URL' : (geminiFileName ? 'via File API' : 'direct');
         log.step(`Gemini OK: ${segName} (${sourceLabel}) — ${ticketCount} ticket(s) | ${geminiRun.run.durationMs}ms | tokens: ${tok.inputTokens || 0}in/${tok.outputTokens || 0}out/${tok.thoughtTokens || 0}think/${tok.totalTokens || 0}total`);
         log.debug(`Gemini parsed: ${JSON.stringify(analysis).substring(0, 500)}`);
-        console.log(`    ✓ AI analysis complete (${(geminiRun.run.durationMs / 1000).toFixed(1)}s)${retried ? (retryImproved ? ' [retry improved]' : ' [retried]') : ''}`);
+        console.log(`    ${c.success(`AI analysis complete (${(geminiRun.run.durationMs / 1000).toFixed(1)}s)`)}${retried ? (retryImproved ? ' [retry improved]' : ' [retried]') : ''}`);
         progress.markAnalyzed(`${baseName}_seg${j}`, geminiRunFile);
       } catch (err) {
-        console.error(`    ✗ Gemini failed: ${err.message}`);
+        console.error(`    ${c.error(`Gemini failed: ${err.message}`)}`);
         log.error(`Gemini FAIL: ${segName} — ${err.message}`);
         analysis = { error: err.message };
         segmentReports.push({ segmentName: segName, qualityReport: { grade: 'FAIL', score: 0, issues: [err.message] }, retried: false, retryImproved: false });

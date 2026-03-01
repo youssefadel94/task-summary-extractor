@@ -8,8 +8,9 @@ const config = require('../config');
 const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, SPEED, SEG_TIME } = config;
 
 // --- Utils ---
+const { c } = require('../utils/colors');
 const { findDocsRecursive } = require('../utils/fs');
-const { promptUser, promptUserText } = require('../utils/cli');
+const { promptUserText } = require('../utils/cli');
 
 // --- Shared state ---
 const { getLog, phaseTimer } = require('./_shared');
@@ -70,9 +71,9 @@ async function phaseDiscover(ctx) {
                                               ' Document Analysis → AI Process';
 
   console.log('');
-  console.log('==============================================');
-  console.log(modeBanner);
-  console.log('==============================================');
+  console.log(c.cyan('=============================================='));
+  console.log(c.heading(modeBanner));
+  console.log(c.cyan('=============================================='));
 
   // Show active flags
   const activeFlags = [];
@@ -85,7 +86,7 @@ async function phaseDiscover(ctx) {
   if (opts.reanalyze) activeFlags.push('reanalyze');
   if (opts.dryRun) activeFlags.push('dry-run');
   if (activeFlags.length > 0) {
-    console.log(`  Flags: ${activeFlags.join(', ')}`);
+    console.log(`  Flags: ${c.yellow(activeFlags.join(', '))}`);
   }
   console.log('');
 
@@ -100,7 +101,7 @@ async function phaseDiscover(ctx) {
   if (!userName) {
     if (opts.resume && progress.state.userName) {
       userName = progress.state.userName;
-      console.log(`  Using saved name: ${userName}`);
+      console.log(`  Using saved name: ${c.cyan(userName)}`);
     } else {
       userName = await promptUserText('  Your name (for task assignment detection): ');
     }
@@ -111,33 +112,33 @@ async function phaseDiscover(ctx) {
   log.step(`User identified as: ${userName}`);
 
   console.log('');
-  console.log(`  User    : ${userName}`);
-  console.log(`  Source  : ${targetDir}`);
-  console.log(`  Input   : ${inputMode}`);
-  if (inputMode === 'video') console.log(`  Videos  : ${videoFiles.length}`);
-  if (inputMode === 'audio') console.log(`  Audio   : ${audioFiles.length}`);
-  console.log(`  Docs    : ${allDocFiles.length}`);
+  console.log(`  User    : ${c.cyan(userName)}`);
+  console.log(`  Source  : ${c.dim(targetDir)}`);
+  console.log(`  Input   : ${c.yellow(inputMode)}`);
+  if (inputMode === 'video') console.log(`  Videos  : ${c.highlight(videoFiles.length)}`);
+  if (inputMode === 'audio') console.log(`  Audio   : ${c.highlight(audioFiles.length)}`);
+  console.log(`  Docs    : ${c.highlight(allDocFiles.length)}`);
   if (inputMode !== 'document') {
-    console.log(`  Speed   : ${SPEED}x`);
-    console.log(`  Segments: < 5 min each (${SEG_TIME}s)`);
+    console.log(`  Speed   : ${c.yellow(SPEED + 'x')}`);
+    console.log(`  Segments: ${c.dim('< 5 min each')} (${c.yellow(SEG_TIME + 's')})`);
   }
-  console.log(`  Model   : ${config.GEMINI_MODEL}`);
+  console.log(`  Model   : ${c.cyan(config.GEMINI_MODEL)}`);
   if (inputMode !== 'document') {
-    console.log(`  Parallel: ${opts.parallel} concurrent uploads`);
+    console.log(`  Parallel: ${c.yellow(opts.parallel)} concurrent uploads`);
   }
-  console.log(`  Thinking: ${opts.thinkingBudget} tokens (analysis) / ${opts.compilationThinkingBudget} tokens (compilation)`);
+  console.log(`  Thinking: ${c.yellow(opts.thinkingBudget)} tokens ${c.dim('(analysis)')} / ${c.yellow(opts.compilationThinkingBudget)} tokens ${c.dim('(compilation)')}`);
   console.log('');
 
   // Save progress init
   progress.init(path.basename(targetDir), userName);
 
   if (inputMode === 'document') {
-    console.log('  ℹ No video or audio files found — running in document-only mode.');
-    console.log('  Tip: Use --dynamic for custom document generation.\n');
+    console.log(`  ${c.info('No video or audio files found \u2014 running in document-only mode.')}`);
+    console.log(`  ${c.dim('Tip: Use --dynamic for custom document generation.')}\n`);
   } else {
     const mediaLabel = inputMode === 'video' ? 'video' : 'audio';
-    console.log(`  Found ${mediaFiles.length} ${mediaLabel} file(s):`);
-    mediaFiles.forEach((f, i) => console.log(`    [${i + 1}] ${path.basename(f)}`));
+    console.log(`  Found ${c.highlight(mediaFiles.length)} ${mediaLabel} file(s):`);
+    mediaFiles.forEach((f, i) => console.log(`    ${c.dim(`[${i + 1}]`)} ${c.cyan(path.basename(f))}`));
 
     // If multiple media files found, let user select which to process
     if (mediaFiles.length > 1) {
@@ -150,13 +151,13 @@ async function phaseDiscover(ctx) {
           const selected = indices.map(i => mediaFiles[i]);
           if (inputMode === 'video') videoFiles = selected;
           else audioFiles = selected;
-          console.log(`  → Processing ${selected.length} selected file(s):`);
-          selected.forEach(f => console.log(`    - ${path.basename(f)}`));
+          console.log(`  \u2192 Processing ${c.highlight(selected.length)} selected file(s):`);
+          selected.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(path.basename(f))}`));
         } else {
-          console.log('  → Invalid selection, processing all files');
+          console.log(`  \u2192 ${c.dim('Invalid selection, processing all files')}`);
         }
       } else {
-        console.log(`  → Processing all ${mediaLabel} files`);
+        console.log(`  \u2192 Processing all ${c.highlight(mediaLabel)} files`);
       }
     }
     const finalMedia = inputMode === 'video' ? videoFiles : audioFiles;
@@ -165,8 +166,8 @@ async function phaseDiscover(ctx) {
   }
 
   if (allDocFiles.length > 0) {
-    console.log(`  Found ${allDocFiles.length} document(s) for context (recursive):`);
-    allDocFiles.forEach(f => console.log(`    - ${f.relPath}`));
+    console.log(`  Found ${c.highlight(allDocFiles.length)} document(s) for context ${c.dim('(recursive)')}:`);
+    allDocFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(f.relPath)}`));
     console.log('');
   }
 

@@ -12,12 +12,22 @@ const { uploadToStorage } = require('../services/firebase');
 // --- Renderers ---
 const { renderResultsMarkdown } = require('../renderers/markdown');
 const { renderResultsHtml } = require('../renderers/html');
+const { renderResultsPdf } = require('../renderers/pdf');
+const { renderResultsDocx } = require('../renderers/docx');
 
 // --- Utils ---
 const { loadPreviousCompilation, generateDiff, renderDiffMarkdown } = require('../utils/diff-engine');
+const { filterByConfidence } = require('../utils/confidence-filter');
+const { c } = require('../utils/colors');
 
 // --- Shared state ---
 const { getLog, phaseTimer, PROJECT_ROOT } = require('./_shared');
+
+/** Check whether a given output type should be rendered. */
+function shouldRender(opts, type) {
+  if (opts.format === 'all') return true;
+  return opts.format === type;
+}
 
 // ======================== PHASE: OUTPUT ========================
 
@@ -49,91 +59,123 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
   // Attach cost summary to results
   results.costSummary = costTracker.getSummary();
 
-  // Write results JSON
+  // Write results JSON (always written unless --format excludes it)
   const jsonPath = path.join(runDir, 'results.json');
-  fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
-  log.step(`Results JSON saved → ${jsonPath}`);
+  if (shouldRender(opts, 'json') || opts.format === 'all') {
+    fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
+    log.step(`Results JSON saved → ${jsonPath}`);
+  } else {
+    // Still write JSON internally (needed for uploads/diffs) but don't advertise
+    fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
+  }
 
   // Generate Markdown
   const mdPath = path.join(runDir, 'results.md');
   const totalSegs = results.files.reduce((s, f) => s + f.segmentCount, 0);
 
-  if (compiledAnalysis && !compiledAnalysis._incomplete) {
-    const mdContent = renderResultsMarkdown({
-      compiled: compiledAnalysis,
-      meta: {
-        callName: results.callName,
-        processedAt: results.processedAt,
-        geminiModel: config.GEMINI_MODEL,
-        userName,
-        segmentCount: totalSegs,
-        compilation: compilationRun || null,
-        costSummary: results.costSummary,
-        segments: results.files.flatMap(f => {
-          const speed = results.settings?.speed || 1;
-          let cum = 0;
-          return (f.segments || []).map(s => {
-            const startSec = cum;
-            cum += (s.durationSeconds || 0) * speed;
-            return {
-              file: s.segmentFile,
-              duration: s.duration,
-              durationSeconds: s.durationSeconds,
-              sizeMB: s.fileSizeMB,
-              video: f.originalFile,
-              startTimeSec: startSec,
-              endTimeSec: cum,
-              segmentNumber: (s.segmentIndex || 0) + 1,
-            };
-          });
-        }),
-        settings: results.settings,
-      },
-    });
-    fs.writeFileSync(mdPath, mdContent, 'utf8');
-    log.step(`Results MD saved (compiled) → ${mdPath}`);
-    console.log(`  ✓ Markdown report (AI-compiled) → ${path.basename(mdPath)}`);
+  // Apply confidence filter for rendered output (MD/HTML) — results.json keeps full data
+  let renderData = compiledAnalysis;
+  if (compiledAnalysis && opts.minConfidence && opts.minConfidence !== 'low') {
+    renderData = filterByConfidence(compiledAnalysis, opts.minConfidence);
+    const meta = renderData._filterMeta;
+    if (meta && meta.removed > 0) {
+      console.log(`  Confidence filter: ${meta.minConfidence} → kept ${meta.filteredCounts.total}/${meta.originalCounts.total} items (${meta.removed} removed)`);
+      log.step(`Confidence filter applied: ${meta.minConfidence}, removed ${meta.removed} items`);
+    }
+  }
 
-    // Generate HTML report (same data, interactive format)
-    if (!opts.noHtml) {
-      const htmlPath = path.join(runDir, 'results.html');
-      const htmlContent = renderResultsHtml({
-        compiled: compiledAnalysis,
-        meta: {
-          callName: results.callName,
-          processedAt: results.processedAt,
-          geminiModel: config.GEMINI_MODEL,
-          userName,
-          segmentCount: totalSegs,
-          compilation: compilationRun || null,
-          costSummary: results.costSummary,
-          segments: results.files.flatMap(f => {
-            const speed = results.settings?.speed || 1;
-            let cum = 0;
-            return (f.segments || []).map(s => {
-              const startSec = cum;
-              cum += (s.durationSeconds || 0) * speed;
-              return {
-                file: s.segmentFile,
-                duration: s.duration,
-                durationSeconds: s.durationSeconds,
-                sizeMB: s.fileSizeMB,
-              };
-            });
-          }),
-          settings: results.settings,
-        },
+  // Build shared meta for renderers
+  const renderMeta = {
+    callName: results.callName,
+    processedAt: results.processedAt,
+    geminiModel: config.GEMINI_MODEL,
+    userName,
+    segmentCount: totalSegs,
+    compilation: compilationRun || null,
+    costSummary: results.costSummary,
+    segments: results.files.flatMap(f => {
+      const speed = results.settings?.speed || 1;
+      let cum = 0;
+      return (f.segments || []).map(s => {
+        const startSec = cum;
+        cum += (s.durationSeconds || 0) * speed;
+        return {
+          file: s.segmentFile,
+          duration: s.duration,
+          durationSeconds: s.durationSeconds,
+          sizeMB: s.fileSizeMB,
+          video: f.originalFile,
+          startTimeSec: startSec,
+          endTimeSec: cum,
+          segmentNumber: (s.segmentIndex || 0) + 1,
+        };
       });
+    }),
+    settings: results.settings,
+  };
+
+  if (renderData && !renderData._incomplete) {
+    // --- Markdown report ---
+    if (shouldRender(opts, 'md')) {
+      const mdContent = renderResultsMarkdown({ compiled: renderData, meta: renderMeta });
+      fs.writeFileSync(mdPath, mdContent, 'utf8');
+      log.step(`Results MD saved (compiled) → ${mdPath}`);
+      console.log(`  ${c.success('Markdown report (AI-compiled)')} → ${c.cyan(path.basename(mdPath))}`);
+    }
+
+    // --- HTML report ---
+    if (shouldRender(opts, 'html') && !opts.noHtml) {
+      const htmlPath = path.join(runDir, 'results.html');
+      const htmlContent = renderResultsHtml({ compiled: renderData, meta: renderMeta });
       fs.writeFileSync(htmlPath, htmlContent, 'utf8');
       log.step(`Results HTML saved → ${htmlPath}`);
-      console.log(`  ✓ HTML report → ${path.basename(htmlPath)}`);
+      console.log(`  ${c.success('HTML report')} → ${c.cyan(path.basename(htmlPath))}`);
+
+      // --- PDF report (requires HTML first) ---
+      if (shouldRender(opts, 'pdf')) {
+        try {
+          const pdfPath = path.join(runDir, 'results.pdf');
+          const pdfInfo = await renderResultsPdf(htmlContent, pdfPath);
+          log.step(`Results PDF saved → ${pdfPath}`);
+          console.log(`  ${c.success('PDF report')} → ${c.cyan(path.basename(pdfPath))} ${c.dim(`(${(pdfInfo.bytes / 1024).toFixed(0)} KB)`)}`);
+        } catch (pdfErr) {
+          console.warn(`  ${c.warn('PDF generation failed:')} ${pdfErr.message}`);
+          log.warn(`PDF generation error: ${pdfErr.message}`);
+        }
+      }
+    } else if (shouldRender(opts, 'pdf')) {
+      // PDF requested without HTML — generate HTML in memory
+      try {
+        const htmlContent = renderResultsHtml({ compiled: renderData, meta: renderMeta });
+        const pdfPath = path.join(runDir, 'results.pdf');
+        const pdfInfo = await renderResultsPdf(htmlContent, pdfPath);
+        log.step(`Results PDF saved → ${pdfPath}`);
+        console.log(`  ${c.success('PDF report')} → ${c.cyan(path.basename(pdfPath))} ${c.dim(`(${(pdfInfo.bytes / 1024).toFixed(0)} KB)`)}`);
+      } catch (pdfErr) {
+        console.warn(`  ${c.warn('PDF generation failed:')} ${pdfErr.message}`);
+        log.warn(`PDF generation error: ${pdfErr.message}`);
+      }
     }
-  } else {
+
+    // --- DOCX report ---
+    if (shouldRender(opts, 'docx')) {
+      try {
+        const docxPath = path.join(runDir, 'results.docx');
+        const docxBuffer = await renderResultsDocx({ compiled: renderData, meta: renderMeta });
+        fs.writeFileSync(docxPath, docxBuffer);
+        log.step(`Results DOCX saved → ${docxPath}`);
+        console.log(`  ${c.success('DOCX report')} → ${c.cyan(path.basename(docxPath))} ${c.dim(`(${(docxBuffer.length / 1024).toFixed(0)} KB)`)}`);
+      } catch (docxErr) {
+        console.warn(`  ${c.warn('DOCX generation failed:')} ${docxErr.message}`);
+        log.warn(`DOCX generation error: ${docxErr.message}`);
+      }
+    }
+  } else if (shouldRender(opts, 'md')) {
     const { renderResultsMarkdownLegacy } = require('../renderers/markdown');
     const mdContent = renderResultsMarkdownLegacy(results);
     fs.writeFileSync(mdPath, mdContent, 'utf8');
     log.step(`Results MD saved (legacy merge) → ${mdPath}`);
-    console.log(`  ✓ Markdown report (legacy merge) → ${path.basename(mdPath)}`);
+    console.log(`  ${c.success('Markdown report (legacy merge)')} → ${c.cyan(path.basename(mdPath))}`);
   }
 
   // === DIFF ENGINE (v6) ===
@@ -147,18 +189,20 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
         if (diffResult.hasDiff) {
           diffResult.previousTimestamp = prevComp.timestamp;
           const diffMd = renderDiffMarkdown(diffResult);
-          fs.appendFileSync(mdPath, '\n\n' + diffMd, 'utf8');
+          if (shouldRender(opts, 'md')) {
+            fs.appendFileSync(mdPath, '\n\n' + diffMd, 'utf8');
+          }
           fs.writeFileSync(path.join(runDir, 'diff.json'), JSON.stringify(diffResult, null, 2), 'utf8');
           log.step(`Diff report: ${diffResult.totals.newItems} new, ${diffResult.totals.removedItems} removed, ${diffResult.totals.changedItems} changed`);
-          console.log(`  ✓ Diff report appended (vs ${prevComp.timestamp})`);
+          console.log(`  ${c.success('Diff report appended')} (vs ${c.dim(prevComp.timestamp)})`);
         } else {
-          console.log(`  ℹ No differences vs previous run (${prevComp.timestamp})`);
+          console.log(`  ${c.info('No differences vs previous run')} (${c.dim(prevComp.timestamp)})`);
         }
       } else {
-        console.log(`  ℹ No previous compilation found for diff comparison`);
+        console.log(`  ${c.info('No previous compilation found for diff comparison')}`);
       }
     } catch (diffErr) {
-      console.warn(`  ⚠ Diff generation failed: ${diffErr.message}`);
+      console.warn(`  ${c.warn('Diff generation failed:')} ${diffErr.message}`);
       log.warn(`Diff generation error: ${diffErr.message}`);
     }
   }
@@ -171,18 +215,20 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
       const url = await uploadToStorage(storage, jsonPath, resultsStoragePath);
       results.storageUrl = url;
       fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
-      console.log(`  ✓ Results JSON uploaded → ${resultsStoragePath}`);
+      console.log(`  ${c.success('Results JSON uploaded')} → ${c.dim(resultsStoragePath)}`);
 
-      const mdStoragePath = `calls/${callName}/runs/${runTs}/results.md`;
-      await uploadToStorage(storage, mdPath, mdStoragePath);
-      console.log(`  ✓ Results MD uploaded → ${mdStoragePath}`);
+      if (shouldRender(opts, 'md') && fs.existsSync(mdPath)) {
+        const mdStoragePath = `calls/${callName}/runs/${runTs}/results.md`;
+        await uploadToStorage(storage, mdPath, mdStoragePath);
+        console.log(`  ${c.success('Results MD uploaded')} → ${c.dim(mdStoragePath)}`);
+      }
     } catch (err) {
-      console.warn(`  ⚠ Results upload failed: ${err.message}`);
+      console.warn(`  ${c.warn('Results upload failed:')} ${err.message}`);
     }
   } else if (opts.skipUpload) {
-    console.log('  ⚠ Skipping results upload (--skip-upload)');
+    console.log(`  ${c.warn('Skipping results upload')} ${c.dim('(--skip-upload)')}`);
   } else {
-    console.log('  ⚠ Skipping results upload (Firebase auth not configured)');
+    console.log(`  ${c.warn('Skipping results upload')} ${c.dim('(Firebase auth not configured)')}`);
   }
 
   timer.end();

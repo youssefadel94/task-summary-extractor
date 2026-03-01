@@ -21,6 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { c } = require('./colors');
 
 // ── Config file path ──────────────────────────────────────────────────────
 const CONFIG_FILE = path.join(os.homedir(), '.taskexrc');
@@ -53,7 +54,7 @@ function loadGlobalConfig() {
   } catch (err) {
     // Warn if file exists but is corrupt (not just missing)
     if (fs.existsSync(CONFIG_FILE)) {
-      process.stderr.write(`  ⚠ Could not parse ${CONFIG_FILE}: ${err.message}\n`);
+      process.stderr.write(`  ${c.warn(`Could not parse ${CONFIG_FILE}: ${err.message}`)}\n`);
       process.stderr.write(`    Run \`taskex config\` to reconfigure, or delete the file.\n`);
     }
     return {};
@@ -155,7 +156,7 @@ async function interactiveSetup({ showOnly = false, clear = false, onlyMissing =
   if (clear) {
     const removed = clearGlobalConfig();
     if (removed) {
-      console.log('\n  ✓ Global config cleared (~/.taskexrc deleted)\n');
+      console.log(`\n  ${c.success('Global config cleared (~/.taskexrc deleted)')}\n`);
     } else {
       console.log('\n  No global config to clear.\n');
     }
@@ -233,7 +234,7 @@ async function interactiveSetup({ showOnly = false, clear = false, onlyMissing =
 
   if (Object.keys(updates).length > 0) {
     saveGlobalConfig(updates);
-    console.log(`  ✓ Saved ${Object.keys(updates).length} value(s) to ${CONFIG_FILE}`);
+    console.log(`  ${c.success(`Saved ${Object.keys(updates).length} value(s) to ${CONFIG_FILE}`)}`);
     console.log('');
 
     // Also inject into current process so the pipeline can proceed
@@ -260,7 +261,7 @@ async function promptForKey(key) {
   const readline = require('readline');
 
   console.log('');
-  console.log(`  ⚠ ${meta.label} is not configured.`);
+  console.log(`  ${c.warn(`${meta.label} is not configured.`)}`);
   if (meta.hint) console.log(`    ${meta.hint}`);
   console.log('');
 
@@ -292,7 +293,7 @@ async function promptForKey(key) {
 
   if (save) {
     saveGlobalConfig({ [key]: value });
-    console.log(`  ✓ Saved to ${CONFIG_FILE}`);
+    console.log(`  ${c.success(`Saved to ${CONFIG_FILE}`)}`);
   }
 
   // Inject into current process

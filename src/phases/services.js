@@ -11,6 +11,7 @@ const { initGemini, prepareDocsForGemini } = require('../services/gemini');
 const { parallelMap } = require('../utils/retry');
 
 // --- Shared state ---
+const { c } = require('../utils/colors');
 const { getLog, isShuttingDown, phaseTimer } = require('./_shared');
 
 // ======================== PHASE: SERVICES ========================
@@ -25,7 +26,7 @@ async function phaseServices(ctx) {
   const { opts, allDocFiles } = ctx;
   const callName = path.basename(ctx.targetDir);
 
-  console.log('Initializing services...');
+  console.log(`${c.dim('Initializing services...')}`);
 
   let storage = null;
   let firebaseReady = false;
@@ -34,19 +35,19 @@ async function phaseServices(ctx) {
     storage = fb.storage;
     firebaseReady = fb.authenticated;
   } else if (opts.skipUpload) {
-    console.log('  Firebase: skipped (--skip-upload)');
+    console.log(`  Firebase: ${c.dim('skipped (--skip-upload)')}`);
   } else {
-    console.log('  Firebase: skipped (--dry-run)');
+    console.log(`  Firebase: ${c.dim('skipped (--dry-run)')}`);
   }
 
   let ai = null;
   if (!opts.skipGemini && !opts.dryRun) {
     ai = await initGemini();
-    console.log('  Gemini AI: ready');
+    console.log(`  ${c.success('Gemini AI: ready')}`);
   } else if (opts.skipGemini) {
-    console.log('  Gemini AI: skipped (--skip-gemini)');
+    console.log(`  Gemini AI: ${c.dim('skipped (--skip-gemini)')}`);
   } else {
-    console.log('  Gemini AI: skipped (--dry-run)');
+    console.log(`  Gemini AI: ${c.dim('skipped (--dry-run)')}`);
   }
 
   log.step(`Services: Firebase auth=${firebaseReady}, Gemini=${ai ? 'ready' : 'skipped'}`);
@@ -56,7 +57,7 @@ async function phaseServices(ctx) {
   if (ai) {
     contextDocs = await prepareDocsForGemini(ai, allDocFiles);
   } else if (allDocFiles.length > 0) {
-    console.log(`  ⚠ Skipping Gemini doc preparation (AI not active)`);
+    console.log(`  ${c.warn('Skipping Gemini doc preparation (AI not active)')}`);
     contextDocs = allDocFiles
       .filter(({ absPath }) => ['.txt', '.md', '.vtt', '.srt', '.csv', '.json', '.xml', '.html']
         .includes(path.extname(absPath).toLowerCase()))
@@ -78,21 +79,21 @@ async function phaseServices(ctx) {
           const existingUrl = await storageExists(storage, docStoragePath);
           if (existingUrl) {
             docStorageUrls[relPath] = existingUrl;
-            console.log(`  ✓ Document already in Storage → ${docStoragePath}`);
+            console.log(`  ${c.success(`Document already in Storage \u2192 ${c.cyan(docStoragePath)}`)}`);
             return;
           }
         }
         const url = await uploadToStorage(storage, docPath, docStoragePath);
         docStorageUrls[relPath] = url;
-        console.log(`  ✓ Document ${opts.forceUpload ? '(re-uploaded)' : '→'} ${docStoragePath}`);
+        console.log(`  ${c.success(`Document ${opts.forceUpload ? '(re-uploaded)' : '\u2192'} ${c.cyan(docStoragePath)}`)}`);
       } catch (err) {
-        console.warn(`  ⚠ Document upload failed (${relPath}): ${err.message}`);
+        console.warn(`  ${c.warn(`Document upload failed (${relPath}): ${err.message}`)}`);
       }
     }, opts.parallel);
   } else if (opts.skipUpload) {
-    console.log('  ⚠ Skipping document uploads (--skip-upload)');
+    console.log(`  ${c.warn('Skipping document uploads (--skip-upload)')}`);
   } else {
-    console.log('  ⚠ Skipping document uploads (Firebase auth not configured)');
+    console.log(`  ${c.warn('Skipping document uploads (Firebase auth not configured)')}`);
   }
   console.log('');
 

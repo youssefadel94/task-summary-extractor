@@ -16,6 +16,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { c } = require('../utils/colors');
 
 // ======================== PARSER REGISTRY ========================
 
@@ -313,7 +314,7 @@ async function parseDocument(filePath, opts = {}) {
   // Log warnings if not silent
   if (!opts.silent && warnings.length > 0) {
     for (const w of warnings) {
-      console.warn(`    ⚠ ${path.basename(filePath)}: ${w}`);
+      console.warn(`    ${c.warn(`${path.basename(filePath)}: ${w}`)}`);
     }
   }
 

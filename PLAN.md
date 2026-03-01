@@ -2,27 +2,27 @@
 
 > **taskex** v8.3.0 → v9.0.0  
 > **Author:** Youssef Adel  
-> **Last updated:** 2026-02-27  
-> **Status:** Planning  
+> **Last updated:** 2026-03-01  
+> **Status:** ✅ Complete  
 
 ---
 
 ## Table of Contents
 
-| #  | Feature                                   | Priority | Complexity | Est. Hours |
-|----|-------------------------------------------|----------|------------|------------|
-| 1  | [Progress Bar](#1-progress-bar)           | P0       | Low        | 4–6        |
-| 2  | [HTML Report Viewer](#2-html-report-viewer) | P1     | Medium     | 10–14      |
-| 3  | [JSON Schema Validation](#3-json-schema-validation) | P0 | Medium   | 8–10       |
-| 4  | [Confidence Filter](#4-confidence-filter) | P1       | Low        | 3–5        |
-| 5  | [Watch Mode](#5-watch-mode)               | P2       | Medium     | 8–12       |
-| 6  | [Decompose pipeline.js](#6-decompose-pipelinejs) | P0 | High     | 12–16      |
-| 7  | [Streaming / Live Analysis](#7-streaming--live-analysis) | P3 | Very High | 20–30 |
-| 8  | [Test Suite](#8-test-suite)               | P0       | High       | 16–24      |
-| 9  | [Audio-Only & Doc-Only Mode](#9-audio-only--doc-only-mode) | P0 | Medium | 6–8 |
+| #  | Feature                                   | Priority | Complexity | Est. Hours | Status |
+|----|-------------------------------------------|----------|------------|------------|--------|
+| 1  | [Progress Bar](#1-progress-bar)           | P0       | Low        | 4–6        | ✅ Done |
+| 2  | [HTML Report Viewer](#2-html-report-viewer) | P1     | Medium     | 10–14      | ✅ Done |
+| 3  | [JSON Schema Validation](#3-json-schema-validation) | P0 | Medium   | 8–10       | ✅ Done |
+| 4  | [Confidence Filter](#4-confidence-filter) | P1       | Low        | 3–5        | ✅ Done |
+| 6  | [Decompose pipeline.js](#6-decompose-pipelinejs) | P0 | High     | 12–16      | ✅ Done |
+
+| 8  | [Test Suite](#8-test-suite)               | P0       | High       | 16–24      | ✅ Done |
+| 9  | [Audio-Only & Doc-Only Mode](#9-audio-only--doc-only-mode) | P0 | Medium | 6–8 | ✅ Done |
 
 **Total estimate:** 87–125 hours  
-**Recommended implementation order:** 9 → 6 → 8 → 3 → 1 → 4 → 2 → 5 → 7
+**Recommended implementation order:** 9 → 6 → 8 → 3 → 1 → 4 → 2 → ~~5~~ → 7  
+**Completed:** 7/7 features (Feature 5 Watch Mode skipped, Feature 7 deferred to P3) — **all v9.0.0 targets delivered.**
 
 ---
 
@@ -619,159 +619,6 @@ Add a notice at the top of the MD when filtering is active:
 
 ---
 
-## 5. Watch Mode
-
-**Goal:** Monitor a folder for new video/audio/document files and automatically trigger analysis when files appear.
-
-### Design
-
-```
-taskex watch [folder] [--poll-interval 5000]
-```
-
-#### Workflow
-
-```
-1. User drops a .mp4 / .mp3 / .vtt into the watched folder
-2. Watch mode detects the new file
-3. Waits for file to stop growing (copy-in-progress detection)
-4. Triggers a full pipeline run for that file
-5. Returns to watching
-```
-
-### Implementation
-
-#### 5.1 Create `src/modes/watch-mode.js` (~200 lines)
-
-```js
-const fs = require('fs');
-const path = require('path');
-
-const WATCH_EXTS = new Set([
-  '.mp4', '.mkv', '.avi', '.mov', '.webm',  // video
-  '.mp3', '.wav', '.m4a', '.ogg', '.flac',  // audio
-  '.vtt', '.srt', '.txt', '.pdf', '.docx',  // docs
-]);
-
-class WatchMode {
-  constructor(targetDir, opts = {}) {
-    this.targetDir = targetDir;
-    this.pollInterval = opts.pollInterval || 5000;
-    this.debounceMs = opts.debounceMs || 3000;
-    this.processedFiles = new Set();
-    this.pendingFiles = new Map(); // path → { size, stableCount }
-    this.running = false;
-  }
-
-  async start() {
-    console.log(`\n  👁  Watch mode active — monitoring: ${this.targetDir}`);
-    console.log(`  Drop video/audio/document files to trigger analysis.`);
-    console.log(`  Press Ctrl+C to stop.\n`);
-
-    this.running = true;
-    // Load already-processed files from existing runs/
-    this._loadProcessedHistory();
-
-    // Use fs.watch with polling fallback for network drives
-    this._startWatcher();
-
-    // Also poll for stability (file size stopped changing)
-    this._pollLoop();
-  }
-
-  _startWatcher() {
-    // fs.watch for instant detection
-    try {
-      fs.watch(this.targetDir, { recursive: false }, (event, filename) => {
-        if (filename && this._isWatchable(filename)) {
-          this._enqueue(path.join(this.targetDir, filename));
-        }
-      });
-    } catch {
-      // Fallback to pure polling on unsupported systems
-    }
-  }
-
-  async _pollLoop() {
-    while (this.running) {
-      // Check pending files for stability
-      for (const [filePath, meta] of this.pendingFiles) {
-        const currentSize = this._getFileSize(filePath);
-        if (currentSize === meta.size) {
-          meta.stableCount++;
-          if (meta.stableCount >= 2) {
-            // File stable — trigger processing
-            this.pendingFiles.delete(filePath);
-            await this._processFile(filePath);
-          }
-        } else {
-          meta.size = currentSize;
-          meta.stableCount = 0;
-        }
-      }
-      await new Promise(r => setTimeout(r, this.pollInterval));
-    }
-  }
-
-  async _processFile(filePath) {
-    if (this.processedFiles.has(filePath)) return;
-    this.processedFiles.add(filePath);
-
-    console.log(`\n  📥 New file detected: ${path.basename(filePath)}`);
-    console.log(`  Starting analysis...\n`);
-
-    // Import and run pipeline
-    const { run } = require('../pipeline');
-    try {
-      await run({
-        folderPath: this.targetDir,
-        specificFile: filePath,
-        // inherit current opts
-      });
-    } catch (err) {
-      console.error(`  ✗ Analysis failed: ${err.message}`);
-    }
-
-    console.log(`\n  👁  Watching for new files...\n`);
-  }
-}
-```
-
-#### 5.2 CLI integration
-
-In `cli.js`, add `'watch'` as a recognized subcommand:
-```
-taskex watch                        Watch current directory
-taskex watch "call 1"               Watch specific folder
-taskex watch --poll-interval 10000  Custom poll interval
-```
-
-#### 5.3 Wire into entry point
-
-In `process_and_upload.js` / `bin/taskex.js`:
-```js
-if (flags.watch || positional[0] === 'watch') {
-  const watchMode = new WatchMode(targetDir, { pollInterval: flags['poll-interval'] });
-  await watchMode.start();
-  return;
-}
-```
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/modes/watch-mode.js` | **New** — File watcher with stability detection |
-| `src/utils/cli.js` | Add `watch` subcommand, `--poll-interval` flag |
-| `process_and_upload.js` | Route `watch` subcommand to WatchMode |
-| `bin/taskex.js` | Same routing |
-
-### Risks
-
-- **`fs.watch` reliability** — notoriously unreliable on some platforms (especially network drives). The polling fallback mitigates this. Consider adding `chokidar` as an optional dependency if native watchers are insufficient.
-- **Concurrent runs** — If two files arrive simultaneously, queue them sequentially. The pipeline is not designed for concurrent execution within a single process.
-
----
 
 ## 6. Decompose pipeline.js
 
@@ -935,183 +782,6 @@ module.exports = { run, runDynamic, runProgressUpdate };
 
 ---
 
-## 7. Streaming / Live Analysis (Gemini Live API)
-
-**Goal:** Enable real-time analysis of ongoing meetings by streaming audio/video to Gemini's Live API, providing incremental results as the meeting progresses.
-
-### Current State
-
-- Pipeline is entirely batch-oriented: record → compress → upload → analyze → compile
-- `gemini.js` uses `@google/genai` SDK's `generateContent()` method — single request/response
-- No streaming or WebSocket support exists
-- Gemini Live API uses WebSocket-based bidirectional streaming with audio/video input  
-
-### Design
-
-#### Two sub-modes
-
-1. **Live capture** — pipe microphone/screen audio directly to Gemini Live API via WebSocket
-2. **Stream file** — incrementally analyze a growing file (e.g., recording in progress)
-
-#### Architecture
-
-```
-                ┌──────────────────────────┐
-                │  Audio Source             │
-                │  (mic / system audio)     │
-                └─────────┬────────────────┘
-                          │ PCM/WAV chunks
-                          ▼
-                ┌──────────────────────────┐
-                │  LiveStreamManager       │
-                │  - WebSocket connection   │
-                │  - Audio chunking         │
-                │  - Incremental results    │
-                └─────────┬────────────────┘
-                          │ partial analysis JSON
-                          ▼
-                ┌──────────────────────────┐
-                │  LiveAccumulator         │
-                │  - Merge incremental      │
-                │  - Dedup items            │
-                │  - Emit events            │
-                └─────────┬────────────────┘
-                          │ merged results
-                          ▼
-                ┌──────────────────────────┐
-                │  Live UI (terminal)      │
-                │  - Running item list      │
-                │  - Final compilation      │
-                └──────────────────────────┘
-```
-
-### Implementation
-
-#### 7.1 Create `src/services/live-stream.js` (~300 lines)
-
-```js
-const { GoogleGenAI } = require('@google/genai');
-
-class LiveStreamManager {
-  constructor(apiKey, opts = {}) {
-    this.client = new GoogleGenAI({ apiKey });
-    this.model = opts.model || 'gemini-2.5-flash';
-    this.session = null;
-    this.onPartialResult = opts.onPartialResult || (() => {});
-    this.onError = opts.onError || console.error;
-  }
-
-  async connect() {
-    // Open a Live API session
-    this.session = await this.client.live.connect({
-      model: this.model,
-      config: {
-        responseModalities: ['TEXT'],
-        systemInstruction: this._buildSystemPrompt(),
-      },
-    });
-
-    this.session.on('message', (msg) => {
-      // Parse incremental analysis from text responses
-      const text = msg.text();
-      if (text) this._handleResponse(text);
-    });
-
-    this.session.on('error', this.onError);
-  }
-
-  sendAudioChunk(chunk) {
-    // Send PCM16 audio data
-    this.session.sendRealtimeInput({
-      audio: { data: chunk.toString('base64'), mimeType: 'audio/pcm;rate=16000' },
-    });
-  }
-
-  async disconnect() {
-    if (this.session) {
-      await this.session.close();
-    }
-  }
-
-  _buildSystemPrompt() {
-    // Adapted from prompt.json for streaming context
-    return `You are analyzing a meeting in real-time. As you hear discussion:
-      1. Extract tickets, action items, change requests as they're mentioned
-      2. Output incremental JSON updates
-      3. Use confidence: HIGH for explicitly stated items, MEDIUM for implied
-      ...`;
-  }
-}
-```
-
-#### 7.2 Create `src/modes/live-mode.js` (~250 lines)
-
-Orchestrator for live analysis:
-
-```js
-class LiveMode {
-  constructor(opts) {
-    this.streamManager = new LiveStreamManager(opts.apiKey, opts);
-    this.accumulator = new LiveAccumulator();
-    this.audioSource = opts.audioSource; // 'mic' | 'file'
-  }
-
-  async start() {
-    await this.streamManager.connect();
-
-    if (this.audioSource === 'mic') {
-      await this._captureMicrophone();
-    } else {
-      await this._streamFile(this.audioSource);
-    }
-  }
-
-  async _captureMicrophone() {
-    // Use node-record-lpcm16 or similar
-    // Requires optional dependency
-  }
-
-  async _streamFile(filePath) {
-    // Read file in chunks, simulating real-time
-    // Or watch file for growth (recording in progress)
-  }
-}
-```
-
-#### 7.3 CLI integration
-
-```
-taskex live                    Start live analysis (microphone)
-taskex live --source file.mp4  Stream a file incrementally
-taskex live --output live/     Output directory for incremental results
-```
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/services/live-stream.js` | **New** — Gemini Live API WebSocket client |
-| `src/modes/live-mode.js` | **New** — Live mode orchestrator |
-| `src/utils/live-accumulator.js` | **New** — Incremental result merger/deduplicator |
-| `src/utils/cli.js` | Add `live` subcommand + `--source` flag |
-| `process_and_upload.js` | Route `live` subcommand |
-| `package.json` | Optional: `node-record-lpcm16` for mic capture |
-
-### Risks
-
-- **Gemini Live API availability** — currently in preview; API surface may change. Build with an abstraction layer.
-- **Audio capture** — requires platform-specific audio drivers. Make mic capture optional; file streaming is the safer first implementation.
-- **Cost** — Live API pricing may differ from batch. Integrate cost tracking from the start.
-- **Incremental JSON merging** — partial results from streaming are inherently noisy. The accumulator must handle duplicates, corrections, and out-of-order items.
-- **Complexity** — This is the largest feature by far. Consider shipping file-streaming first, mic capture second.
-
-### Recommended phasing
-
-1. **Phase A:** File streaming with incremental analysis (most value, no hardware deps)
-2. **Phase B:** Mic capture for true live analysis
-3. **Phase C:** Live UI with real-time terminal display
-
----
 
 ## 8. Test Suite
 
@@ -1555,11 +1225,9 @@ Phase 2 — Quality & UX (v8.5.0)
 
 Phase 3 — Output & Monitoring (v9.0.0)
 ├── #2  HTML Report Viewer          ← Major output upgrade
-├── #5  Watch Mode                  ← Automation capability
 └── #8  Test Suite (remaining)      ← Complete coverage
 
-Phase 4 — Advanced (v9.x)
-└── #7  Streaming / Live Analysis   ← Experimental, Gemini Live API dependent
+
 ```
 
 ### Dependency Graph

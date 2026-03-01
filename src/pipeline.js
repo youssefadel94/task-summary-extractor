@@ -39,58 +39,61 @@ const phaseOutput      = require('./phases/output');
 const phaseSummary     = require('./phases/summary');
 const phaseDeepDive    = require('./phases/deep-dive');
 
-// --- Services (for alternative modes) ---
-const { initFirebase, uploadToStorage } = require('./services/firebase');
-const { initGemini, compileFinalResult, analyzeVideoForContext } = require('./services/gemini');
-const { compressAndSegment, verifySegment } = require('./services/video');
-const { isGitAvailable, isGitRepo, initRepo } = require('./services/git');
+// --- Services (for alternative modes — lazy-loaded inside each function) ---
+// initFirebase, uploadToStorage, initGemini, compileFinalResult, analyzeVideoForContext,
+// compressAndSegment, verifySegment, isGitAvailable, isGitRepo, initRepo
 
-// --- Utils (for alternative modes + run orchestration) ---
+// --- Utils (for run orchestration + alt modes) ---
+const { c } = require('./utils/colors');
 const { findDocsRecursive } = require('./utils/fs');
 const { promptUserText } = require('./utils/cli');
-const { assessQuality } = require('./utils/quality-gate');
-const { validateAnalysis, formatSchemaLine } = require('./utils/schema-validator');
+const { createProgressBar } = require('./utils/progress-bar');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
 const { saveHistory, buildHistoryEntry } = require('./utils/learning-loop');
 const { loadPreviousCompilation } = require('./utils/diff-engine');
 
-// --- Modes (for alternative pipelines) ---
-const { detectAllChanges, serializeReport } = require('./modes/change-detector');
-const { assessProgressLocal, assessProgressWithAI, mergeProgressIntoAnalysis, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS } = require('./modes/progress-updater');
-const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./modes/dynamic-mode');
-
-// --- Renderers (for alternative modes) ---
-const { renderResultsMarkdown } = require('./renderers/markdown');
-const { renderResultsHtml } = require('./renderers/html');
+// --- Modes & renderers (lazy-loaded inside each alternative mode function) ---
+// detectAllChanges, serializeReport, assessProgressLocal, assessProgressWithAI, etc.
 
 // ======================== MAIN PIPELINE ========================
 
 async function run() {
+  // Lazy imports for run() — quality gate
+  const { assessQuality } = require('./utils/quality-gate');
+
   // Phase 1: Init
   const initCtx = await phaseInit();
   if (!initCtx) return; // --version early exit
   const log = getLog();
+  const bar = initCtx.progressBar;
 
   // --- Smart Change Detection mode ---
   if (initCtx.opts.updateProgress) {
+    bar.finish();
     return await runProgressUpdate(initCtx);
   }
 
   // --- Dynamic document-only mode ---
   if (initCtx.opts.dynamic) {
+    bar.finish();
     return await runDynamic(initCtx);
   }
 
   // Phase 2: Discover
+  bar.setPhase('discover');
   const ctx = await phaseDiscover(initCtx);
+  bar.tick('Files discovered');
 
   // --- Document-only mode: skip media processing, go straight to compilation ---
   if (ctx.inputMode === 'document') {
+    bar.finish();
     return await runDocOnly(ctx);
   }
 
   // Phase 3: Services
+  bar.setPhase('services');
   const fullCtx = await phaseServices(ctx);
+  bar.tick('Services ready');
 
   // Phase 4: Process each media file (video or audio)
   const allSegmentAnalyses = [];
@@ -118,11 +121,13 @@ async function run() {
   };
 
   fullCtx.progress.setPhase('compress');
+  bar.setPhase('analyze', mediaFiles.length);
   if (log && log.phaseStart) log.phaseStart('process_videos');
 
   for (let i = 0; i < mediaFiles.length; i++) {
     if (isShuttingDown()) break;
 
+    bar.tick(path.basename(mediaFiles[i]));
     const { fileResult, segmentAnalyses, segmentReports } = await phaseProcessVideo(fullCtx, mediaFiles[i], i);
     if (fileResult) {
       results.files.push(fileResult);
@@ -134,7 +139,9 @@ async function run() {
   if (log && log.phaseEnd) log.phaseEnd({ videoCount: mediaFiles.length, segmentCount: allSegmentAnalyses.length });
 
   // Phase 5: Compile
+  bar.setPhase('compile', 1);
   const { compiledAnalysis, compilationRun, compilationPayload, compilationFile } = await phaseCompile(fullCtx, allSegmentAnalyses);
+  bar.tick('Compilation done');
 
   // Quality gate on compilation output
   let compilationQuality = null;
@@ -155,8 +162,10 @@ async function run() {
   results._compilationPayload = compilationPayload;
 
   // Phase 6: Output
+  bar.setPhase('output', 3);
   const outputResult = await phaseOutput(fullCtx, results, compiledAnalysis, compilationRun, compilationPayload);
   delete results._compilationPayload;
+  bar.tick('Output files written');
 
   // Phase 7: Health Dashboard
   const healthReport = buildHealthReport({
@@ -167,6 +176,7 @@ async function run() {
     totalDurationMs: Date.now() - pipelineStartMs,
   });
   printHealthDashboard(healthReport);
+  bar.tick('Health dashboard generated');
 
   // Add health report to results
   results.healthReport = healthReport;
@@ -193,14 +203,19 @@ async function run() {
   }
 
   // Phase 8: Summary
+  bar.setPhase('summary', 1);
   phaseSummary(fullCtx, results, { ...outputResult, compilationRun });
+  bar.tick('Summary displayed');
 
   // Phase 9 (optional): Deep Dive — generate explanatory documents
   if (fullCtx.opts.deepDive && compiledAnalysis && !fullCtx.opts.skipGemini && !fullCtx.opts.dryRun && !isShuttingDown()) {
+    bar.setPhase('deep-dive', 1);
     await phaseDeepDive(fullCtx, compiledAnalysis, outputResult.runDir);
+    bar.tick('Deep dive complete');
   }
 
   // Cleanup
+  bar.finish();
   fullCtx.progress.cleanup();
   log.close();
 }
@@ -214,40 +229,54 @@ async function run() {
  * Triggered automatically when no video/audio files are found.
  */
 async function runDocOnly(ctx) {
+  // Lazy imports for doc-only mode
+  const { compileFinalResult } = require('./services/gemini');
+  const { validateAnalysis, formatSchemaLine } = require('./utils/schema-validator');
+  const { renderResultsMarkdown } = require('./renderers/markdown');
+  const { renderResultsHtml } = require('./renderers/html');
+  const { renderResultsPdf } = require('./renderers/pdf');
+  const { renderResultsDocx } = require('./renderers/docx');
+
   const { opts, targetDir, allDocFiles, userName, progress, costTracker } = ctx;
   const callName = path.basename(targetDir);
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const pipelineStartMs = Date.now();
   const log = getLog();
+  const bar = createProgressBar({ costTracker, callName });
 
   console.log('');
-  console.log('══════════════════════════════════════════════');
-  console.log('  DOCUMENT-ONLY MODE — Analyzing Documents');
-  console.log('══════════════════════════════════════════════');
-  console.log(`  Folder: ${callName}`);
-  console.log(`  Documents: ${allDocFiles.length}`);
+  console.log(c.cyan('══════════════════════════════════════════════'));
+  console.log(c.heading('  DOCUMENT-ONLY MODE — Analyzing Documents'));
+  console.log(c.cyan('══════════════════════════════════════════════'));
+  console.log(`  Folder: ${c.cyan(callName)}`);
+  console.log(`  Documents: ${c.highlight(allDocFiles.length)}`);
   console.log('');
 
   // Initialize services
+  bar.setPhase('services', 1);
   const serviceCtx = await phaseServices(ctx);
   const { ai, contextDocs, storage, firebaseReady, docStorageUrls } = serviceCtx;
+  bar.tick('Services ready');
 
   if (!ai) {
-    console.error('  ✗ Document-only mode requires Gemini AI. Remove --skip-gemini / --dry-run.');
+    console.error(`  ${c.error('Document-only mode requires Gemini AI. Remove --skip-gemini / --dry-run.')}`);
+    bar.finish();
     progress.cleanup();
     log.close();
     return;
   }
 
   if (contextDocs.length === 0) {
-    console.error('  ✗ No documents could be loaded for analysis.');
+    console.error(`  ${c.error('No documents could be loaded for analysis.')}`);
+    bar.finish();
     progress.cleanup();
     log.close();
     return;
   }
 
   // Build a single analysis from all documents (send as one "segment")
-  console.log(`  Analyzing ${contextDocs.length} document(s) with ${config.GEMINI_MODEL}...`);
+  bar.setPhase('compile', 1);
+  console.log(`  Analyzing ${c.highlight(contextDocs.length)} document(s) with ${c.cyan(config.GEMINI_MODEL)}...`);
 
   let compiledAnalysis = null;
   let compilationRun = null;
@@ -256,7 +285,7 @@ async function runDocOnly(ctx) {
 
   try {
     const compBudget = opts.compilationThinkingBudget;
-    console.log(`  Thinking budget: ${compBudget.toLocaleString()} tokens`);
+    console.log(`  Thinking budget: ${c.highlight(compBudget.toLocaleString())} tokens`);
 
     // Use compileFinalResult with empty segment analyses — it will use contextDocs as primary input
     const compilationResult = await compileFinalResult(
@@ -287,7 +316,7 @@ async function runDocOnly(ctx) {
     fs.writeFileSync(compilationFile, JSON.stringify(compilationPayload, null, 2), 'utf8');
     log.step(`Doc-only compilation saved → ${compilationFile}`);
 
-    console.log(`  ✓ Analysis complete (${(compilationRun.durationMs / 1000).toFixed(1)}s)`);
+    console.log(`  ${c.success(`Analysis complete (${c.yellow((compilationRun.durationMs / 1000).toFixed(1) + 's')})`)}`);
 
     // Schema validation on doc-only compilation
     if (compiledAnalysis) {
@@ -298,9 +327,10 @@ async function runDocOnly(ctx) {
       }
     }
 
+    bar.tick('Compilation done');
     progress.markCompilationDone();
   } catch (err) {
-    console.error(`  ✗ Document analysis failed: ${err.message}`);
+    console.error(`  ${c.error(`Document analysis failed: ${err.message}`)}`); 
     log.error(`Doc-only compilation FAIL — ${err.message}`);
   }
 
@@ -340,6 +370,8 @@ async function runDocOnly(ctx) {
   const jsonPath = path.join(runDir, 'results.json');
   fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
 
+  const shouldRender = (type) => opts.format === 'all' || opts.format === type;
+
   if (compiledAnalysis) {
     const mdMeta = {
       callName,
@@ -353,16 +385,51 @@ async function runDocOnly(ctx) {
       settings: results.settings,
     };
 
-    const mdContent = renderResultsMarkdown({ compiled: compiledAnalysis, meta: mdMeta });
-    const mdPath = path.join(runDir, 'results.md');
-    fs.writeFileSync(mdPath, mdContent, 'utf8');
-    console.log(`  ✓ Markdown report → ${path.basename(mdPath)}`);
+    if (shouldRender('md')) {
+      const mdContent = renderResultsMarkdown({ compiled: compiledAnalysis, meta: mdMeta });
+      const mdPath = path.join(runDir, 'results.md');
+      fs.writeFileSync(mdPath, mdContent, 'utf8');
+      console.log(`  ${c.success(`Markdown report → ${c.cyan(path.basename(mdPath))}`)}`); 
+    }
 
-    if (!opts.noHtml) {
+    if (shouldRender('html') && !opts.noHtml) {
       const htmlContent = renderResultsHtml({ compiled: compiledAnalysis, meta: mdMeta });
       const htmlPath = path.join(runDir, 'results.html');
       fs.writeFileSync(htmlPath, htmlContent, 'utf8');
-      console.log(`  ✓ HTML report → ${path.basename(htmlPath)}`);
+      console.log(`  ${c.success(`HTML report → ${c.cyan(path.basename(htmlPath))}`)}`); 
+
+      // PDF (uses rendered HTML)
+      if (shouldRender('pdf')) {
+        try {
+          const pdfPath = path.join(runDir, 'results.pdf');
+          const pdfInfo = await renderResultsPdf(htmlContent, pdfPath);
+          console.log(`  ${c.success(`PDF report → ${c.cyan(path.basename(pdfPath))}`)} ${c.dim(`(${(pdfInfo.bytes / 1024).toFixed(0)} KB)`)}`);
+        } catch (pdfErr) {
+          console.warn(`  ${c.warn('PDF generation failed:')} ${pdfErr.message}`);
+        }
+      }
+    } else if (shouldRender('pdf')) {
+      // PDF requested without HTML — build HTML in memory
+      try {
+        const htmlContent = renderResultsHtml({ compiled: compiledAnalysis, meta: mdMeta });
+        const pdfPath = path.join(runDir, 'results.pdf');
+        const pdfInfo = await renderResultsPdf(htmlContent, pdfPath);
+        console.log(`  ${c.success(`PDF report → ${c.cyan(path.basename(pdfPath))}`)} ${c.dim(`(${(pdfInfo.bytes / 1024).toFixed(0)} KB)`)}`);
+      } catch (pdfErr) {
+        console.warn(`  ${c.warn('PDF generation failed:')} ${pdfErr.message}`);
+      }
+    }
+
+    // DOCX report
+    if (shouldRender('docx')) {
+      try {
+        const docxPath = path.join(runDir, 'results.docx');
+        const docxBuffer = await renderResultsDocx({ compiled: compiledAnalysis, meta: mdMeta });
+        fs.writeFileSync(docxPath, docxBuffer);
+        console.log(`  ${c.success(`DOCX report → ${c.cyan(path.basename(docxPath))}`)} ${c.dim(`(${(docxBuffer.length / 1024).toFixed(0)} KB)`)}`);
+      } catch (docxErr) {
+        console.warn(`  ${c.warn('DOCX generation failed:')} ${docxErr.message}`);
+      }
     }
   }
 
@@ -370,24 +437,25 @@ async function runDocOnly(ctx) {
   const cost = costTracker.getSummary();
   if (cost.totalTokens > 0) {
     console.log('');
-    console.log(`  Cost estimate (${config.GEMINI_MODEL}):`);
-    console.log(`    Input:    ${cost.inputTokens.toLocaleString()} ($${cost.inputCost.toFixed(4)})`);
-    console.log(`    Output:   ${cost.outputTokens.toLocaleString()} ($${cost.outputCost.toFixed(4)})`);
-    console.log(`    Thinking: ${cost.thinkingTokens.toLocaleString()} ($${cost.thinkingCost.toFixed(4)})`);
-    console.log(`    Total:    ${cost.totalTokens.toLocaleString()} tokens | $${cost.totalCost.toFixed(4)}`);
+    console.log(`  ${c.heading(`Cost estimate (${config.GEMINI_MODEL}):`)}`); 
+    console.log(`    Input:    ${c.yellow(cost.inputTokens.toLocaleString())} ${c.dim(`($${cost.inputCost.toFixed(4)})`)}`); 
+    console.log(`    Output:   ${c.yellow(cost.outputTokens.toLocaleString())} ${c.dim(`($${cost.outputCost.toFixed(4)})`)}`); 
+    console.log(`    Thinking: ${c.yellow(cost.thinkingTokens.toLocaleString())} ${c.dim(`($${cost.thinkingCost.toFixed(4)})`)}`); 
+    console.log(`    Total:    ${c.highlight(cost.totalTokens.toLocaleString())} tokens | ${c.highlight(`$${cost.totalCost.toFixed(4)}`)}`); 
   }
 
   console.log('');
-  console.log('  ══════════════════════════════════════');
-  console.log('  Document-Only Analysis Complete');
-  console.log('  ══════════════════════════════════════');
-  console.log(`  Documents: ${contextDocs.length}`);
-  console.log(`  Output:    ${path.relative(PROJECT_ROOT, runDir)}/`);
-  console.log(`  Elapsed:   ${log.elapsed()}`);
+  console.log(c.cyan('  ══════════════════════════════════════'));
+  console.log(c.heading('  Document-Only Analysis Complete'));
+  console.log(c.cyan('  ══════════════════════════════════════'));
+  console.log(`  Documents: ${c.highlight(contextDocs.length)}`);
+  console.log(`  Output:    ${c.cyan(path.relative(PROJECT_ROOT, runDir) + '/')}`);
+  console.log(`  Elapsed:   ${c.yellow(log.elapsed())}`);
   console.log('');
 
   log.step('Doc-only mode complete');
   log.step('DONE');
+  bar.finish();
   progress.cleanup();
   log.close();
 }
@@ -401,18 +469,25 @@ async function runDocOnly(ctx) {
  * Triggered by --dynamic flag.
  */
 async function runDynamic(initCtx) {
+  // Lazy imports for dynamic mode
+  const { initGemini, analyzeVideoForContext } = require('./services/gemini');
+  const { initFirebase, uploadToStorage } = require('./services/firebase');
+  const { compressAndSegment, verifySegment } = require('./services/video');
+  const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./modes/dynamic-mode');
+
   const { opts, targetDir } = initCtx;
   const log = getLog();
   const folderName = path.basename(targetDir);
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const bar = createProgressBar({ costTracker: initCtx.costTracker, callName: folderName });
 
   console.log('');
-  console.log('══════════════════════════════════════════════');
-  console.log('  DYNAMIC MODE — AI Document Generation');
-  console.log('══════════════════════════════════════════════');
-  console.log(`  Folder: ${folderName}`);
-  console.log(`  Source: ${targetDir}`);
-  console.log(`  Mode:   Video + Documents (auto-detect)`);
+  console.log(c.cyan('══════════════════════════════════════════════'));
+  console.log(c.heading('  DYNAMIC MODE — AI Document Generation'));
+  console.log(c.cyan('══════════════════════════════════════════════'));
+  console.log(`  Folder: ${c.cyan(folderName)}`);
+  console.log(`  Source: ${c.dim(targetDir)}`);
+  console.log(`  Mode:   ${c.yellow('Video + Documents (auto-detect)')}`);
   console.log('');
 
   // 1. Get user request (from --request flag or interactive prompt)
@@ -421,13 +496,13 @@ async function runDynamic(initCtx) {
     userRequest = await promptUserText('  What do you want to generate?\n  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n\n  → ');
   }
   if (!userRequest || !userRequest.trim()) {
-    console.error('\n  ✗ A request is required for dynamic mode.');
-    console.error('    Use --request "your request" or enter it when prompted.');
-    initCtx.progress.cleanup();
+    console.error(`\n  ${c.error('A request is required for dynamic mode.')}`);
+    console.error(`    ${c.dim('Use --request "your request" or enter it when prompted.')}`);
+    bar.finish();    initCtx.progress.cleanup();
     log.close();
     return;
   }
-  console.log(`\n  Request: "${userRequest}"`);
+  console.log(`\n  Request: ${c.highlight(`"${userRequest}"`)}`);
   log.step(`Dynamic mode: "${userRequest}"`);
 
   // 2. Ask for user name (for attribution)
@@ -439,7 +514,7 @@ async function runDynamic(initCtx) {
 
   // 3. Discover documents AND video files
   console.log('');
-  console.log('  Discovering content...');
+  console.log(`  ${c.dim('Discovering content...')}`);
   const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
   const videoFiles = fs.readdirSync(targetDir)
     .filter(f => {
@@ -448,21 +523,22 @@ async function runDynamic(initCtx) {
     })
     .map(f => path.join(targetDir, f));
 
-  console.log(`  Found ${allDocFiles.length} document(s)`);
+  console.log(`  Found ${c.highlight(allDocFiles.length)} document(s)`);
   if (allDocFiles.length > 0) {
-    allDocFiles.forEach(f => console.log(`    - ${f.relPath}`));
+    allDocFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(f.relPath)}`));
   }
-  console.log(`  Found ${videoFiles.length} video file(s)`);
+  console.log(`  Found ${c.highlight(videoFiles.length)} video file(s)`);
   if (videoFiles.length > 0) {
-    videoFiles.forEach(f => console.log(`    - ${path.basename(f)}`));
+    videoFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(path.basename(f))}`));
   }
   log.step(`Discovered ${allDocFiles.length} document(s), ${videoFiles.length} video(s)`);
 
   // 4. Initialize Gemini
   console.log('');
-  console.log('  Initializing AI...');
+  console.log(`  ${c.dim('Initializing AI...')}`);
   if (opts.skipGemini || opts.dryRun) {
-    console.error('  ✗ Dynamic mode requires Gemini AI. Remove --skip-gemini / --dry-run.');
+    console.error(`  ${c.error('Dynamic mode requires Gemini AI. Remove --skip-gemini / --dry-run.')}`);
+    bar.finish();
     initCtx.progress.cleanup();
     log.close();
     return;
@@ -471,15 +547,16 @@ async function runDynamic(initCtx) {
   // Validate config for Gemini
   const configCheck = validateConfig({ skipFirebase: true, skipGemini: false });
   if (!configCheck.valid) {
-    console.error('\n  Configuration errors:');
-    configCheck.errors.forEach(e => console.error(`    ✗ ${e}`));
+    console.error(`\n  ${c.error('Configuration errors:')}`);
+    configCheck.errors.forEach(e => console.error(`    ${c.error(e)}`));
+    bar.finish();
     initCtx.progress.cleanup();
     log.close();
     return;
   }
 
   const ai = await initGemini();
-  console.log('  ✓ Gemini AI ready');
+  console.log(`  ${c.success('Gemini AI ready')}`);
   const costTracker = initCtx.costTracker;
 
   // 5. Process video files (compress → segment → analyze for context)
@@ -494,7 +571,7 @@ async function runDynamic(initCtx) {
       const baseName = path.basename(videoPath, path.extname(videoPath));
       const segmentDir = path.join(compressedDir, baseName);
 
-      console.log(`\n  [${vi + 1}/${videoFiles.length}] ${path.basename(videoPath)}`);
+      console.log(`\n  ${c.dim(`[${vi + 1}/${videoFiles.length}]`)} ${c.cyan(path.basename(videoPath))}`);
 
       // Compress & segment (reuse existing if available)
       let segments;
@@ -504,23 +581,23 @@ async function runDynamic(initCtx) {
 
       if (existingSegments.length > 0) {
         segments = existingSegments.map(f => path.join(segmentDir, f));
-        console.log(`  ✓ Using ${segments.length} existing segment(s)`);
+        console.log(`  ${c.success(`Using ${c.highlight(segments.length)} existing segment(s)`)}`);
         log.step(`SKIP compression — ${segments.length} segment(s) already on disk for "${baseName}"`);
       } else {
         console.log('  Compressing & segmenting...');
         segments = compressAndSegment(videoPath, segmentDir);
-        console.log(`  → ${segments.length} segment(s) created`);
+        console.log(`  → ${c.highlight(segments.length)} segment(s) created`);
         log.step(`Compressed "${baseName}" → ${segments.length} segment(s)`);
       }
 
       // Validate segments
       const validSegments = segments.filter(s => verifySegment(s));
       if (validSegments.length < segments.length) {
-        console.warn(`  ⚠ ${segments.length - validSegments.length} corrupt segment(s) skipped`);
+        console.warn(`  ${c.warn(`${segments.length - validSegments.length} corrupt segment(s) skipped`)}`);
       }
 
       // Analyze each segment with Gemini to extract context
-      console.log(`  Analyzing ${validSegments.length} segment(s) for content...`);
+      console.log(`  Analyzing ${c.highlight(validSegments.length)} segment(s) for content...`);
       for (let si = 0; si < validSegments.length; si++) {
         const segPath = validSegments[si];
         const segName = path.basename(segPath);
@@ -545,14 +622,14 @@ async function runDynamic(initCtx) {
             costTracker.addSegment(`dynamic-video-${baseName}-${segName}`, result.tokenUsage, result.durationMs, false);
           }
         } catch (err) {
-          console.error(`    ✗ Failed to analyze ${segName}: ${err.message}`);
+          console.error(`    ${c.error(`Failed to analyze ${segName}: ${err.message}`)}`);
           log.error(`Dynamic video analysis failed for ${displayName}: ${err.message}`);
         }
       }
     }
 
     console.log('');
-    console.log(`  ✓ Video analysis complete: ${videoSummaries.length} segment summary(ies)`);
+    console.log(`  ${c.success(`Video analysis complete: ${c.highlight(videoSummaries.length)} segment summary(ies)`)}`);
     log.step(`Dynamic video analysis: ${videoSummaries.length} segment summaries extracted`);
   }
 
@@ -577,33 +654,33 @@ async function runDynamic(initCtx) {
       }
     } catch { /* skip unreadable */ }
   }
-  console.log(`  Loaded ${docSnippets.length} document(s) as context for AI`);
+  console.log(`  Loaded ${c.highlight(docSnippets.length)} document(s) as context for AI`);
   if (videoSummaries.length > 0) {
-    console.log(`  Plus ${videoSummaries.length} video segment summary(ies) as context`);
+    console.log(`  Plus ${c.highlight(videoSummaries.length)} video segment summary(ies) as context`);
   }
   console.log('');
 
   const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
 
   // 7. Phase 1: Plan topics
-  console.log('  Phase 1: Planning documents...');
+  console.log(`  ${c.dim('Phase 1:')} Planning documents...`);
   let planResult;
   try {
     planResult = await planTopics(ai, userRequest, docSnippets, {
       folderName, userName, thinkingBudget, videoSummaries,
     });
   } catch (err) {
-    console.error(`  ✗ Topic planning failed: ${err.message}`);
-    log.error(`Dynamic topic planning failed: ${err.message}`);
-    initCtx.progress.cleanup();
+    console.error(`  ${c.error(`Topic planning failed: ${err.message}`)}`);
+    log.error(`Dynamic topic planning failed: ${err.message}`);    bar.finish();    initCtx.progress.cleanup();
     log.close();
     return;
   }
 
   const topics = planResult.topics;
   if (!topics || topics.length === 0) {
-    console.log('  ℹ No documents planned — request may be too vague.');
-    console.log('    Try a more specific request or add context documents to the folder.');
+    console.log(`  ${c.info('No documents planned \u2014 request may be too vague.')}`);
+    console.log(`    ${c.dim('Try a more specific request or add context documents to the folder.')}`);
+    bar.finish();
     initCtx.progress.cleanup();
     log.close();
     return;
@@ -613,16 +690,16 @@ async function runDynamic(initCtx) {
     costTracker.addSegment('dynamic-planning', planResult.tokenUsage, planResult.durationMs, false);
   }
 
-  console.log(`  ✓ Planned ${topics.length} document(s) in ${(planResult.durationMs / 1000).toFixed(1)}s:`);
-  topics.forEach(t => console.log(`    ${t.id} [${t.category}] ${t.title}`));
+  console.log(`  ${c.success(`Planned ${c.highlight(topics.length)} document(s) in ${c.yellow((planResult.durationMs / 1000).toFixed(1) + 's')}:`)}`);
+  topics.forEach(t => console.log(`    ${c.dim(t.id)} ${c.dim(`[${t.category}]`)} ${c.cyan(t.title)}`));
   if (planResult.projectSummary) {
-    console.log(`\n  Summary: ${planResult.projectSummary}`);
+    console.log(`\n  Summary: ${c.dim(planResult.projectSummary)}`);
   }
   console.log('');
   log.step(`Dynamic mode: ${topics.length} topics planned in ${(planResult.durationMs / 1000).toFixed(1)}s`);
 
   // 8. Phase 2: Generate all documents
-  console.log(`  Phase 2: Generating ${topics.length} document(s)...`);
+  console.log(`  ${c.dim('Phase 2:')} Generating ${c.highlight(topics.length)} document(s)...`);
   const documents = await generateAllDynamicDocuments(ai, topics, userRequest, docSnippets, {
     folderName,
     userName,
@@ -630,7 +707,7 @@ async function runDynamic(initCtx) {
     videoSummaries,
     concurrency: Math.min(opts.parallelAnalysis || 2, 3),
     onProgress: (done, total, topic) => {
-      console.log(`    [${done}/${total}] ✓ ${topic.title}`);
+      console.log(`    ${c.dim(`[${done}/${total}]`)} ${c.success(topic.title)}`);
     },
   });
 
@@ -653,23 +730,23 @@ async function runDynamic(initCtx) {
   });
 
   console.log('');
-  console.log(`  ✓ Dynamic generation complete: ${stats.successful}/${stats.total} documents`);
-  console.log(`    Output:  ${path.relative(PROJECT_ROOT, runDir)}/`);
-  console.log(`    Index:   ${path.relative(PROJECT_ROOT, indexPath)}`);
+  console.log(`  ${c.success(`Dynamic generation complete: ${c.highlight(stats.successful + '/' + stats.total)} documents`)}`);
+  console.log(`    Output:  ${c.cyan(path.relative(PROJECT_ROOT, runDir) + '/')}`);
+  console.log(`    Index:   ${c.cyan(path.relative(PROJECT_ROOT, indexPath))}`);
   if (stats.failed > 0) {
-    console.log(`    ⚠ ${stats.failed} document(s) failed`);
+    console.log(`    ${c.warn(`${stats.failed} document(s) failed`)}`);
   }
-  console.log(`    Tokens:  ${stats.totalTokens.toLocaleString()} | Time: ${(stats.totalDurationMs / 1000).toFixed(1)}s`);
+  console.log(`    Tokens:  ${c.yellow(stats.totalTokens.toLocaleString())} | Time: ${c.yellow((stats.totalDurationMs / 1000).toFixed(1) + 's')}`);
 
   // 10. Cost summary
   const cost = costTracker.getSummary();
   if (cost.totalTokens > 0) {
     console.log('');
-    console.log(`  Cost estimate (${config.GEMINI_MODEL}):`);
-    console.log(`    Input:    ${cost.inputTokens.toLocaleString()} ($${cost.inputCost.toFixed(4)})`);
-    console.log(`    Output:   ${cost.outputTokens.toLocaleString()} ($${cost.outputCost.toFixed(4)})`);
-    console.log(`    Thinking: ${cost.thinkingTokens.toLocaleString()} ($${cost.thinkingCost.toFixed(4)})`);
-    console.log(`    Total:    ${cost.totalTokens.toLocaleString()} tokens | $${cost.totalCost.toFixed(4)}`);
+    console.log(`  ${c.heading(`Cost estimate (${config.GEMINI_MODEL}):`)}`); 
+    console.log(`    Input:    ${c.yellow(cost.inputTokens.toLocaleString())} ${c.dim(`($${cost.inputCost.toFixed(4)})`)}`); 
+    console.log(`    Output:   ${c.yellow(cost.outputTokens.toLocaleString())} ${c.dim(`($${cost.outputCost.toFixed(4)})`)}`); 
+    console.log(`    Thinking: ${c.yellow(cost.thinkingTokens.toLocaleString())} ${c.dim(`($${cost.thinkingCost.toFixed(4)})`)}`); 
+    console.log(`    Total:    ${c.highlight(cost.totalTokens.toLocaleString())} tokens | ${c.highlight(`$${cost.totalCost.toFixed(4)}`)}`);
   }
 
   // 11. Firebase upload (optional)
@@ -680,29 +757,30 @@ async function runDynamic(initCtx) {
         const storagePath = `calls/${folderName}/dynamic/${ts}`;
         const indexStoragePath = `${storagePath}/INDEX.md`;
         await uploadToStorage(storage, indexPath, indexStoragePath);
-        console.log(`  ✓ Uploaded to Firebase: ${storagePath}/`);
+        console.log(`  ${c.success(`Uploaded to Firebase: ${c.cyan(storagePath + '/')}`)}`); 
         log.step(`Firebase upload complete: ${storagePath}`);
       }
     } catch (fbErr) {
-      console.warn(`  ⚠ Firebase upload failed: ${fbErr.message}`);
+      console.warn(`  ${c.warn(`Firebase upload failed: ${fbErr.message}`)}`);
       log.warn(`Firebase upload failed: ${fbErr.message}`);
     }
   }
 
   console.log('');
-  console.log('  ══════════════════════════════════════');
-  console.log('  Dynamic Mode Complete');
-  console.log('  ══════════════════════════════════════');
+  console.log(c.cyan('  ══════════════════════════════════════'));
+  console.log(c.heading('  Dynamic Mode Complete'));
+  console.log(c.cyan('  ══════════════════════════════════════'));
   if (videoSummaries.length > 0) {
-    console.log(`  Videos:    ${videoFiles.length} (${videoSummaries.length} segments analyzed)`);
+    console.log(`  Videos:    ${c.highlight(videoFiles.length)} (${c.yellow(videoSummaries.length)} segments analyzed)`);
   }
-  console.log(`  Documents: ${stats.successful}`);
-  console.log(`  Output:    ${path.relative(PROJECT_ROOT, runDir)}/`);
-  console.log(`  Elapsed:   ${log.elapsed()}`);
+  console.log(`  Documents: ${c.highlight(stats.successful)}`);
+  console.log(`  Output:    ${c.cyan(path.relative(PROJECT_ROOT, runDir) + '/')}`);
+  console.log(`  Elapsed:   ${c.yellow(log.elapsed())}`);
   console.log('');
 
   log.step(`Dynamic mode complete: ${stats.successful} docs, ${stats.totalTokens} tokens`);
   log.step('DONE');
+  bar.finish();
   initCtx.progress.cleanup();
   log.close();
 }
@@ -716,17 +794,24 @@ async function runDynamic(initCtx) {
  * Triggered by --update-progress flag.
  */
 async function runProgressUpdate(initCtx) {
+  // Lazy imports for progress-update mode
+  const { initGemini } = require('./services/gemini');
+  const { initFirebase, uploadToStorage } = require('./services/firebase');
+  const { isGitAvailable, isGitRepo, initRepo } = require('./services/git');
+  const { detectAllChanges, serializeReport } = require('./modes/change-detector');
+  const { assessProgressLocal, assessProgressWithAI, mergeProgressIntoAnalysis, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS } = require('./modes/progress-updater');
+
   const { opts, targetDir } = initCtx;
   const log = getLog();
   const callName = path.basename(targetDir);
   const ts = new Date().toISOString().replace(/:/g, '-').replace(/\.\d+Z$/, '');
 
   console.log('');
-  console.log('==============================================');
-  console.log(' Smart Change Detection & Progress Update');
-  console.log('==============================================');
-  console.log(`  Call:   ${callName}`);
-  console.log(`  Folder: ${targetDir}`);
+  console.log(c.cyan('=============================================='));
+  console.log(c.heading(' Smart Change Detection & Progress Update'));
+  console.log(c.cyan('=============================================='));
+  console.log(`  Call:   ${c.cyan(callName)}`);
+  console.log(`  Folder: ${c.dim(targetDir)}`);
   console.log('');
 
   // 0. Ensure a git repo exists for change tracking
@@ -734,11 +819,11 @@ async function runProgressUpdate(initCtx) {
     try {
       const { root, created } = initRepo(targetDir);
       if (created) {
-        console.log(`  ✓ Initialized git repository in ${root}`);
+        console.log(`  ${c.success(`Initialized git repository in ${c.cyan(root)}`)}`);
         log.step(`Git repo initialized: ${root}`);
       }
     } catch (gitErr) {
-      console.warn(`  ⚠ Could not initialize git: ${gitErr.message}`);
+      console.warn(`  ${c.warn(`Could not initialize git: ${gitErr.message}`)}`);
       log.warn(`Git init failed: ${gitErr.message}`);
     }
   }
@@ -746,17 +831,17 @@ async function runProgressUpdate(initCtx) {
   // 1. Load previous compilation
   const prev = loadPreviousCompilation(targetDir);
   if (!prev) {
-    console.error('  ✗ No previous analysis found. Run the full pipeline first.');
-    console.error('    Usage: taskex "' + callName + '"');
+    console.error(`  ${c.error('No previous analysis found. Run the full pipeline first.')}`);
+    console.error(`    ${c.dim('Usage: taskex "' + callName + '"')}`);
     initCtx.progress.cleanup();
     log.close();
     return;
   }
-  console.log(`  ✓ Loaded previous analysis from ${prev.timestamp}`);
+  console.log(`  ${c.success(`Loaded previous analysis from ${c.yellow(prev.timestamp)}`)}`);
   log.step(`Loaded previous compilation: ${prev.timestamp}`);
 
   // 2. Detect changes
-  console.log('  Detecting changes...');
+  console.log(`  ${c.dim('Detecting changes...')}`);
   const changeReport = detectAllChanges({
     repoPath: opts.repoPath,
     callDir: targetDir,
@@ -764,17 +849,17 @@ async function runProgressUpdate(initCtx) {
     analysis: prev.compiled,
   });
 
-  console.log(`  ✓ Git: ${changeReport.totals.commits} commits, ${changeReport.totals.filesChanged} files changed`);
-  console.log(`  ✓ Docs: ${changeReport.totals.docsChanged} document(s) updated`);
-  console.log(`  ✓ Items: ${changeReport.items.length} trackable items found`);
-  console.log(`  ✓ Correlations: ${changeReport.totals.itemsWithMatches} items with matches`);
+  console.log(`  ${c.success(`Git: ${c.highlight(changeReport.totals.commits)} commits, ${c.highlight(changeReport.totals.filesChanged)} files changed`)}`);
+  console.log(`  ${c.success(`Docs: ${c.highlight(changeReport.totals.docsChanged)} document(s) updated`)}`);
+  console.log(`  ${c.success(`Items: ${c.highlight(changeReport.items.length)} trackable items found`)}`);
+  console.log(`  ${c.success(`Correlations: ${c.highlight(changeReport.totals.itemsWithMatches)} items with matches`)}`);
   log.step(`Changes detected: ${changeReport.totals.commits} commits, ${changeReport.totals.filesChanged} files, ${changeReport.totals.docsChanged} docs`);
   console.log('');
 
   // 3. Local assessment (always runs)
   const localAssessments = assessProgressLocal(changeReport.items, changeReport.correlations);
   const localSummary = buildProgressSummary(localAssessments);
-  console.log(`  Local assessment: ${localSummary.done} done, ${localSummary.inProgress} in progress, ${localSummary.notStarted} not started`);
+  console.log(`  Local assessment: ${c.green(localSummary.done + ' done')}, ${c.yellow(localSummary.inProgress + ' in progress')}, ${c.dim(localSummary.notStarted + ' not started')}`);
 
   // 4. AI-enhanced assessment (if Gemini is available)
   let finalAssessments = localAssessments;
@@ -784,7 +869,7 @@ async function runProgressUpdate(initCtx) {
 
   if (!opts.skipGemini) {
     try {
-      console.log('  Running AI-enhanced assessment...');
+      console.log(`  ${c.dim('Running AI-enhanced assessment...')}`);
       const ai = await initGemini();
       const aiResult = await assessProgressWithAI(ai, changeReport.items, changeReport, localAssessments, {
         thinkingBudget: opts.thinkingBudget,
@@ -795,18 +880,18 @@ async function runProgressUpdate(initCtx) {
       aiMode = 'ai-enhanced';
 
       const aiSummary = buildProgressSummary(finalAssessments);
-      console.log(`  ✓ AI assessment: ${aiSummary.done} done, ${aiSummary.inProgress} in progress, ${aiSummary.notStarted} not started`);
+      console.log(`  ${c.success(`AI assessment: ${c.green(aiSummary.done + ' done')}, ${c.yellow(aiSummary.inProgress + ' in progress')}, ${c.dim(aiSummary.notStarted + ' not started')}`)}`);
 
       if (aiResult.tokenUsage) {
         initCtx.costTracker.addSegment('progress-assessment', aiResult.tokenUsage, 0, false);
       }
       log.step(`AI assessment complete (model: ${aiResult.model})`);
     } catch (err) {
-      console.warn(`  ⚠ AI assessment failed, using local assessment: ${err.message}`);
+      console.warn(`  ${c.warn(`AI assessment failed, using local assessment: ${err.message}`)}`);
       log.warn(`AI assessment failed: ${err.message}`);
     }
   } else {
-    console.log('  Skipping AI assessment (--skip-gemini)');
+    console.log(`  ${c.dim('Skipping AI assessment (--skip-gemini)')}`);
   }
   console.log('');
 
@@ -848,8 +933,8 @@ async function runProgressUpdate(initCtx) {
   fs.writeFileSync(progressMdPath, progressMd);
   log.step(`Wrote ${progressMdPath}`);
 
-  console.log(`  ✓ Progress report: ${path.relative(PROJECT_ROOT, progressMdPath)}`);
-  console.log(`  ✓ Progress data:   ${path.relative(PROJECT_ROOT, progressJsonPath)}`);
+  console.log(`  ${c.success(`Progress report: ${c.cyan(path.relative(PROJECT_ROOT, progressMdPath))}`)}`); 
+  console.log(`  ${c.success(`Progress data:   ${c.cyan(path.relative(PROJECT_ROOT, progressJsonPath))}`)}`);
 
   // 7. Firebase upload (if available)
   if (!opts.skipUpload) {
@@ -859,11 +944,11 @@ async function runProgressUpdate(initCtx) {
         const storagePath = `calls/${callName}/progress/${ts}`;
         await uploadToStorage(storage, progressJsonPath, `${storagePath}/progress.json`);
         await uploadToStorage(storage, progressMdPath, `${storagePath}/progress.md`);
-        console.log(`  ✓ Uploaded to Firebase: ${storagePath}/`);
+        console.log(`  ${c.success(`Uploaded to Firebase: ${c.cyan(storagePath + '/')}`)}`); 
         log.step(`Firebase upload complete: ${storagePath}`);
       }
     } catch (fbErr) {
-      console.warn(`  ⚠ Firebase upload failed: ${fbErr.message}`);
+      console.warn(`  ${c.warn(`Firebase upload failed: ${fbErr.message}`)}`);
       log.warn(`Firebase upload failed: ${fbErr.message}`);
     }
   }
@@ -871,15 +956,15 @@ async function runProgressUpdate(initCtx) {
   // 8. Print summary
   const finalSummary = buildProgressSummary(finalAssessments);
   console.log('');
-  console.log('  ══════════════════════════════════════');
-  console.log('  Progress Update Complete');
-  console.log('  ══════════════════════════════════════');
-  console.log(`  ${STATUS_ICONS.DONE} Completed:   ${finalSummary.done}`);
-  console.log(`  ${STATUS_ICONS.IN_PROGRESS} In Progress: ${finalSummary.inProgress}`);
-  console.log(`  ${STATUS_ICONS.NOT_STARTED} Not Started: ${finalSummary.notStarted}`);
-  console.log(`  ${STATUS_ICONS.SUPERSEDED} Superseded:  ${finalSummary.superseded}`);
+  console.log(c.cyan('  ══════════════════════════════════════'));
+  console.log(c.heading('  Progress Update Complete'));
+  console.log(c.cyan('  ══════════════════════════════════════'));
+  console.log(`  ${STATUS_ICONS.DONE} Completed:   ${c.green(finalSummary.done)}`);
+  console.log(`  ${STATUS_ICONS.IN_PROGRESS} In Progress: ${c.yellow(finalSummary.inProgress)}`);
+  console.log(`  ${STATUS_ICONS.NOT_STARTED} Not Started: ${c.dim(finalSummary.notStarted)}`);
+  console.log(`  ${STATUS_ICONS.SUPERSEDED} Superseded:  ${c.dim(finalSummary.superseded)}`);
   const completionPct = finalSummary.total > 0 ? ((finalSummary.done / finalSummary.total) * 100).toFixed(0) : 0;
-  console.log(`  Overall: ${completionPct}% complete (${finalSummary.done}/${finalSummary.total})`);
+  console.log(`  Overall: ${c.highlight(completionPct + '%')} complete (${c.highlight(finalSummary.done + '/' + finalSummary.total)})`);
   console.log('');
 
   // Cleanup

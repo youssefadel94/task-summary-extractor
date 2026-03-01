@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { c } = require('./colors');
 
 const HISTORY_FILE = 'history.json';
 const MAX_HISTORY_ENTRIES = 50; // Keep last 50 runs
@@ -33,7 +34,7 @@ function loadHistory(projectRoot) {
       return Array.isArray(data) ? data : [];
     }
   } catch (err) {
-    console.warn(`  ⚠ Could not load history: ${err.message}`);
+    console.warn(`  ${c.warn(`Could not load history: ${err.message}`)}`);
   }
   return [];
 }
@@ -54,7 +55,7 @@ function saveHistory(projectRoot, entry) {
     const trimmed = history.slice(-MAX_HISTORY_ENTRIES);
     fs.writeFileSync(historyPath, JSON.stringify(trimmed, null, 2), 'utf8');
   } catch (err) {
-    console.warn(`  ⚠ Could not save history: ${err.message}`);
+    console.warn(`  ${c.warn(`Could not save history: ${err.message}`)}`);
   }
 }
 

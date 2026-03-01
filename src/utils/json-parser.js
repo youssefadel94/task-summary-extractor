@@ -6,6 +6,8 @@
 
 'use strict';
 
+const { c } = require('./colors');
+
 /**
  * Gemini sometimes produces invalid JSON escape sequences (e.g. \d, \s, \w from regex patterns).
  * Fix them by double-escaping backslashes that aren't valid JSON escapes.
@@ -228,14 +230,14 @@ function extractJson(rawText) {
   // This is common for large compilation outputs (safest repair, stack-based)
   parsed = repairTruncatedJson(rawText);
   if (parsed !== undefined) {
-    console.warn('  ⚠ JSON was truncated — recovered partial data by closing open structures');
+    console.warn(`  ${c.warn('JSON was truncated — recovered partial data by closing open structures')}`);
     return parsed;
   }
 
   // Strategy 5: Fix doubled closers and mid-output structural errors (aggressive, last resort)
   parsed = repairDoubledClosers(rawText);
   if (parsed !== undefined) {
-    console.warn('  ⚠ JSON had structural errors (doubled braces/commas) — repaired');
+    console.warn(`  ${c.warn('JSON had structural errors (doubled braces/commas) — repaired')}`);
     return parsed;
   }
 

@@ -13,6 +13,8 @@
 
 'use strict';
 
+const { c } = require('./colors');
+
 // ======================== HEALTH REPORT ========================
 
 /**
@@ -133,7 +135,7 @@ function buildHealthReport(params) {
  * @param {object} report - From buildHealthReport
  */
 function printHealthDashboard(report) {
-  const { summary: s, extraction: e, retry: r, efficiency: eff, compilation: c } = report;
+  const { summary: s, extraction: e, retry: r, efficiency: eff, compilation: comp } = report;
 
   console.log('');
   console.log('╔══════════════════════════════════════════════╗');
@@ -145,7 +147,7 @@ function printHealthDashboard(report) {
   console.log('  Quality Scores:');
   console.log(`    Average : ${s.avgQualityScore}/100`);
   console.log(`    Range   : ${s.minQualityScore}–${s.maxQualityScore}`);
-  console.log(`    Grades  : ✓ ${s.grades.PASS} PASS | ⚠ ${s.grades.WARN} WARN | ✗ ${s.grades.FAIL} FAIL`);
+  console.log(`    Grades  : ${c.success(`${s.grades.PASS} PASS`)} | ${c.warn(`${s.grades.WARN} WARN`)} | ${c.error(`${s.grades.FAIL} FAIL`)}`);
   console.log(`    Parse   : ${s.parseSuccessRate}% success rate`);
   console.log('');
 
@@ -186,14 +188,14 @@ function printHealthDashboard(report) {
   console.log(`    Cost        : $${eff.totalCost.toFixed(4)}`);
 
   // Compilation quality
-  if (c) {
+  if (comp) {
     console.log('');
     console.log('  Compilation:');
-    console.log(`    Score : ${c.score}/100 (${c.grade})`);
-    if (c.issues.length > 0) {
-      console.log(`    Issues: ${c.issues.length}`);
-      c.issues.slice(0, 3).forEach(issue => console.log(`      • ${issue}`));
-      if (c.issues.length > 3) console.log(`      ... +${c.issues.length - 3} more`);
+    console.log(`    Score : ${comp.score}/100 (${comp.grade})`);
+    if (comp.issues.length > 0) {
+      console.log(`    Issues: ${comp.issues.length}`);
+      comp.issues.slice(0, 3).forEach(issue => console.log(`      • ${issue}`));
+      if (comp.issues.length > 3) console.log(`      ... +${comp.issues.length - 3} more`);
     }
   }
 
@@ -203,7 +205,7 @@ function printHealthDashboard(report) {
   );
   if (criticalIssues.length > 0) {
     console.log('');
-    console.log('  ⚠ Critical Issues:');
+    console.log(`  ${c.warn('Critical Issues:')}`);
     criticalIssues.slice(0, 5).forEach(i => console.log(`    ${i.segment}: ${i.issue}`));
   }
 

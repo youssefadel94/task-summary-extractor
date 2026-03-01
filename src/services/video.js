@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { SPEED, SEG_TIME, PRESET } = require('../config');
 const { fmtDuration } = require('../utils/format');
+const { c } = require('../utils/colors');
 
 // ======================== BINARY DETECTION ========================
 
@@ -181,7 +182,7 @@ function compressAndSegment(inputFile, outputDir) {
 
     const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
     if (result.status !== 0) {
-      console.warn(`  ⚠ ffmpeg exited with code ${result.status} (output may still be usable)`);
+      console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status} (output may still be usable)`)}`);
     }
   } else {
     console.log(`  Compressing (single output, ${effectiveDuration ? fmtDuration(effectiveDuration) : '?'} effective)...`);
@@ -196,7 +197,7 @@ function compressAndSegment(inputFile, outputDir) {
 
     const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
     if (result.status !== 0) {
-      console.warn(`  ⚠ ffmpeg exited with code ${result.status}`);
+      console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status}`)}`);
     }
   }
 
@@ -214,7 +215,7 @@ function compressAndSegment(inputFile, outputDir) {
       valid.push(seg);
     } else {
       corrupt.push(seg);
-      console.warn(`  ⚠ Corrupt segment detected: ${path.basename(seg)} (missing moov atom)`);
+      console.warn(`  ${c.warn(`Corrupt segment detected: ${path.basename(seg)} (missing moov atom)`)}`);
     }
   }
 
@@ -239,7 +240,7 @@ function compressAndSegment(inputFile, outputDir) {
         const dest = path.join(outputDir, 'segment_00.mp4');
         fs.renameSync(fallbackPath, dest);
         segments = [dest];
-        console.log(`  ✓ Re-encoded successfully as single segment`);
+        console.log(`  ${c.success('Re-encoded successfully as single segment')}`);
       } else {
         // Re-segment the fallback
         const reSegDir = path.join(outputDir, '_reseg');
@@ -264,10 +265,10 @@ function compressAndSegment(inputFile, outputDir) {
           .filter(f => f.startsWith('segment_') && f.endsWith('.mp4'))
           .sort()
           .map(f => path.join(outputDir, f));
-        console.log(`  ✓ Re-segmented from fallback: ${segments.length} segment(s)`);
+        console.log(`  ${c.success(`Re-segmented from fallback: ${segments.length} segment(s)`)}`);
       }
     } else {
-      console.error(`  ✗ Fallback re-encode also failed`);
+      console.error(`  ${c.error('Fallback re-encode also failed')}`);
       try { fs.unlinkSync(fallbackPath); } catch {}
     }
   } else if (corrupt.length > 0 && !needsSegmentation) {
@@ -285,9 +286,9 @@ function compressAndSegment(inputFile, outputDir) {
     const retryResult = spawnSync(getFFmpeg(), retryArgs, { stdio: 'inherit' });
     if (retryResult.status === 0 && verifySegment(retryPath)) {
       segments = [retryPath];
-      console.log(`  ✓ Retry succeeded`);
+      console.log(`  ${c.success('Retry succeeded')}`);
     } else {
-      console.error(`  ✗ Retry also produced invalid output`);
+      console.error(`  ${c.error('Retry also produced invalid output')}`);
     }
   }
 
@@ -333,7 +334,7 @@ function compressAndSegmentAudio(inputFile, outputDir) {
     ];
     const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
     if (result.status !== 0) {
-      console.warn(`  ⚠ ffmpeg exited with code ${result.status} (output may still be usable)`);
+      console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status} (output may still be usable)`)}`);
     }
   } else {
     console.log(`  Compressing (single output, ${effectiveDuration ? fmtDuration(effectiveDuration) : '?'} effective)...`);
@@ -341,7 +342,7 @@ function compressAndSegmentAudio(inputFile, outputDir) {
     const args = ['-y', '-i', inputFile, ...encodingArgs, outPath];
     const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
     if (result.status !== 0) {
-      console.warn(`  ⚠ ffmpeg exited with code ${result.status}`);
+      console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status}`)}`);
     }
   }
 
@@ -359,7 +360,7 @@ function compressAndSegmentAudio(inputFile, outputDir) {
       valid.push(seg);
     } else {
       corrupt.push(seg);
-      console.warn(`  ⚠ Corrupt audio segment: ${path.basename(seg)}`);
+      console.warn(`  ${c.warn(`Corrupt audio segment: ${path.basename(seg)}`)}`);
     }
   }
 
@@ -374,7 +375,7 @@ function compressAndSegmentAudio(inputFile, outputDir) {
         const dest = path.join(outputDir, 'segment_00.m4a');
         fs.renameSync(fallbackPath, dest);
         segments = [dest];
-        console.log(`  ✓ Re-encoded as single segment`);
+        console.log(`  ${c.success('Re-encoded as single segment')}`);
       } else {
         // Re-segment
         const reSegDir = path.join(outputDir, '_reseg');
@@ -396,10 +397,10 @@ function compressAndSegmentAudio(inputFile, outputDir) {
           .filter(f => f.startsWith('segment_') && (f.endsWith('.m4a') || f.endsWith('.mp4')))
           .sort()
           .map(f => path.join(outputDir, f));
-        console.log(`  ✓ Re-segmented from fallback: ${segments.length} segment(s)`);
+        console.log(`  ${c.success(`Re-segmented from fallback: ${segments.length} segment(s)`)}`);
       }
     } else {
-      console.error(`  ✗ Fallback audio re-encode failed`);
+      console.error(`  ${c.error('Fallback audio re-encode failed')}`);
       try { fs.unlinkSync(fallbackPath); } catch {}
     }
   }

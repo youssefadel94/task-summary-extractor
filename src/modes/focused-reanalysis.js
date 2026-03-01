@@ -14,6 +14,7 @@
 const { extractJson } = require('../utils/json-parser');
 const { withRetry } = require('../utils/retry');
 const config = require('../config');
+const { c } = require('../utils/colors');
 // Access config.GEMINI_MODEL / config.GEMINI_CONTEXT_WINDOW at call time for runtime model changes.
 
 // ======================== WEAKNESS DETECTION ========================
@@ -230,7 +231,7 @@ Output ONLY valid JSON.`;
 
     return parsed;
   } catch (err) {
-    console.warn(`    ⚠ Focused re-analysis failed: ${err.message}`);
+    console.warn(`    ${c.warn(`Focused re-analysis failed: ${err.message}`)}`);
     return null;
   }
 }

@@ -113,6 +113,15 @@ function renderResultsMarkdown({ compiled, meta }) {
   }
   ln('');
 
+  // Confidence filter notice
+  if (compiled._filterMeta && compiled._filterMeta.minConfidence !== 'LOW') {
+    const fm = compiled._filterMeta;
+    const levelLabel = fm.minConfidence === 'HIGH' ? 'HIGH' : 'MEDIUM and HIGH';
+    ln(`> ⚠️ **Confidence filter active:** showing only ${levelLabel} confidence items.  `);
+    ln(`> Kept ${fm.filteredCounts.total}/${fm.originalCounts.total} items (${fm.removed} removed). Full unfiltered data in \`results.json\`.  `);
+    ln('');
+  }
+
   // Segment breakdown
   const segs = meta.segments || [];
   if (segs.length > 0) {

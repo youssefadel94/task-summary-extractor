@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { c } = require('./colors');
 
 const STATE_FILE = '.pipeline-state.json';
 
@@ -68,7 +69,7 @@ class Progress {
     try {
       fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf8');
     } catch (err) {
-      console.warn(`  ⚠ Could not save progress: ${err.message}`);
+      console.warn(`  ${c.warn(`Could not save progress: ${err.message}`)}`);
     }
   }
 

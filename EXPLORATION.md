@@ -1,6 +1,6 @@
 # Task Summary Extractor — Where We Are & Where We Can Go
 
-> **Version 8.3.0** — February 2026  
+> **Version 9.0.0** — March 2026  
 > Module map, codebase stats, and future roadmap.  
 > For setup and CLI reference, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
 > For architecture diagrams and algorithms, see [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -18,8 +18,8 @@
 └─────────────────────────┬───────────────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────────────┐
-│                       pipeline.js (1,769 lines)                     │
-│                    8-Phase Orchestrator                              │
+│                       pipeline.js (~920 lines)                      │
+│              9-Phase Orchestrator + src/phases/                      │
 │                                                                     │
 │  Init ──────► Discover ──► Services ──► ProcessVideo ──► Compile    │
 │  │ learning                               │    │           │        │
@@ -27,8 +27,8 @@
 │  │ loaded                           │ For each    │   Engine       │
 │  │                                  │ segment:    │      │         │
 │  │                                  │ ┌─────────┐ │   Output      │
-│  │                                  │ │Compress │ │      │         │
-│  │                                  │ │Upload   │ │   Health      │
+│  │                                  │ │Compress │ │   (MD+HTML)    │
+│  │                                  │ │Upload   │ │      │         │
 │  │                                  │ │Analyze ◄──┼── Quality Gate │
 │  │                                  │ │ ↻Retry  │ │   + Confidence│
 │  │                                  │ │ 🔍Focus │ │   Scoring     │
@@ -36,39 +36,41 @@
 │  │                                  └─────────────┘   Summary     │
 │  │                                                       │         │
 │  └──────────────────── learning history saved ◄──────────┘         │
-└────┬──────────┬──────────┬──────────┬──────────┬───────────────────┘
-     │          │          │          │          │
-┌────▼───┐ ┌───▼──────┐ ┌▼────────┐ ┌▼─────┐ ┌▼──────────┐
-│Services│ │  Utils   │ │Renderers│ │Logger│ │  Config   │
-│        │ │          │ │         │ │      │ │           │
-│gemini  │ │quality   │ │markdown │ │JSONL │ │dotenv     │
-│firebase│ │-gate     │ │(879 ln) │ │struct│ │validation │
-│video   │ │focused   │ │+ conf   │ │spans │ │env helpers│
-│git     │ │-reanalysis│ │  badges│ │phases│ │model reg  │
-│        │ │learning  │ │+ diff   │ │metrics│ │           │
-│        │ │-loop     │ │ section │ │      │ │           │
-│        │ │diff      │ │         │ │      │ │           │
-│        │ │-engine   │ │         │ │      │ │           │
-│        │ │adapt-budg│ │         │ │      │ │           │
-│        │ │context   │ │         │ │      │ │           │
-│        │ │+12 more  │ │         │ │      │ │           │
-└────────┘ └──────────┘ └─────────┘ └──────┘ └───────────┘
+└────┬──────────┬──────────┬──────────┬──────┬─────────┬─────────────┘
+     │          │          │          │      │         │
+┌────▼───┐ ┌───▼──────┐ ┌▼────────┐ ┌▼─────┐ ┌▼─────┐┌▼─────────┐
+│Services│ │  Utils   │ │Renderers│ │Logger│ │Schema││  Config  │
+│        │ │          │ │         │ │      │ │      ││          │
+│gemini  │ │quality   │ │markdown │ │JSONL │ │seg   ││dotenv    │
+│firebase│ │-gate     │ │(801 ln) │ │struct│ │comp  ││validation│
+│video   │ │colors    │ │html.js  │ │spans │ │      ││env helper│
+│git     │ │progress  │ │(673 ln) │ │phases│ │      ││model reg │
+│doc-    │ │-bar      │ │shared   │ │metric│ │      ││          │
+│parser  │ │confidence│ │(212 ln) │ │      │ │      ││          │
+│        │ │-filter   │ │         │ │      │ │      ││          │
+│        │ │schema-   │ │         │ │      │ │      ││          │
+│        │ │validator │ │         │ │      │ │      ││          │
+│        │ │+15 more  │ │         │ │      │ │      ││          │
+└────────┘ └──────────┘ └─────────┘ └──────┘ └──────┘└──────────┘
 ```
 
 ### Codebase Stats
 
 | Category | Files | Lines |
 |----------|-------|-------|
-| Pipeline orchestrator | 1 | 1,769 |
-| Services (Gemini, Firebase, Video, Git) | 4 | 1,306 |
+| Pipeline orchestrator | 1 | ~920 |
+| Pipeline phases (`src/phases/`) | 9 | ~1,800 |
+| Services (Gemini, Firebase, Video, Git, Doc-Parser) | 5 | ~1,650 |
 | Modes (AI pipeline phases) | 5 | 2,054 |
-| Utilities (15 modules) | 15 | 3,347 |
-| Renderers | 1 | 879 |
+| Utilities (19 modules) | 19 | ~4,100 |
+| Renderers (markdown, html, shared) | 3 | ~1,686 |
 | Config + Logger | 2 | 597 |
+| Schemas (JSON) | 2 | ~400 |
 | Entry points (taskex + legacy) | 2 | 79 |
 | Setup script | 1 | 418 |
 | Prompt (JSON) | 1 | 333 |
-| **Total** | **32 files** | **~9,300 lines** |
+| Tests (vitest) | 13 | ~3,200 |
+| **Total** | **~63 files** | **~13,000+ lines** |
 
 ### Version History
 
@@ -90,6 +92,7 @@
 | **v8.1.0** | Smart Global Config | Persistent `~/.taskexrc` config, `taskex config` subcommand, first-run API key prompting, 5-level config resolution, production audit (14 fixes), shared CLI flag injection, boolean flag parser fix |
 | **v8.2.0** | Architecture Cleanup | `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.3.0** | Universal Content Analysis | prompt.json v4.0.0 — input type auto-detection (video/audio/document/mixed), timestamps conditional, domain-adaptive extraction for any content source, gemini.js bridge text generalized |
+| **v9.0.0** | CLI UX + Pipeline Decomposition | Colors & progress bar, HTML reports (`results.html`), JSON Schema validation (`src/schemas/`), confidence filter (`--min-confidence`), pipeline decomposed into `src/phases/` (9 modules), test suite (285 tests via vitest), multi-format output (`--format`), doc-parser service, shared renderer utilities |
 
 ### What v6 Delivers
 
@@ -258,6 +261,11 @@ Tuning:
   --no-learning                     Disable learning loop
   --no-diff                         Disable diff comparison
 
+Output:
+  --format <type>                   Output format: md, html, json, all (default: md)
+  --min-confidence <level>          Filter by confidence: high, medium, low
+  --no-html                         Suppress HTML report generation
+
 Info:
   --help, -h                        Show help
   --version, -v                     Show version
@@ -272,7 +280,17 @@ bin/
 src/
 ├── config.js                291 ln  Central config, env vars, model registry, validation
 ├── logger.js                306 ln  ★ v6 — Triple output: detailed + minimal + structured JSONL, phase spans, metrics
-├── pipeline.js            1,769 ln  Multi-mode orchestrator with Storage URL optimization, upload control flags, learning loop, focused re-analysis, diff engine, deep-dive, dynamic, auto git init
+├── pipeline.js            ~920 ln  Multi-mode orchestrator with lazy phase imports, Storage URL optimization, upload control flags, learning loop, diff engine
+├── phases/                         ★ v9.0.0 — Decomposed pipeline phase modules
+│   ├── _shared.js                  Shared phase utilities (logging, error helpers)
+│   ├── init.js                     Phase 1: CLI parsing, config validation, logger setup
+│   ├── discover.js                 Phase 2: Find videos/audio, discover docs, resolve name
+│   ├── services.js                 Phase 3: Firebase auth, Gemini init, doc prep
+│   ├── process-media.js            Phase 4: Compress, upload, analyze, quality gate
+│   ├── compile.js                  Phase 5: Cross-segment compilation, diff engine
+│   ├── output.js                   Phase 6: Write JSON, render MD + HTML
+│   ├── summary.js                  Phase 8: Save learning history, print summary
+│   └── deep-dive.js                Phase 9: Optional deep-dive generation
 ├── modes/                          ★ v8.2.0 — AI-heavy pipeline phase modules
 │   ├── change-detector.js   417 ln  Git-based change correlation engine
 │   ├── deep-dive.js         473 ln  ★ v6.2 — Topic discovery, parallel doc generation, index builder
@@ -280,12 +298,15 @@ src/
 │   ├── focused-reanalysis.js 268 ln ★ v6 — Weakness detection, targeted second pass, intelligent merge
 │   └── progress-updater.js  402 ln  ★ v6.1 — AI-powered progress assessment, status report generation
 ├── renderers/
-│   └── markdown.js          879 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
+│   ├── markdown.js          801 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
+│   ├── html.js              673 ln  ★ v9.0.0 — Self-contained HTML report: collapsible sections, confidence badges, filtering, dark mode
+│   └── shared.js            212 ln  ★ v9.0.0 — Shared renderer utilities (name clustering, dedup, formatting)
 ├── services/
 │   ├── firebase.js           92 ln  Init, upload, exists check (with retry, async I/O)
 │   ├── gemini.js            677 ln  ★ v7.2.1 — 3-strategy file resolution, External URL support, cleanup, doc prep, analysis, compilation
 │   ├── git.js               264 ln  ★ v7.2.3 — Git CLI wrapper: log, diff, status, changed files, auto-init
-│   └── video.js             273 ln  ★ v7.2.3 — ffmpeg compress, segment, probe (cross-platform, spawnSync)
+│   ├── video.js             273 ln  ★ v7.2.3 — ffmpeg compress, segment, probe (cross-platform, spawnSync)
+│   └── doc-parser.js        346 ln  ★ v9.0.0 — Document text extraction (DOCX, XLSX, PPTX, HTML, ODT, RTF, EPUB)
 └── utils/                          Pure utilities — parsing, retry, budget, config
     ├── adaptive-budget.js   230 ln  ★ v5 — Transcript complexity → dynamic budget
     ├── checkpoint.js        145 ln  Checkpoint/resume persistence (renamed from progress.js in v8.2.0)
@@ -301,7 +322,15 @@ src/
     ├── json-parser.js       216 ln  5-strategy JSON extraction + repair
     ├── learning-loop.js     269 ln  ★ v6 — History I/O, trend analysis, budget auto-tuning, recommendations
     ├── quality-gate.js      366 ln  ★ v6 — 4+1 dimension scoring (+ confidence coverage), retry hints
-    └── retry.js             118 ln  Exponential backoff, parallel map (self-contained defaults)
+    ├── retry.js             118 ln  Exponential backoff, parallel map (self-contained defaults)
+    ├── colors.js             84 ln  ★ v9.0.0 — Zero-dep ANSI color utility (bold, red, green, yellow, cyan, dim, reset)
+    ├── progress-bar.js      287 ln  ★ v9.0.0 — Visual progress bar with phase tracking, ETA, cost display, TTY-aware
+    ├── confidence-filter.js 130 ln  ★ v9.0.0 — Filter extracted items by confidence level (--min-confidence flag)
+    └── schema-validator.js  260 ln  ★ v9.0.0 — JSON Schema validation using ajv (segment + compiled schemas)
+
+schemas/
+├── analysis-segment.schema.json    ★ v9.0.0 — JSON Schema for segment analysis output
+└── analysis-compiled.schema.json   ★ v9.0.0 — JSON Schema for compiled analysis output
 
 prompt.json                  333 ln  ★ v4.0.0 — Universal content analysis: video, audio, documents, mixed input; auto-detects input type + domain
 process_and_upload.js         14 ln  Backward-compatible shim — delegates to bin/taskex.js
@@ -328,6 +357,14 @@ The following features from the original exploration have been **fully implement
 | 🗓️ Deep Dive Document Generation | ✅ Done | `modes/deep-dive.js` (473 ln), pipeline phase 9 |
 | 📝 Dynamic Mode (doc-only generation) | ✅ Done | `modes/dynamic-mode.js` (494 ln), pipeline `--dynamic` route |
 | 🤖 Runtime Model Selection | ✅ Done | `config.js` model registry, `cli.js` selector, `--model` flag |
+| 📊 Progress Bar | ✅ Done | `progress-bar.js` (287 ln), pipeline integration, TTY-aware |
+| 🌐 HTML Report Viewer | ✅ Done | `renderers/html.js` (673 ln), self-contained HTML with filtering, dark mode |
+| 🔧 JSON Schema Validation | ✅ Done | `schema-validator.js` (260 ln), `schemas/` (2 files), ajv-based |
+| 🎯 Confidence Filter | ✅ Done | `confidence-filter.js` (130 ln), `--min-confidence` flag |
+| 🏗️ Pipeline Decomposition | ✅ Done | `src/phases/` (9 modules), `pipeline.js` reduced to ~920 lines |
+| 🧪 Test Suite | ✅ Done | 285 tests across 13 files using vitest |
+| 🎨 ANSI Colors | ✅ Done | `colors.js` (84 ln), zero-dep ANSI color utility wired throughout CLI |
+| 📄 Doc Parser Service | ✅ Done | `doc-parser.js` (346 ln), DOCX/XLSX/PPTX/HTML/ODT/RTF/EPUB extraction |
 
 ---
 
@@ -339,11 +376,9 @@ The following features from the original exploration have been **fully implement
 **Impact**: Dramatically improves action item attribution ("Mohamed said X" vs. "someone said X"). Currently relies on Gemini inferring speakers from VTT voice tags or contextual clues.  
 **Modules affected**: New `services/diarization.js`, updates to `gemini.js` content building, `context-manager.js` for speaker-aware slicing.
 
-#### 🌐 Web Dashboard / Viewer
-**What**: A browser-based UI to view analysis results interactively — filter by ticket, search, click timestamps to jump in video.  
-**How**: Generate a self-contained HTML file alongside the MD output (embed results.json). Or build a lightweight React/Next.js viewer that reads from Firebase.  
-**Impact**: Transforms the tool from CLI-output to a proper product. Stakeholders who don't use VS Code can access results.  
-**Modules affected**: New `renderers/html.js` or separate `viewer/` project. Firebase integration for hosted version.
+#### 🌐 ~~Web Dashboard / Viewer~~ ✅ Done (v9.0.0)
+**Status**: Implemented as `src/renderers/html.js` — self-contained HTML report with collapsible sections, confidence badges, filtering, dark mode, and print-friendly styling. Generated as `results.html` alongside `results.md`.
+**Next step**: Build a hosted React/Next.js viewer that reads from Firebase for team-wide access.
 
 ---
 
@@ -390,11 +425,9 @@ The following features from the original exploration have been **fully implement
 
 ### Tier 4: Polish & Reliability
 
-#### 🧪 Test Suite
-**What**: Unit tests for all utility modules, integration tests for the pipeline.  
-**How**: Jest or Vitest. Mock Gemini API responses. Test quality gate scoring with fixtures. Test JSON parser with known-bad inputs. Test adaptive budget calculations. Test focused-reanalysis merge logic. Test diff-engine comparisons. Test learning-loop trend analysis.  
-**Impact**: Confidence in changes. CI/CD pipeline with automated testing. Prevents regressions.  
-**Priority modules to test**: `quality-gate.js`, `adaptive-budget.js`, `json-parser.js`, `context-manager.js`, `cost-tracker.js`, `focused-reanalysis.js`, `diff-engine.js`, `learning-loop.js`.
+#### 🧪 ~~Test Suite~~ ✅ Done (v9.0.0)
+**Status**: 285 tests across 13 files using vitest. Covers: quality-gate, adaptive-budget, json-parser, confidence-filter, context-manager, diff-engine, format, progress-bar, retry, schema-validator, cli, and renderers (html, markdown).
+**Commands**: `npm test`, `npm run test:watch`, `npm run test:coverage`.
 
 #### 📦 ~~Packaging & Distribution~~ ✅ Done (v8.0.0)
 **Status**: Published as `task-summary-extractor` on npm. Global CLI: `taskex`. Install: `npm i -g task-summary-extractor`.  
@@ -424,7 +457,7 @@ The following features from the original exploration have been **fully implement
 | **~~Audio-only mode~~** | ~~Done~~ | prompt.json v4.0.0 supports audio/doc/mixed — pipeline video requirement is next |
 | **Watch mode** — monitor a folder and auto-process new recordings | ~3 hrs | Hands-free automation |
 | **Git integration** — auto-commit results to repo | ~1 hr | Version-controlled meeting history |
-| **Confidence threshold filter** — CLI flag to exclude LOW confidence items from output | ~1 hr | Cleaner reports on demand |
+| **Confidence threshold filter** | ~~Done~~ | ★ v9.0.0 `--min-confidence` flag implemented in `confidence-filter.js` |
 | **History viewer** — CLI command to print learning loop trends without running pipeline | ~2 hrs | Introspect past performance |
 
 ---
@@ -433,8 +466,8 @@ The following features from the original exploration have been **fully implement
 
 Based on impact vs. effort, here's a suggested 5-item sprint building on v7.2:
 
-1. **Test suite foundation** — Jest setup + tests for quality-gate, adaptive-budget, json-parser, focused-reanalysis, diff-engine, learning-loop (1.5 days)
-2. **Web dashboard / viewer** — Self-contained HTML report with filtering and video timestamp links (2 days)
+1. **~~Test suite foundation~~** — ✅ Done (v9.0.0) — 285 tests across 13 files using vitest
+2. **~~Web dashboard / viewer~~** — ✅ Done (v9.0.0) — Self-contained HTML report with filtering and collapsible sections
 3. **Speaker diarization** — Gemini audio understanding for speaker attribution (1.5 days)
 4. **Task board integration** — Push tickets/CRs to Azure DevOps or Jira (1.5 days)
 5. **Slack/email notification** — Post compiled results automatically (half day)
@@ -443,7 +476,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 
 ---
 
-*Generated from the v8.3.0 codebase — 32 files, ~9,300 lines of self-improving pipeline intelligence. npm: `task-summary-extractor` · CLI: `taskex`*
+*Generated from the v9.0.0 codebase — ~63 files, ~13,000+ lines of self-improving pipeline intelligence. npm: `task-summary-extractor` · CLI: `taskex`*
 
 ---
 
