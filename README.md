@@ -549,4 +549,4 @@ task-summary-extractor/
 
 ## License
 
-MIT — © 2026 Youssef Adel
+Proprietary — © 2026 Youssef Adel. All rights reserved.
