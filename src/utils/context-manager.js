@@ -29,6 +29,14 @@ function estimateDocTokens(doc) {
   return 500;
 }
 
+/**
+ * Hard character limit for VTT fallback.
+ * When VTT parsing fails (0 cues), the full VTT is returned.
+ * Cap it so a huge transcript can't blow the context window.
+ * 500K chars ≈ 150K tokens — leaves plenty of room for docs + prompt.
+ */
+const VTT_FALLBACK_MAX_CHARS = 500000;
+
 // ════════════════════════════════════════════════════════════
 //  Priority Classification
 // ════════════════════════════════════════════════════════════
@@ -100,12 +108,16 @@ function selectDocsByBudget(allDocs, tokenBudget, opts = {}) {
   const excluded = [];
   let usedTokens = 0;
 
+  // Hard cap: even P0/P1 docs may not exceed 2× the budget.
+  // This prevents a handful of huge critical docs from blowing the context window.
+  const hardCap = tokenBudget * 2;
+
   for (const item of classified) {
     if (usedTokens + item.tokens <= tokenBudget) {
       selected.push(item.doc);
       usedTokens += item.tokens;
-    } else if (item.priority <= PRIORITY.HIGH) {
-      // P0 and P1 are always included even if over budget
+    } else if (item.priority <= PRIORITY.HIGH && usedTokens + item.tokens <= hardCap) {
+      // P0 and P1 are always included even if over budget, up to the hard cap
       selected.push(item.doc);
       usedTokens += item.tokens;
     } else {
@@ -171,14 +183,28 @@ function parseVttCues(vttContent) {
  */
 function sliceVttForSegment(vttContent, segStartSec, segEndSec, overlapSec = 30) {
   const cues = parseVttCues(vttContent);
-  if (cues.length === 0) return vttContent; // fallback: return full VTT
+  if (cues.length === 0) {
+    // Fallback: return full VTT but cap size to avoid context window overflow
+    if (vttContent.length > VTT_FALLBACK_MAX_CHARS) {
+      return vttContent.substring(0, VTT_FALLBACK_MAX_CHARS) +
+        `\n\n[TRUNCATED — original VTT was ${(vttContent.length / 1024).toFixed(0)} KB; capped at ${(VTT_FALLBACK_MAX_CHARS / 1024).toFixed(0)} KB]`;
+    }
+    return vttContent;
+  }
 
   const rangeStart = Math.max(0, segStartSec - overlapSec);
   const rangeEnd = segEndSec + overlapSec;
 
   const filtered = cues.filter(c => c.endSec >= rangeStart && c.startSec <= rangeEnd);
 
-  if (filtered.length === 0) return vttContent; // fallback
+  if (filtered.length === 0) {
+    // Fallback with cap
+    if (vttContent.length > VTT_FALLBACK_MAX_CHARS) {
+      return vttContent.substring(0, VTT_FALLBACK_MAX_CHARS) +
+        `\n\n[TRUNCATED — original VTT was ${(vttContent.length / 1024).toFixed(0)} KB; capped at ${(VTT_FALLBACK_MAX_CHARS / 1024).toFixed(0)} KB]`;
+    }
+    return vttContent;
+  }
 
   const header = `WEBVTT\n\n[Segment transcript: ${formatHMS(segStartSec)} — ${formatHMS(segEndSec)}]\n[Showing cues from ${formatHMS(rangeStart)} to ${formatHMS(rangeEnd)} with ${overlapSec}s overlap]\n`;
 
@@ -492,4 +518,5 @@ module.exports = {
   buildProgressiveContext,
   buildSegmentFocus,
   detectBoundaryContext,
+  VTT_FALLBACK_MAX_CHARS,
 };

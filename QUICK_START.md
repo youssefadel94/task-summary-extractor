@@ -223,6 +223,7 @@ my-project/runs/{timestamp}/
 | **Force Gemini File API** | `taskex --no-storage-url "my-meeting"` |
 | **Preview without running** | `taskex --dry-run "my-meeting"` |
 | **Deep dive docs** | `taskex --deep-dive "my-meeting"` |
+| **Pre-summarize docs** | `taskex --deep-summary "my-meeting"` |
 | **Generate docs (no video)** | `taskex --dynamic "my-project"` |
 | **Track progress via git** | `taskex --update-progress --repo "C:\project" "my-meeting"` |
 | **Debug mode** | `taskex --log-level debug "my-meeting"` |
@@ -272,4 +273,3 @@ Your recordings, `.env`, logs — everything local is `.gitignore`d and safe.
 |------|-------|
 | Full feature list, all CLI flags, configuration | [README.md](README.md) |
 | How the pipeline works internally | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Module map, line counts, roadmap | [EXPLORATION.md](EXPLORATION.md) |

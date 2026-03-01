@@ -46,7 +46,7 @@ const phaseDeepDive    = require('./phases/deep-dive');
 // --- Utils (for run orchestration + alt modes) ---
 const { c } = require('./utils/colors');
 const { findDocsRecursive } = require('./utils/fs');
-const { promptUserText, selectDocsToExclude } = require('./utils/cli');
+const { promptUser, promptUserText, selectDocsToExclude } = require('./utils/cli');
 const { createProgressBar } = require('./utils/progress-bar');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
 const { saveHistory, buildHistoryEntry } = require('./utils/learning-loop');
@@ -96,6 +96,23 @@ async function run() {
   bar.tick('Services ready');
 
   // Phase 3.5 (optional): Deep Summary — pre-summarize context docs
+  // If user didn't pass --deep-summary but has many context docs, offer it interactively
+  if (!fullCtx.opts.deepSummary && process.stdin.isTTY && fullCtx.ai && fullCtx.contextDocs.length >= 3) {
+    const inlineDocs = fullCtx.contextDocs.filter(d => d.type === 'inlineText' && d.content);
+    const totalChars = inlineDocs.reduce((sum, d) => sum + d.content.length, 0);
+    const totalTokensEstimate = Math.ceil(totalChars * 0.3);
+    // Only offer when context is large enough to benefit (>100K tokens)
+    if (totalTokensEstimate > 100000) {
+      console.log('');
+      console.log(`  ${c.cyan('You have')} ${c.highlight(inlineDocs.length)} ${c.cyan('context docs')} (~${c.highlight((totalTokensEstimate / 1000).toFixed(0) + 'K')} ${c.cyan('tokens)')}`);
+      console.log(`  ${c.dim('Deep summary can reduce per-segment context by 60-80%, saving time and cost.')}`);
+      const wantDeepSummary = await promptUser(`  ${c.cyan('Enable deep summary?')} [y/N] `);
+      if (wantDeepSummary) {
+        fullCtx.opts.deepSummary = true;
+      }
+    }
+  }
+
   if (fullCtx.opts.deepSummary && fullCtx.ai && fullCtx.contextDocs.length > 0) {
     // Interactive picker: let user choose docs to keep at full fidelity
     if (process.stdin.isTTY && fullCtx.opts.deepSummaryExclude.length === 0) {

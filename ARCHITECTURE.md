@@ -1,8 +1,7 @@
 # Architecture & Technical Deep Dive
 
 > Internal reference for the pipeline's architecture, processing flows, and design decisions.  
-> For setup instructions, see [README.md](README.md) · [Quick Start](QUICK_START.md)  
-> For module map and roadmap, see [EXPLORATION.md](EXPLORATION.md)
+> For setup instructions, see [README.md](README.md) · [Quick Start](QUICK_START.md)
 
 ---
 
@@ -126,6 +125,7 @@ flowchart TB
 | 1 | **Init** | CLI parsing, interactive folder selection (if no arg), config validation, logger setup, load learning insights, route to dynamic/progress mode |
 | 2 | **Discover** | Find videos/audio, discover documents, resolve user name, check resume state |
 | 3 | **Services** | Firebase auth, Gemini init, prepare document parts |
+| 3.5 | **Deep Summary** | (optional) Pre-summarize context docs with Gemini — 60-80% token savings |
 | 4 | **Process** | Compress → Upload → Analyze → Quality Gate → Retry → Focused Pass |
 | 5 | **Compile** | Cross-segment compilation, diff engine comparison |
 | 6 | **Output** | Write JSON, render Markdown + HTML, upload to Firebase |
@@ -199,7 +199,7 @@ Each video segment goes through this flow (Phase 4 detail):
 
 ```mermaid
 flowchart TB
-    START(["Segment N"]) --> COMPRESS["ffmpeg compress\nH.264 CRF 24, 1.5x speed"]
+    START(["Segment N"]) --> COMPRESS["ffmpeg compress\nH.264 CRF 24, 1.6x speed"]
     COMPRESS --> VERIFY["Verify segment integrity"]
     VERIFY --> UPLOAD_FB["Upload to Firebase Storage\n→ download URL"]
 
@@ -563,7 +563,7 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: ~45 files · ~13,000+ lines** · npm package: `task-summary-extractor` · CLI: `taskex`
+**Codebase: ~48 files · ~13,600+ lines** · npm package: `task-summary-extractor` · CLI: `taskex`
 
 ---
 
@@ -634,8 +634,8 @@ The project includes a comprehensive test suite using [vitest](https://vitest.de
 
 | Metric | Value |
 |--------|-------|
-| Test files | 13 |
-| Total tests | 285 |
+| Test files | 15 |
+| Total tests | 331 |
 | Framework | vitest v4.x |
 | Coverage | `@vitest/coverage-v8` |
 
@@ -662,45 +662,45 @@ npm run test:coverage # Coverage report
 |-----|-------------|
 | 📖 [README.md](README.md) | Setup, CLI flags, configuration, features |
 | 📖 [QUICK_START.md](QUICK_START.md) | Step-by-step first-time walkthrough |
-| 🔭 [EXPLORATION.md](EXPLORATION.md) | Module map, line counts, future roadmap |
 
 ---
 
-## JSON Schema Validation
+## Deep Summary
 
-All AI output is validated against JSON Schema definitions in `src/schemas/`:
+The `--deep-summary` flag (or interactive prompt when many docs are detected) pre-summarizes context documents before segment analysis:
 
-| Schema | File | Purpose |
-|--------|------|---------|
-| Segment analysis | `analysis-segment.schema.json` | Validates each segment's extracted data |
-| Compiled analysis | `analysis-compiled.schema.json` | Validates the final cross-segment compilation |
-
-Validation is performed by `src/utils/schema-validator.js` using [ajv](https://ajv.js.org/). Validation errors are reported as warnings with contextual hints for the retry/focused-pass cycle — they do not hard-fail the pipeline but are injected as corrective hints when the quality gate triggers a retry.
-
----
-
-## Test Suite
-
-The project includes a comprehensive test suite using [vitest](https://vitest.dev/):
-
-| Metric | Value |
-|--------|-------|
-| Test files | 13 |
-| Total tests | 285 |
-| Framework | vitest v4.x |
-| Coverage | `@vitest/coverage-v8` |
-
-**Test categories:**
-
-| Directory | What's Tested |
-|-----------|---------------|
-| `tests/utils/` | Utility modules: adaptive-budget, cli, confidence-filter, context-manager, diff-engine, format, json-parser, progress-bar, quality-gate, retry, schema-validator |
-| `tests/renderers/` | Renderer modules: html, markdown |
-
-**Commands:**
-
-```bash
-npm test              # Run all tests
-npm run test:watch    # Watch mode
-npm run test:coverage # Coverage report
+```mermaid
+flowchart TB
+    START(["Context Docs"]) --> PARTITION["Partition: summarize vs. keep full"]
+    PARTITION --> SKIP["Skip tiny docs (<500 chars)"]
+    PARTITION --> EXCL["Excluded docs → keep full fidelity"]
+    PARTITION --> TO_SUM["Docs to summarize"]
+    TO_SUM --> TRUNC["Truncate oversized docs (>900K chars)"]
+    TRUNC --> BATCH["Group into batches\n(≤600K chars each)"]
+    BATCH --> AI["Gemini summarization\n(per batch)"]
+    AI --> REPLACE["Replace full content\nwith condensed summaries"]
+    REPLACE --> OUT(["Token-efficient\ncontext docs"])
 ```
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `BATCH_MAX_CHARS` | 600,000 | Max input chars per summarization batch |
+| `MAX_DOC_CHARS` | 900,000 | Hard cap per-document before truncation |
+| `SUMMARY_MAX_OUTPUT` | 16,384 | Max output tokens per summarization call |
+| `MIN_SUMMARIZE_LENGTH` | 500 | Docs below this skip summarization |
+
+Typical savings: 60-80% reduction in per-segment context tokens. The user can exclude specific docs from summarization via `--exclude-docs` or the interactive picker.
+
+---
+
+## Context Window Safety
+
+Safeguards to prevent context window overflow:
+
+| Safeguard | Where | What It Does |
+|-----------|-------|-------------|
+| **P0/P1 hard cap** | `context-manager.js` | Critical docs can't exceed 2× the token budget |
+| **VTT fallback cap** | `context-manager.js` | Full VTT fallback capped at 500K chars |
+| **Doc truncation** | `deep-summary.js` | Oversized docs truncated to 900K chars before summarization |
+| **Compilation pre-flight** | `gemini.js` | Estimates tokens before compilation; trims middle segments if >80% of context |
+| **RESOURCE_EXHAUSTED recovery** | `gemini.js` | On quota/context errors: waits 30s, sheds docs, retries with reduced input |

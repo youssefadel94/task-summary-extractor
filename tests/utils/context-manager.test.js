@@ -77,27 +77,42 @@ describe('selectDocsByBudget', () => {
     expect(stats.selectedDocs).toBe(2);
   });
 
-  it('always includes P0 (CRITICAL) docs even when over budget', () => {
+  it('always includes P0 (CRITICAL) docs even when over budget (up to 2x cap)', () => {
     const docs = [
-      makeDoc('transcript.vtt', 'x'.repeat(50000)),  // P0 — big file
-      makeDoc('.docs/deep-dive/module.md', 'y'),      // P4
+      makeDoc('transcript.vtt', 'x'.repeat(5000)),  // P0 — ~1500 tokens
+      makeDoc('.docs/deep-dive/module.md', 'y'.repeat(5000)),      // P4 — ~1500 tokens
     ];
-    // Budget is tiny — only P0 should survive; P4 should be excluded
-    const { selected, excluded } = selectDocsByBudget(docs, 1);
+    // Budget=800 (< 1500 so P0 is over budget), hardCap=1600 (>= 1500 so P0 fits via bypass).
+    // P4 gets excluded: after P0 uses 1500, P4 needs 1500+1500=3000 > 800, and P4 has no bypass.
+    const { selected, excluded } = selectDocsByBudget(docs, 800);
     const selectedNames = selected.map(d => d.fileName);
     expect(selectedNames).toContain('transcript.vtt');
     expect(excluded.some(e => e.fileName === '.docs/deep-dive/module.md')).toBe(true);
   });
 
-  it('always includes P1 (HIGH) docs even when over budget', () => {
+  it('always includes P1 (HIGH) docs even when over budget (up to 2x cap)', () => {
     const docs = [
-      makeDoc('.tasks/code-map.md', 'x'.repeat(50000)),    // P1
-      makeDoc('.docs/summary/overview.md', 'y'.repeat(50000)), // P2
+      makeDoc('.tasks/code-map.md', 'x'.repeat(5000)),    // P1 — ~1500 tokens
+      makeDoc('.docs/summary/overview.md', 'y'.repeat(50000)), // P2 — ~15000 tokens
     ];
-    const { selected, excluded } = selectDocsByBudget(docs, 1);
+    // Budget=800 (< 1500 so P1 is over budget), hardCap=1600 (>= 1500 so P1 fits via bypass).
+    // P2 at ~15000 tokens far exceeds hardCap, gets excluded.
+    const { selected, excluded } = selectDocsByBudget(docs, 800);
     const selectedNames = selected.map(d => d.fileName);
     expect(selectedNames).toContain('.tasks/code-map.md');
     expect(excluded.some(e => e.fileName === '.docs/summary/overview.md')).toBe(true);
+  });
+
+  it('excludes P0/P1 docs when they exceed the 2x hard cap', () => {
+    const docs = [
+      makeDoc('transcript.vtt', 'x'.repeat(50000)),  // P0 — ~15000 tokens
+      makeDoc('.docs/deep-dive/module.md', 'y'),      // P4
+    ];
+    // Budget is 1 token, hard cap = 2. P0 doc is ~15000 tokens — exceeds hard cap.
+    const { selected, excluded } = selectDocsByBudget(docs, 1);
+    const selectedNames = selected.map(d => d.fileName);
+    // Even P0 gets excluded if it exceeds 2x budget
+    expect(selectedNames).not.toContain('transcript.vtt');
   });
 
   it('excludes lower-priority docs when budget is tight', () => {

@@ -459,16 +459,53 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
         throw reuploadErr;
       }
     } else {
-      // Log request diagnostics for other errors to aid debugging
-      const partSummary = contentParts.map((p, i) => {
-        if (p.fileData) return `  [${i}] fileData: ${p.fileData.mimeType} → ${(p.fileData.fileUri || '').substring(0, 120)}`;
-        if (p.text) return `  [${i}] text: ${p.text.length} chars → ${p.text.substring(0, 80).replace(/\n/g, ' ')}...`;
-        return `  [${i}] unknown part`;
-      });
-      console.error(`    ${c.error('Request diagnostics:')}`);
-      console.error(`    Model: ${config.GEMINI_MODEL} | Parts: ${contentParts.length} | maxOutput: 65536`);
-      partSummary.forEach(s => console.error(`    ${s}`));
-      throw apiErr;
+      // Handle RESOURCE_EXHAUSTED specifically — shed lower-priority docs and retry
+      if (errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('429') || errMsg.includes('quota')) {
+        console.warn(`    ${c.warn('Context window or quota exceeded — shedding docs and retrying after 30s...')}`);
+        await new Promise(r => setTimeout(r, 30000));
+        // Rebuild with half the doc budget
+        const reducedBudget = Math.floor(docBudget * 0.5);
+        const { selected: reducedDocs } = selectDocsByBudget(contextDocs, reducedBudget, { segmentIndex });
+        const reducedParts = [contentParts[0]]; // keep video
+        for (const doc of reducedDocs) {
+          if (doc.type === 'inlineText') {
+            let content = doc.content;
+            const isVtt = doc.fileName.toLowerCase().endsWith('.vtt') || doc.fileName.toLowerCase().endsWith('.srt');
+            if (isVtt && segmentStartSec != null && segmentEndSec != null) {
+              content = sliceVttForSegment(content, segmentStartSec, segmentEndSec);
+            }
+            reducedParts.push({ text: `=== Document: ${doc.fileName} ===\n${content}` });
+          } else if (doc.type === 'fileData') {
+            reducedParts.push({ fileData: { mimeType: doc.mimeType, fileUri: doc.fileUri } });
+          }
+        }
+        // Re-add prompt/context parts (last 3-5 parts are prompt, focus, etc.)
+        const nonDocParts = contentParts.slice(1 + selectedDocs.length);
+        reducedParts.push(...nonDocParts);
+        requestPayload.contents[0].parts = reducedParts;
+        console.log(`    Reduced to ${reducedDocs.length} docs (budget: ${(reducedBudget / 1000).toFixed(0)}K tokens)`);
+        try {
+          response = await withRetry(
+            () => ai.models.generateContent(requestPayload),
+            { label: `Gemini segment analysis — reduced docs (${displayName})`, maxRetries: 1, baseDelay: 5000 }
+          );
+          console.log(`    ${c.success('Reduced-context retry succeeded')}`);
+        } catch (reduceErr) {
+          console.error(`    ${c.error(`Reduced-context retry also failed: ${reduceErr.message}`)}`);
+          throw reduceErr;
+        }
+      } else {
+        // Log request diagnostics for other errors to aid debugging
+        const partSummary = contentParts.map((p, i) => {
+          if (p.fileData) return `  [${i}] fileData: ${p.fileData.mimeType} → ${(p.fileData.fileUri || '').substring(0, 120)}`;
+          if (p.text) return `  [${i}] text: ${p.text.length} chars → ${p.text.substring(0, 80).replace(/\n/g, ' ')}...`;
+          return `  [${i}] unknown part`;
+        });
+        console.error(`    ${c.error('Request diagnostics:')}`);
+        console.error(`    Model: ${config.GEMINI_MODEL} | Parts: ${contentParts.length} | maxOutput: 65536`);
+        partSummary.forEach(s => console.error(`    ${s}`));
+        throw apiErr;
+      }
     }
   }
   const durationMs = Date.now() - t0;
@@ -628,6 +665,60 @@ ${segmentDumps}`;
 
   const contentParts = [{ text: compilationPrompt }];
 
+  // ------- Pre-flight context window check -------
+  const estimatedInputTokens = estimateTokens(compilationPrompt);
+  const safeLimit = Math.floor(config.GEMINI_CONTEXT_WINDOW * 0.80); // 80% of context window
+  if (estimatedInputTokens > safeLimit) {
+    console.warn(`  ${c.warn(`Compilation input (~${(estimatedInputTokens / 1000).toFixed(0)}K tokens) exceeds 80% of context window (${(safeLimit / 1000).toFixed(0)}K). Trimming older segment detail...`)}`);
+    // Re-build segment dumps with aggressive compression: keep only first & last 2 segments
+    // at full detail, compress the middle ones to IDs + statuses only.
+    const trimmedDumps = allSegmentAnalyses.map((analysis, idx) => {
+      const clean = { ...analysis };
+      delete clean._geminiMeta;
+      delete clean.seg;
+      delete clean.conversation_transcript;
+      const isEdge = idx < 2 || idx >= allSegmentAnalyses.length - 2;
+      if (!isEdge) {
+        // Aggressive compression for middle segments
+        if (clean.tickets) {
+          clean.tickets = clean.tickets.map(t => ({
+            ticket_id: t.ticket_id, status: t.status, title: t.title,
+            assignee: t.assignee, source_segment: t.source_segment,
+          }));
+        }
+        if (clean.change_requests) {
+          clean.change_requests = clean.change_requests.map(cr => ({
+            id: cr.id, status: cr.status, title: cr.title,
+            assigned_to: cr.assigned_to, source_segment: cr.source_segment,
+          }));
+        }
+        if (clean.action_items) {
+          clean.action_items = clean.action_items.map(ai => ({
+            id: ai.id, description: ai.description, assigned_to: ai.assigned_to,
+            status: ai.status, source_segment: ai.source_segment,
+          }));
+        }
+        delete clean.file_references;
+        clean.summary = (clean.summary || '').substring(0, 200);
+      } else {
+        if (clean.tickets) {
+          clean.tickets = clean.tickets.map(t => {
+            const tc = { ...t };
+            if (tc.comments && tc.comments.length > 5) {
+              tc.comments = tc.comments.slice(0, 5);
+              tc.comments.push({ note: `...${t.comments.length - 5} more comments omitted` });
+            }
+            return tc;
+          });
+        }
+      }
+      return `=== SEGMENT ${idx + 1} OF ${allSegmentAnalyses.length} ===\n${JSON.stringify(clean, null, 2)}`;
+    }).join('\n\n');
+    contentParts[0] = { text: compilationPrompt.replace(segmentDumps, trimmedDumps) };
+    const newEstimate = estimateTokens(contentParts[0].text);
+    console.log(`  Trimmed compilation input to ~${(newEstimate / 1000).toFixed(0)}K tokens`);
+  }
+
   const requestPayload = {
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
@@ -640,10 +731,44 @@ ${segmentDumps}`;
 
   const t0 = Date.now();
   console.log(`  Compiling with ${config.GEMINI_MODEL}...`);
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: 'Gemini final compilation', maxRetries: 2, baseDelay: 5000 }
-  );
+  let response;
+  try {
+    response = await withRetry(
+      () => ai.models.generateContent(requestPayload),
+      { label: 'Gemini final compilation', maxRetries: 2, baseDelay: 5000 }
+    );
+  } catch (compileErr) {
+    const errMsg = compileErr.message || '';
+    if (errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('429') || errMsg.includes('quota')) {
+      console.warn(`  ${c.warn('Context window or quota exceeded during compilation — waiting 30s and retrying with reduced input...')}`);
+      await new Promise(r => setTimeout(r, 30000));
+      // Halve the compilation prompt by keeping only edge segments
+      const miniDumps = allSegmentAnalyses.map((analysis, idx) => {
+        const clean = { tickets: (analysis.tickets || []).map(t => ({ ticket_id: t.ticket_id, status: t.status, title: t.title, assignee: t.assignee })),
+          change_requests: (analysis.change_requests || []).map(cr => ({ id: cr.id, status: cr.status, title: cr.title })),
+          action_items: (analysis.action_items || []).map(ai => ({ id: ai.id, description: ai.description, assigned_to: ai.assigned_to, status: ai.status })),
+          blockers: (analysis.blockers || []).map(b => ({ id: b.id, description: b.description, status: b.status })),
+          scope_changes: analysis.scope_changes || [],
+          your_tasks: analysis.your_tasks || {},
+          summary: (analysis.summary || '').substring(0, 300),
+        };
+        return `=== SEGMENT ${idx + 1} OF ${allSegmentAnalyses.length} ===\n${JSON.stringify(clean, null, 2)}`;
+      }).join('\n\n');
+      requestPayload.contents[0].parts = [{ text: compilationPrompt.replace(/SEGMENT ANALYSES:\n[\s\S]*$/, `SEGMENT ANALYSES:\n${miniDumps}`) }];
+      try {
+        response = await withRetry(
+          () => ai.models.generateContent(requestPayload),
+          { label: 'Gemini compilation (reduced)', maxRetries: 1, baseDelay: 5000 }
+        );
+        console.log(`  ${c.success('Reduced compilation succeeded')}`);
+      } catch (reduceErr) {
+        console.error(`  ${c.error(`Reduced compilation also failed: ${reduceErr.message}`)}`);
+        throw reduceErr;
+      }
+    } else {
+      throw compileErr;
+    }
+  }
   const durationMs = Date.now() - t0;
   const rawText = response.text;
 

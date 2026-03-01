@@ -36,6 +36,13 @@ const BATCH_MAX_CHARS = 600000;
 /** Minimum content length (chars) to bother summarizing — below this, keep full */
 const MIN_SUMMARIZE_LENGTH = 500;
 
+/**
+ * Hard cap per-document chars before sending to Gemini.
+ * Gemini context = 1M tokens; prompt overhead ~50K tokens; at 0.3 tok/char
+ * 900K chars ≈ 270K tokens — safe with prompt + thinking overhead.
+ */
+const MAX_DOC_CHARS = 900000;
+
 // ======================== BATCH BUILDER ========================
 
 /**
@@ -51,8 +58,22 @@ function buildBatches(docs, maxChars = BATCH_MAX_CHARS) {
   let currentBatch = [];
   let currentChars = 0;
 
-  for (const doc of docs) {
-    const docChars = doc.content ? doc.content.length : 0;
+  for (let doc of docs) {
+    let docChars = doc.content ? doc.content.length : 0;
+
+    // Truncate extremely large docs to avoid exceeding the context window.
+    // Any single doc beyond MAX_DOC_CHARS is capped (tail is dropped) and a
+    // warning is prepended so the summariser knows the content is incomplete.
+    if (docChars > MAX_DOC_CHARS) {
+      const truncated = doc.content.substring(0, MAX_DOC_CHARS);
+      doc = {
+        ...doc,
+        content: `[TRUNCATED — original ${(docChars / 1024).toFixed(0)} KB exceeded the ${(MAX_DOC_CHARS / 1024).toFixed(0)} KB limit; only the first ${(MAX_DOC_CHARS / 1024).toFixed(0)} KB is included]\n\n${truncated}`,
+        _truncatedFrom: docChars,
+      };
+      docChars = doc.content.length;
+      console.warn(`    ${c.warn(`${doc.fileName} truncated from ${(doc._truncatedFrom / 1024).toFixed(0)} KB to ${(MAX_DOC_CHARS / 1024).toFixed(0)} KB for deep summary`)}`);
+    }
 
     // If this single doc exceeds the batch limit, it gets its own batch
     if (docChars > maxChars) {
@@ -120,22 +141,34 @@ async function summarizeBatch(ai, docs, opts = {}) {
 
   const promptText = `You are a precision document summarizer for a meeting analysis pipeline.
 
-Your job: read ALL documents below and produce a CONDENSED version of each that preserves:
-- Every ticket ID, task ID, CR number, or reference number (verbatim)
-- All assignees, reviewers, and responsible parties
-- All statuses (open, closed, in_progress, blocked, etc.)
-- All action items and their owners
-- All blockers, dependencies, and deadlines
-- Key decisions and their rationale
-- File paths and code references
-- Numerical data (percentages, counts, dates, versions)
+Your job: read ALL documents below and produce a CONDENSED version of each that preserves every piece of actionable information.
 
-What to remove:
+WHAT TO PRESERVE (in order of importance):
+1. IDENTIFIERS — Every ticket ID, task ID, CR number, PR number, JIRA key, GitHub issue, reference number, version number. Copy these VERBATIM — do not paraphrase or abbreviate IDs.
+2. PEOPLE — All assignees, reviewers, approvers, requesters, and responsible parties. Use full names exactly as they appear.
+3. STATUSES & STATES — All statuses (open, closed, in_progress, blocked, deferred, etc.) and state markers (✅, ⬜, ⏸️, 🔲). Preserve the exact status vocabulary used in the document.
+4. ACTION ITEMS — Every action item, commitment, and deliverable with its owner, deadline, and dependency chain.
+5. BLOCKERS & DEPENDENCIES — What is blocked, by whom, what it blocks downstream.
+6. DECISIONS & RATIONALE — Key decisions and WHY they were made (not just what).
+7. CROSS-REFERENCES — When Document A references something from Document B, preserve that linkage. If ticket X is mentioned in a code-map entry, keep both the ticket ID and the code-map path.
+8. TECHNICAL SPECIFICS — File paths, code references, API endpoints, database tables, configuration keys, environment names (dev/staging/prod).
+9. NUMERICAL DATA — Percentages, counts, dates, deadlines, version numbers, sizes.
+10. CHECKLISTS & PROGRESS — Preserve checklist items with their completion status markers. Include progress ratios (e.g., "35/74 done, 6 blocked").
+
+WHAT TO REMOVE:
 - Verbose explanations of well-known concepts
-- Redundant phrasing and filler text
-- Formatting-only content (decorative headers, dividers)
-- Boilerplate/template text that adds no information
+- Redundant phrasing, filler text, throat-clearing sentences
+- Formatting-only content (decorative headers, horizontal rules, empty sections)
+- Boilerplate/template text that adds no project-specific information
+- Repeated definitions or glossary entries that don't change across documents
 ${focusSection}
+
+QUALITY REQUIREMENTS:
+- Aim for 70-80% size reduction while preserving ALL actionable information.
+- Every ID, every name, every status MUST survive the summarization.
+- If two documents reference the same entity (ticket, file, person), ensure the summary preserves enough context in BOTH summaries for downstream consumers to make the connection.
+- When a document contains a table, preserve the table structure (header + key rows). Omit empty or low-value rows.
+- When a document has nested structure (subsections, indented lists), preserve the hierarchy — use indentation or numbering.
 
 OUTPUT FORMAT:
 Return valid JSON with this structure:
@@ -151,9 +184,6 @@ Return valid JSON with this structure:
   }
 }
 
-Aim for 70-80% size reduction while preserving ALL actionable information.
-Every ID, every name, every status must survive the summarization.
-
 DOCUMENTS TO SUMMARIZE (${docEntries.length} documents):
 
 ${docEntries.join('\n\n')}`;
@@ -162,7 +192,7 @@ ${docEntries.join('\n\n')}`;
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: promptText }] }],
     config: {
-      systemInstruction: 'You are a lossless information compressor. Preserve every ID, name, status, assignment, and actionable detail. Output valid JSON only.',
+      systemInstruction: 'You are a lossless information compressor specialized in engineering and business documents. Preserve every ID, name, status, assignment, dependency, file path, decision rationale, and actionable detail. Maintain cross-document references (when doc A mentions entity from doc B, keep both sides). Output valid JSON only.',
       maxOutputTokens: SUMMARY_MAX_OUTPUT,
       temperature: 0,
       thinkingConfig: { thinkingBudget },
@@ -372,4 +402,5 @@ module.exports = {
   SUMMARY_MAX_OUTPUT,
   BATCH_MAX_CHARS,
   MIN_SUMMARIZE_LENGTH,
+  MAX_DOC_CHARS,
 };

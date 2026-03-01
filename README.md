@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v9.0.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v9.4.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-11.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-9.0.0-brightgreen" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-285%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-9.4.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-331%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -61,6 +61,20 @@ taskex --update-progress --repo "C:\my-project" "my-meeting"
 ```
 
 > **v7.2.3**: If the call folder isn't a git repo, the tool auto-initializes one for baseline tracking.
+
+### ⚡ Deep Summary (`--deep-summary`)
+
+Pre-summarize context documents to reduce per-segment token usage by 60-80%:
+
+```bash
+taskex --deep-summary --name "Jane" "my-meeting"
+```
+
+Exclude specific docs from summarization (keep at full fidelity):
+
+```bash
+taskex --deep-summary --exclude-docs "code-map.md,sprint.md" "my-meeting"
+```
 
 > See all modes explained with diagrams → [ARCHITECTURE.md](ARCHITECTURE.md#pipeline-phases)
 
@@ -172,6 +186,8 @@ These are the ones you'll actually use:
 | `--format <type>` | Output format: `md`, `html`, `json`, `pdf`, `docx`, `all` (default: `md`) | `--format html` |
 | `--min-confidence <level>` | Filter items by confidence: `high`, `medium`, `low` | `--min-confidence high` |
 | `--no-html` | Suppress HTML report generation | `--no-html` |
+| `--deep-summary` | Pre-summarize context docs (60-80% token savings) | `--deep-summary` |
+| `--exclude-docs <list>` | Docs to keep full during deep-summary (comma-separated) | `--exclude-docs "code-map.md"` |
 
 **Typical usage:**
 
@@ -198,6 +214,7 @@ Choose what the tool does. Only use one at a time:
 | *(none)* | **Content analysis** | `results.md` + `results.html` — structured task document |
 | `--dynamic` | **Doc generation** | `INDEX.md` + 3–15 topic documents |
 | `--deep-dive` | **Topic explainers** | `INDEX.md` + per-topic deep-dive docs |
+| `--deep-summary` | **Token-efficient analysis** | Same as content analysis, but context docs pre-summarized (60-80% savings) |
 | `--update-progress` | **Progress check** | `progress.md` — item status via git |
 
 **Dynamic mode** also uses:
@@ -259,7 +276,7 @@ taskex [flags] [folder]
 
 CONFIG     --gemini-key  --firebase-key  --firebase-project
            --firebase-bucket  --firebase-domain
-MODES      --dynamic  --deep-dive  --update-progress
+MODES      --dynamic  --deep-dive  --deep-summary  --update-progress
 CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
 OUTPUT     --format <md|html|json|pdf|docx|all>  --min-confidence <high|medium|low>
            --no-html
@@ -394,7 +411,7 @@ GEMINI_API_KEY=your-key-here
 
 # Optional — uncomment to customize
 # GEMINI_MODEL=gemini-2.5-flash
-# VIDEO_SPEED=1.5
+# VIDEO_SPEED=1.6
 # THINKING_BUDGET=24576
 # LOG_LEVEL=info
 
@@ -413,7 +430,7 @@ GEMINI_API_KEY=your-key-here
 
 | Feature | Description |
 |---------|-------------|
-| **Video/Audio Compression** | H.264 CRF 24, text-optimized sharpening, configurable speed |
+| **Video/Audio Compression** | H.264 CRF 24, text-optimized sharpening, 1.6× speed |
 | **Smart Segmentation** | ≤5 min chunks with boundary-aware splitting |
 | **Cross-Segment Continuity** | Ticket IDs, names, and context carry forward |
 | **Document Discovery** | Auto-finds docs in all subfolders |
@@ -434,6 +451,8 @@ GEMINI_API_KEY=your-key-here
 | **HTML Report** | Self-contained HTML report with collapsible sections, filtering, dark mode |
 | **JSON Schema Validation** | Validates AI output against JSON Schema (segment + compiled) |
 | **Confidence Filter** | `--min-confidence` flag to exclude low-confidence items from output |
+| **Deep Summary** | `--deep-summary` pre-summarizes context docs, 60-80% token savings per segment |
+| **Context Window Safety** | Auto-truncation, pre-flight token checks, RESOURCE_EXHAUSTED recovery |
 | **Multi-Format Output** | `--format` flag: Markdown, HTML, JSON, PDF, DOCX, or all formats at once |
 | **Interactive CLI** | Run with no args → guided experience |
 | **Resume / Checkpoint** | `--resume` continues interrupted runs |
@@ -507,6 +526,7 @@ task-summary-extractor/
 │   │   ├── git.js              Git CLI wrapper
 │   │   └── doc-parser.js       Document text extraction (DOCX, XLSX, PPTX, etc.)
 │   ├── modes/                  AI-heavy pipeline phase modules
+│   │   ├── deep-summary.js     Pre-summarize context docs (deep-summary feature)
 │   │   ├── deep-dive.js        Topic discovery & deep-dive doc generation
 │   │   ├── dynamic-mode.js     Dynamic document planning & generation
 │   │   ├── focused-reanalysis.js  Targeted reanalysis of weak segments
@@ -528,16 +548,13 @@ task-summary-extractor/
 │       ├── schema-validator.js JSON Schema validation (ajv)
 │       └── ... (15 more utility modules)
 │
-├── tests/                      Test suite — 285 tests across 13 files (vitest)
+├── tests/                      Test suite — 331 tests across 15 files (vitest)
 │   ├── utils/                  Utility module tests
 │   └── renderers/              Renderer tests
 │
 ├── QUICK_START.md              Step-by-step setup guide
-├── ARCHITECTURE.md             Technical deep dive
-└── EXPLORATION.md              Roadmap & future features
+└── ARCHITECTURE.md             Technical deep dive
 ```
-
-> Full module map with line counts → [EXPLORATION.md](EXPLORATION.md#full-module-map)
 
 ---
 
@@ -551,7 +568,7 @@ task-summary-extractor/
 | `npm run check` | Validate environment |
 | `npm start` | Run the pipeline |
 | `npm run help` | Show CLI help |
-| `npm test` | Run test suite (285 tests) |
+| `npm test` | Run test suite (331 tests) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage report |
 
@@ -561,6 +578,9 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v9.4.0** | **Context window safety** — pre-flight token checks, auto-truncation for oversized docs/VTTs, RESOURCE_EXHAUSTED recovery with automatic doc shedding, chunked compilation for large segment sets, P0/P1 hard cap (2× budget) prevents context overflow, improved deep-summary prompt quality |
+| **v9.3.1** | **Audit & polish** — VIDEO_SPEED 1.5→1.6, `--exclude-docs` flag for non-interactive deep-summary exclusion, friendlier Gemini error messages, dead code removal, DRY RUN_PRESETS |
+| **v9.3.0** | **Deep summary** — `--deep-summary` pre-summarizes context documents (60-80% token savings), interactive doc picker, `--exclude-docs` for CLI automation, batch processing |
 | **v9.0.0** | **CLI UX upgrade** — colors & progress bar, HTML reports, PDF & DOCX output (via puppeteer and docx npm package), JSON Schema validation, confidence filter (`--min-confidence`), pipeline decomposition (`src/phases/` — 9 modules), test suite (285 tests via vitest), multi-format output (`--format`: md/html/json/pdf/docx/all), doc-parser service, shared renderer utilities |
 | **v8.3.0** | **Universal content analysis** — prompt v4.0.0 supports video, audio, documents, and mixed content; input type auto-detection; timestamps conditional on content type; gemini.js bridge text generalized; all markdown docs updated |
 | **v8.2.0** | **Architecture cleanup** — `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
@@ -587,7 +607,6 @@ task-summary-extractor/
 |-----|-------------|-------------|
 | 📖 **[QUICK_START.md](QUICK_START.md)** | Full setup walkthrough, examples, troubleshooting | First time using the tool |
 | 🏗️ **[ARCHITECTURE.md](ARCHITECTURE.md)** | Pipeline phases, algorithms, Mermaid diagrams | Understanding how it works |
-| 🔭 **[EXPLORATION.md](EXPLORATION.md)** | Module map, line counts, future roadmap | Contributing or extending |
 
 ---
 
