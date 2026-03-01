@@ -36,6 +36,7 @@ function parseArgs(argv) {
     'resume', 'reanalyze', 'dry-run',
     'dynamic', 'deep-dive', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
+    'no-html',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -89,7 +90,11 @@ const SKIP_FOLDER_NAMES = new Set([
  */
 function discoverFolders(projectRoot) {
   const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi', '.mov', '.webm']);
-  const DOC_EXTS = new Set(['.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md']);
+  const DOC_EXTS = new Set([
+    '.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md',
+    '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub',
+    '.html', '.htm',
+  ]);
   const folders = [];
 
   let entries;
@@ -390,6 +395,7 @@ function showHelp() {
     --no-focused-pass                 Disable focused re-analysis for weak segments
     --no-learning                     Disable learning loop (historical budget adjustments)
     --no-diff                         Disable diff comparison against previous runs
+    --no-html                         Skip HTML report generation (Markdown only)
 
   Info:
     --help, -h                        Show this help message

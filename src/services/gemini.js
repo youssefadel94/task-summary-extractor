@@ -12,6 +12,7 @@ const {
   GEMINI_API_KEY,
   GEMINI_FILE_API_EXTS,
   INLINE_TEXT_EXTS,
+  DOC_PARSER_EXTS,
   GEMINI_UNSUPPORTED,
   MIME_MAP,
   GEMINI_POLL_TIMEOUT_MS,
@@ -19,6 +20,7 @@ const {
 // Access config.GEMINI_MODEL and config.GEMINI_CONTEXT_WINDOW at call time
 // (not destructured) so runtime model changes via setActiveModel() are visible.
 const { extractJson } = require('../utils/json-parser');
+const { parseDocument } = require('./doc-parser');
 const {
   selectDocsByBudget,
   sliceVttForSegment,
@@ -61,6 +63,17 @@ async function prepareDocsForGemini(ai, docFileList) {
         const content = await fs.promises.readFile(docPath, 'utf8');
         prepared.push({ type: 'inlineText', fileName: name, content });
         console.log(`    ✓ ${name} ready (${(content.length / 1024).toFixed(1)} KB)`);
+      } else if (DOC_PARSER_EXTS.includes(ext)) {
+        // Binary document — convert to text via doc-parser
+        console.log(`    Parsing ${name} (${ext} → text)...`);
+        const result = await parseDocument(docPath, { silent: true });
+        if (result.success && result.text) {
+          prepared.push({ type: 'inlineText', fileName: name, content: result.text });
+          console.log(`    ✓ ${name} parsed (${(result.text.length / 1024).toFixed(1)} KB text extracted)`);
+        } else {
+          const reason = result.warnings.length > 0 ? result.warnings[0] : 'empty output';
+          console.warn(`    ⚠ ${name} — parse failed (${reason}), will upload to Firebase only`);
+        }
       } else if (GEMINI_FILE_API_EXTS.includes(ext)) {
         const mime = MIME_MAP[ext] || 'application/octet-stream';
         console.log(`    Uploading ${name} to Gemini File API...`);

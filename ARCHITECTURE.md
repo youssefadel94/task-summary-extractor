@@ -74,6 +74,7 @@ flowchart TB
         FB["firebase.js"]
         VID["video.js"]
         GIT["git.js"]
+        DP["doc-parser.js"]
     end
 
     subgraph Utils["Utilities"]
@@ -97,6 +98,8 @@ flowchart TB
 
     subgraph Renderers["Renderers"]
         MD["markdown.js"]
+        HTML["html.js"]
+        SHARED["shared.js"]
     end
 
     EP --> Pipeline
@@ -123,7 +126,7 @@ flowchart TB
 | 3 | **Services** | Firebase auth, Gemini init, prepare document parts |
 | 4 | **Process** | Compress → Upload → Analyze → Quality Gate → Retry → Focused Pass |
 | 5 | **Compile** | Cross-segment compilation, diff engine comparison |
-| 6 | **Output** | Write JSON, render Markdown, upload to Firebase |
+| 6 | **Output** | Write JSON, render Markdown + HTML, upload to Firebase |
 | 7 | **Health** | Quality metrics dashboard, cost breakdown |
 | 8 | **Summary** | Save learning history, print run summary |
 | 9 | **Deep Dive** | (optional, `--deep-dive`) Topic discovery + explanatory document generation |
@@ -505,7 +508,10 @@ taskex --dynamic --request "Document this microservices architecture"
 | `.vtt` `.srt` `.txt` `.md` `.csv` | Inline text | Read and passed directly as text parts |
 | `.pdf` | Gemini File API | Uploaded as binary, Gemini processes natively |
 | `.mp3` `.wav` `.ogg` `.m4a` | Gemini File API | Uploaded as audio, Gemini processes natively |
-| `.docx` `.doc` | Firebase only | Uploaded for archival, not processable by Gemini |
+| `.docx` | Doc parser (mammoth) | Converted to plain text, sent as inline text |
+| `.xlsx` `.xls` | Doc parser (xlsx) | Converted to pipe-delimited tables, sent as inline text |
+| `.doc` `.pptx` `.ppt` `.odt` `.odp` `.ods` `.rtf` `.epub` | Doc parser (officeparser) | Converted to plain text, sent as inline text |
+| `.html` `.htm` | Doc parser (built-in) | HTML tags stripped, sent as inline text |
 
 Directories skipped during recursive discovery: `node_modules`, `.git`, `compressed`, `logs`, `gemini_runs`, `runs`
 
@@ -546,10 +552,13 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **Gemini AI** | `@google/genai@^1.42.0` | Video analysis, File API, 1M context window |
 | **Firebase** | `firebase@^12.9.0` | Anonymous auth + Cloud Storage uploads |
 | **dotenv** | `dotenv@^17.3.1` | Environment variable loading |
+| **mammoth** | `mammoth` | DOCX → plain text conversion |
+| **xlsx** | `xlsx` | Excel spreadsheet parsing (XLSX/XLS) |
+| **officeparser** | `officeparser` | DOC, PPTX, ODT, RTF, EPUB text extraction |
 | **ffmpeg** | System binary | H.264 video compression + segmentation |
 | **Git** | System binary | Change detection for progress tracking |
 
-**Codebase: 32 files · ~9,300 lines** · npm package: `task-summary-extractor` · CLI: `taskex`
+**Codebase: 35 files · ~12,200 lines** · npm package: `task-summary-extractor` · CLI: `taskex`
 
 ---
 

@@ -294,11 +294,125 @@ function compressAndSegment(inputFile, outputDir) {
   return segments;
 }
 
+/**
+ * Compress and segment an audio-only file using ffmpeg.
+ * No video stream — just audio compression + segmentation in MP4/M4A container
+ * (for Gemini File API compatibility).
+ *
+ * Returns sorted array of segment file paths.
+ */
+function compressAndSegmentAudio(inputFile, outputDir) {
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const duration = probeFormat(inputFile, 'duration');
+  const durationSec = duration ? parseFloat(duration) : null;
+  const effectiveDuration = durationSec ? durationSec / SPEED : null;
+  const channels = parseInt(probe(inputFile, 'a:0', 'channels') || '1', 10);
+  const sampleRate = probe(inputFile, 'a:0', 'sample_rate') || '16000';
+  const audioBr = channels >= 2 ? '128k' : '64k';
+
+  console.log(`  Duration : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${SPEED}x)` : ''}`);
+  console.log(`  Audio-only mode | ${SPEED}x speed | ${audioBr} bitrate`);
+
+  const encodingArgs = [
+    '-af', `atempo=${SPEED}`,
+    '-c:a', 'aac', '-b:a', audioBr, '-ar', sampleRate, '-ac', String(channels),
+    '-vn',  // no video
+    '-movflags', '+faststart',
+  ];
+
+  const needsSegmentation = effectiveDuration === null || effectiveDuration > SEG_TIME;
+
+  if (needsSegmentation) {
+    console.log(`  Compressing (segmented, ${SEG_TIME}s chunks)...`);
+    const args = [
+      '-y', '-i', inputFile,
+      ...encodingArgs,
+      '-f', 'segment', '-segment_time', String(SEG_TIME), '-reset_timestamps', '1',
+      path.join(outputDir, 'segment_%02d.m4a'),
+    ];
+    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    if (result.status !== 0) {
+      console.warn(`  ⚠ ffmpeg exited with code ${result.status} (output may still be usable)`);
+    }
+  } else {
+    console.log(`  Compressing (single output, ${effectiveDuration ? fmtDuration(effectiveDuration) : '?'} effective)...`);
+    const outPath = path.join(outputDir, 'segment_00.m4a');
+    const args = ['-y', '-i', inputFile, ...encodingArgs, outPath];
+    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    if (result.status !== 0) {
+      console.warn(`  ⚠ ffmpeg exited with code ${result.status}`);
+    }
+  }
+
+  // Collect segments (both .mp4 and .m4a)
+  let segments = fs.readdirSync(outputDir)
+    .filter(f => f.startsWith('segment_') && (f.endsWith('.m4a') || f.endsWith('.mp4')))
+    .sort()
+    .map(f => path.join(outputDir, f));
+
+  // Validate segments
+  const valid = [];
+  const corrupt = [];
+  for (const seg of segments) {
+    if (verifySegment(seg)) {
+      valid.push(seg);
+    } else {
+      corrupt.push(seg);
+      console.warn(`  ⚠ Corrupt audio segment: ${path.basename(seg)}`);
+    }
+  }
+
+  if (corrupt.length > 0) {
+    console.log(`  Retrying ${corrupt.length} corrupt segment(s)...`);
+    const fallbackPath = path.join(outputDir, '_fallback_full.m4a');
+    const fbArgs = ['-y', '-i', inputFile, ...encodingArgs, fallbackPath];
+    const fbResult = spawnSync(getFFmpeg(), fbArgs, { stdio: 'inherit' });
+    if (fbResult.status === 0 && verifySegment(fallbackPath)) {
+      for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch {} }
+      if (segments.length === 1) {
+        const dest = path.join(outputDir, 'segment_00.m4a');
+        fs.renameSync(fallbackPath, dest);
+        segments = [dest];
+        console.log(`  ✓ Re-encoded as single segment`);
+      } else {
+        // Re-segment
+        const reSegDir = path.join(outputDir, '_reseg');
+        fs.mkdirSync(reSegDir, { recursive: true });
+        const rsArgs = [
+          '-y', '-i', fallbackPath,
+          '-c', 'copy', '-vn',
+          '-f', 'segment', '-segment_time', String(SEG_TIME), '-reset_timestamps', '1',
+          path.join(reSegDir, 'segment_%02d.m4a'),
+        ];
+        spawnSync(getFFmpeg(), rsArgs, { stdio: 'inherit' });
+        const reSegs = fs.readdirSync(reSegDir).filter(f => f.endsWith('.m4a')).sort();
+        for (const f of reSegs) {
+          fs.renameSync(path.join(reSegDir, f), path.join(outputDir, f));
+        }
+        try { fs.rmSync(reSegDir, { recursive: true }); } catch {}
+        try { fs.unlinkSync(fallbackPath); } catch {}
+        segments = fs.readdirSync(outputDir)
+          .filter(f => f.startsWith('segment_') && (f.endsWith('.m4a') || f.endsWith('.mp4')))
+          .sort()
+          .map(f => path.join(outputDir, f));
+        console.log(`  ✓ Re-segmented from fallback: ${segments.length} segment(s)`);
+      }
+    } else {
+      console.error(`  ✗ Fallback audio re-encode failed`);
+      try { fs.unlinkSync(fallbackPath); } catch {}
+    }
+  }
+
+  return segments;
+}
+
 module.exports = {
   findBin,
   probe,
   probeFormat,
   compressAndSegment,
+  compressAndSegmentAudio,
   verifySegment,
   getFFmpeg,
   getFFprobe,

@@ -209,7 +209,13 @@ const SPEED = envFloat('VIDEO_SPEED', 1.5);
 const SEG_TIME = envInt('VIDEO_SEGMENT_TIME', 280); // seconds — produces segments < 5 min
 const PRESET = env('VIDEO_PRESET', 'slow');
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
-const DOC_EXTS = ['.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md'];
+const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
+const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS];
+const DOC_EXTS = [
+  '.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md',
+  '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub',
+  '.html', '.htm',
+];
 
 // ======================== PIPELINE SETTINGS ========================
 
@@ -232,8 +238,14 @@ const GEMINI_POLL_TIMEOUT_MS = envInt('GEMINI_POLL_TIMEOUT_MS', 300000); // 5 mi
 const GEMINI_FILE_API_EXTS = ['.pdf'];
 // Text-readable extensions — inlined as text parts (Gemini rejects text/vtt, text/csv etc. as fileData)
 const INLINE_TEXT_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv'];
-// Unsupported by Gemini — uploaded to Firebase only
-const GEMINI_UNSUPPORTED = ['.docx', '.doc'];
+// Extensions where doc-parser extracts text before sending to Gemini
+// (previously unsupported — now converted to inline text automatically)
+const DOC_PARSER_EXTS = [
+  '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
+  '.odt', '.odp', '.ods', '.rtf', '.epub', '.html', '.htm',
+];
+// Unsupported by Gemini — uploaded to Firebase only (empty now — doc-parser handles everything)
+const GEMINI_UNSUPPORTED = [];
 
 // ======================== MIME TYPES ========================
 
@@ -246,11 +258,29 @@ const MIME_MAP = {
   '.pdf': 'application/pdf',
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.doc': 'application/msword',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls': 'application/vnd.ms-excel',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.odt': 'application/vnd.oasis.opendocument.text',
+  '.odp': 'application/vnd.oasis.opendocument.presentation',
+  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.rtf': 'application/rtf',
+  '.epub': 'application/epub+zip',
+  '.html': 'text/html',
+  '.htm': 'text/html',
   '.mp4': 'video/mp4',
   '.mkv': 'video/x-matroska',
   '.avi': 'video/x-msvideo',
   '.mov': 'video/quicktime',
   '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
+  '.aac': 'audio/aac',
+  '.wma': 'audio/x-ms-wma',
   '.json': 'application/json',
 };
 
@@ -310,9 +340,12 @@ module.exports = {
   SEG_TIME,
   PRESET,
   VIDEO_EXTS,
+  AUDIO_EXTS,
+  MEDIA_EXTS,
   DOC_EXTS,
   GEMINI_FILE_API_EXTS,
   INLINE_TEXT_EXTS,
+  DOC_PARSER_EXTS,
   GEMINI_UNSUPPORTED,
   MIME_MAP,
   LOG_LEVEL,

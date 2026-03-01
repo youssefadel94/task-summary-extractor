@@ -60,6 +60,7 @@ const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require(
 
 // --- Renderers ---
 const { renderResultsMarkdown } = require('./renderers/markdown');
+const { renderResultsHtml } = require('./renderers/html');
 
 // --- Logger ---
 const Logger = require('./logger');
@@ -127,6 +128,7 @@ async function phaseInit() {
     disableFocusedPass: !!flags['no-focused-pass'],
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
+    noHtml: !!flags['no-html'],
     deepDive: !!flags['deep-dive'],
     dynamic: !!flags.dynamic,
     request: typeof flags.request === 'string' ? flags.request : null,
@@ -1147,6 +1149,41 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
     fs.writeFileSync(mdPath, mdContent, 'utf8');
     log.step(`Results MD saved (compiled) → ${mdPath}`);
     console.log(`  ✓ Markdown report (AI-compiled) → ${path.basename(mdPath)}`);
+
+    // Generate HTML report (same data, interactive format)
+    if (!opts.noHtml) {
+      const htmlPath = path.join(runDir, 'results.html');
+      const htmlContent = renderResultsHtml({
+        compiled: compiledAnalysis,
+        meta: {
+          callName: results.callName,
+          processedAt: results.processedAt,
+          geminiModel: config.GEMINI_MODEL,
+          userName,
+          segmentCount: totalSegs,
+          compilation: compilationRun || null,
+          costSummary: results.costSummary,
+          segments: results.files.flatMap(f => {
+            const speed = results.settings?.speed || 1;
+            let cum = 0;
+            return (f.segments || []).map(s => {
+              const startSec = cum;
+              cum += (s.durationSeconds || 0) * speed;
+              return {
+                file: s.segmentFile,
+                duration: s.duration,
+                durationSeconds: s.durationSeconds,
+                sizeMB: s.fileSizeMB,
+              };
+            });
+          }),
+          settings: results.settings,
+        },
+      });
+      fs.writeFileSync(htmlPath, htmlContent, 'utf8');
+      log.step(`Results HTML saved → ${htmlPath}`);
+      console.log(`  ✓ HTML report → ${path.basename(htmlPath)}`);
+    }
   } else {
     const { renderResultsMarkdownLegacy } = require('./renderers/markdown');
     const mdContent = renderResultsMarkdownLegacy(results);
@@ -1681,19 +1718,26 @@ async function runDynamic(initCtx) {
     log.step(`Dynamic video analysis: ${videoSummaries.length} segment summaries extracted`);
   }
 
-  // 6. Load document contents as snippets for AI
-  const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml', '.html'];
+  // 6. Load document contents as snippets for AI (text files + parsed binary docs)
+  const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml'];
+  const { parseDocument, canParse } = require('./services/doc-parser');
   const docSnippets = [];
   for (const { absPath, relPath } of allDocFiles) {
-    if (INLINE_EXTS.includes(path.extname(absPath).toLowerCase())) {
-      try {
+    const ext = path.extname(absPath).toLowerCase();
+    try {
+      if (INLINE_EXTS.includes(ext)) {
         let content = fs.readFileSync(absPath, 'utf8');
         if (content.length > 8000) {
           content = content.slice(0, 8000) + '\n... (truncated)';
         }
         docSnippets.push(`[${relPath}]\n${content}`);
-      } catch { /* skip unreadable */ }
-    }
+      } else if (canParse(ext)) {
+        const result = await parseDocument(absPath, { maxLength: 8000, silent: true });
+        if (result.success && result.text) {
+          docSnippets.push(`[${relPath}]\n${result.text}`);
+        }
+      }
+    } catch { /* skip unreadable */ }
   }
   console.log(`  Loaded ${docSnippets.length} document(s) as context for AI`);
   if (videoSummaries.length > 0) {
