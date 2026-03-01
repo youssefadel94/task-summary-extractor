@@ -231,7 +231,7 @@ async function run() {
 async function runDocOnly(ctx) {
   // Lazy imports for doc-only mode
   const { compileFinalResult } = require('./services/gemini');
-  const { validateAnalysis, formatSchemaLine } = require('./utils/schema-validator');
+  const { validateAnalysis, formatSchemaLine, normalizeAnalysis } = require('./utils/schema-validator');
   const { renderResultsMarkdown } = require('./renderers/markdown');
   const { renderResultsHtml } = require('./renderers/html');
   const { renderResultsPdf } = require('./renderers/pdf');
@@ -297,7 +297,7 @@ async function runDocOnly(ctx) {
       }
     );
 
-    compiledAnalysis = compilationResult.compiled;
+    compiledAnalysis = normalizeAnalysis(compilationResult.compiled);
     compilationRun = compilationResult.run;
 
     if (compilationRun?.tokenUsage) {

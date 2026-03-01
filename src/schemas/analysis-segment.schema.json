@@ -5,7 +5,7 @@
   "description": "JSON Schema for a single segment's AI analysis output. Uses additionalProperties:true to allow extra fields without failing.",
   "type": "object",
   "additionalProperties": true,
-  "required": ["tickets", "action_items", "change_requests", "summary"],
+  "required": ["summary"],
   "properties": {
     "tickets": {
       "type": "array",

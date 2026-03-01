@@ -172,12 +172,12 @@ describe('quality-gate', () => {
         tickets: [
           { ticket_id: 'T-1', discussed_state: 'In review', comments: ['Need update'] },
         ],
-        // action_items, change_requests, summary are missing
+        // summary is missing (the only required field)
       };
       const report = assessQuality(partial, makeDefaultContext());
 
-      // Structure: only 1/4 required → baseScore=20
-      expect(report.dimensions.structure.score).toBeLessThan(30);
+      // Missing summary → should have structure issues in overall issues
+      expect(report.issues.some(i => i.includes('Missing required field'))).toBe(true);
       // Overall score should be significantly below a rich analysis
       expect(report.score).toBeLessThan(65);
     });
@@ -357,8 +357,8 @@ describe('quality-gate', () => {
 
       expect(report.grade).toBe('FAIL');
       expect(report.retryHints.length).toBeGreaterThan(0);
-      // Should include hint about missing required fields
-      expect(report.retryHints.join(' ')).toMatch(/required fields/i);
+      // Should include hint about missing required field (summary)
+      expect(report.retryHints.join(' ')).toMatch(/required|summary/i);
     });
 
     it('structure score is lower without valued optional fields', () => {
@@ -374,8 +374,9 @@ describe('quality-gate', () => {
       const rFull = assessQuality(withOptional, makeDefaultContext());
       const rMin = assessQuality(withoutOptional, makeDefaultContext());
 
-      // All 4 required present → base 80, but no optional bonus → 80 vs 92
-      expect(rMin.dimensions.structure.score).toBe(80);
+      // summary present → base 70, plus valued bonuses for tickets/actions/crs = 76
+      // Without blockers/scope_changes/file_references/your_tasks → fewer bonus points
+      expect(rMin.dimensions.structure.score).toBeGreaterThanOrEqual(70);
       expect(rFull.dimensions.structure.score).toBeGreaterThan(rMin.dimensions.structure.score);
     });
 

@@ -3,6 +3,7 @@ const {
   buildSchemaRetryHints,
   schemaScore,
   formatSchemaLine,
+  normalizeAnalysis,
 } = require('../../src/utils/schema-validator');
 
 // ---------------------------------------------------------------------------
@@ -108,21 +109,20 @@ describe('validateAnalysis (segment)', () => {
     expect(report.summary).toMatch(/skip/i);
   });
 
-  it('reports error when tickets field is missing', () => {
+  it('passes when tickets field is missing (now optional)', () => {
     const data = makeMinimalSegment();
     delete data.tickets;
     const report = validateAnalysis(data, 'segment');
-    expect(report.valid).toBe(false);
-    const ticketError = report.errors.find(e => e.message.includes('tickets'));
-    expect(ticketError).toBeDefined();
+    // tickets is no longer required — should still pass
+    expect(report.valid).toBe(true);
   });
 
-  it('reports multiple errors when several required fields are missing', () => {
+  it('passes when only summary is present (minimal valid segment)', () => {
     const data = { summary: 'Only summary present.' };
     const report = validateAnalysis(data, 'segment');
-    expect(report.valid).toBe(false);
-    // tickets, action_items, change_requests are all missing
-    expect(report.errorCount).toBeGreaterThanOrEqual(3);
+    // Only summary is required now
+    expect(report.valid).toBe(true);
+    expect(report.errorCount).toBe(0);
   });
 
   it('reports enum error for ticket with invalid status', () => {
@@ -272,12 +272,56 @@ describe('formatSchemaLine', () => {
       valid: false,
       errorCount: 2,
       errors: [
-        { path: '/', message: 'Missing required field "tickets"', keyword: 'required' },
-        { path: '/', message: 'Missing required field "action_items"', keyword: 'required' },
+        { path: '/', message: 'Missing required field "summary"', keyword: 'required' },
+        { path: '/tickets/0', message: 'Missing required field "ticket_id"', keyword: 'required' },
       ],
     };
     const line = formatSchemaLine(report);
     expect(line).toContain('⚠');
     expect(line).toContain('2 error(s)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeAnalysis
+// ---------------------------------------------------------------------------
+
+describe('normalizeAnalysis', () => {
+  it('fills in missing array fields with empty arrays', () => {
+    const data = { summary: 'Hello' };
+    const result = normalizeAnalysis(data);
+    expect(result.tickets).toEqual([]);
+    expect(result.action_items).toEqual([]);
+    expect(result.change_requests).toEqual([]);
+    expect(result.blockers).toEqual([]);
+    expect(result.scope_changes).toEqual([]);
+    expect(result.file_references).toEqual([]);
+    expect(result.summary).toBe('Hello');
+  });
+
+  it('does not overwrite existing arrays', () => {
+    const data = { tickets: [{ id: '1' }], summary: 'Test' };
+    const result = normalizeAnalysis(data);
+    expect(result.tickets).toEqual([{ id: '1' }]);
+    expect(result.action_items).toEqual([]);
+  });
+
+  it('replaces null array fields with empty arrays', () => {
+    const data = { tickets: null, action_items: null, summary: 'X' };
+    const result = normalizeAnalysis(data);
+    expect(result.tickets).toEqual([]);
+    expect(result.action_items).toEqual([]);
+  });
+
+  it('returns null/undefined data as-is', () => {
+    expect(normalizeAnalysis(null)).toBe(null);
+    expect(normalizeAnalysis(undefined)).toBe(undefined);
+  });
+
+  it('mutates the original object in-place', () => {
+    const data = { summary: 'Test' };
+    const result = normalizeAnalysis(data);
+    expect(result).toBe(data);
+    expect(data.tickets).toEqual([]);
   });
 });

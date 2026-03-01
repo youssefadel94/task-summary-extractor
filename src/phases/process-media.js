@@ -17,7 +17,7 @@ const { fmtDuration, fmtBytes } = require('../utils/format');
 const { promptUser } = require('../utils/cli');
 const { parallelMap } = require('../utils/retry');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('../utils/quality-gate');
-const { validateAnalysis, formatSchemaLine, schemaScore } = require('../utils/schema-validator');
+const { validateAnalysis, formatSchemaLine, schemaScore, normalizeAnalysis } = require('../utils/schema-validator');
 const { calculateThinkingBudget } = require('../utils/adaptive-budget');
 const { detectBoundaryContext, sliceVttForSegment } = require('../utils/context-manager');
 
@@ -264,7 +264,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       try {
         const existingRun = JSON.parse(fs.readFileSync(latestRunPath, 'utf8'));
         geminiRunFile = path.relative(PROJECT_ROOT, path.join(geminiRunsDir, latestRunFile));
-        analysis = existingRun.output.parsed || { rawResponse: existingRun.output.raw };
+        analysis = normalizeAnalysis(existingRun.output.parsed || { rawResponse: existingRun.output.raw });
         analysis._geminiMeta = {
           model: existingRun.run.model,
           processedAt: existingRun.run.timestamp,
@@ -396,7 +396,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         geminiFileName = geminiRun.input.videoFile.geminiFileName || null;
         const usedExternalUrl = geminiRun.input.videoFile.usedExternalUrl || false;
 
-        analysis = geminiRun.output.parsed || { rawResponse: geminiRun.output.raw };
+        analysis = normalizeAnalysis(geminiRun.output.parsed || { rawResponse: geminiRun.output.raw });
         analysis._geminiMeta = {
           model: geminiRun.run.model,
           processedAt: geminiRun.run.timestamp,
@@ -474,7 +474,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             const retryRunFilePath = path.join(geminiRunsDir, retryRunFileName);
             fs.writeFileSync(retryRunFilePath, JSON.stringify(retryRun, null, 2), 'utf8');
 
-            const retryAnalysis = retryRun.output.parsed || { rawResponse: retryRun.output.raw };
+            const retryAnalysis = normalizeAnalysis(retryRun.output.parsed || { rawResponse: retryRun.output.raw });
             const retryQuality = assessQuality(retryAnalysis, {
               parseSuccess: retryRun.output.parseSuccess,
               rawLength: (retryRun.output.raw || '').length,
@@ -492,7 +492,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             // Use retry result if better
             if (retryQuality.score > qualityReport.score) {
               retryImproved = true;
-              analysis = retryAnalysis;
+              analysis = normalizeAnalysis(retryAnalysis);
               analysis._geminiMeta = {
                 model: retryRun.run.model,
                 processedAt: retryRun.run.timestamp,

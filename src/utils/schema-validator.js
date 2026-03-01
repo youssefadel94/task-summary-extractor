@@ -306,9 +306,38 @@ function formatSchemaLine(report) {
   return `    ${c.warn(`Schema: ${report.errorCount} error(s) — ${report.errors.slice(0, 2).map(e => e.message).join('; ')}`)}`;
 }
 
+// ======================== POST-PARSE NORMALIZATION ========================
+
+/** Array fields that should default to [] when missing from analysis output. */
+const ARRAY_DEFAULTS = [
+  'tickets', 'action_items', 'change_requests',
+  'blockers', 'scope_changes', 'file_references',
+];
+
+/**
+ * Normalize a parsed analysis object by filling in missing array fields
+ * with empty arrays. This prevents downstream code from crashing when
+ * a segment legitimately has no tickets/action_items/etc.
+ *
+ * Mutates `data` in-place and returns it for convenience.
+ *
+ * @param {object} data - Parsed analysis (may have missing fields)
+ * @returns {object} The same object with defaults applied
+ */
+function normalizeAnalysis(data) {
+  if (!data || typeof data !== 'object') return data;
+  for (const field of ARRAY_DEFAULTS) {
+    if (data[field] === undefined || data[field] === null) {
+      data[field] = [];
+    }
+  }
+  return data;
+}
+
 module.exports = {
   validateAnalysis,
   buildSchemaRetryHints,
   schemaScore,
   formatSchemaLine,
+  normalizeAnalysis,
 };

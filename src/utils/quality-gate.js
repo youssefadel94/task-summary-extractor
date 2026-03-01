@@ -29,14 +29,16 @@ const THRESHOLDS = {
 
 // Required top-level fields in a valid analysis
 const REQUIRED_FIELDS = [
-  'tickets',
-  'action_items',
-  'change_requests',
   'summary',
 ];
 
 // Optional but valuable fields (boost score when present)
+// tickets, action_items, change_requests are here because a segment may
+// legitimately contain none of these (e.g. a segment that is only chit-chat).
 const VALUED_FIELDS = [
+  'tickets',
+  'action_items',
+  'change_requests',
   'blockers',
   'scope_changes',
   'file_references',
@@ -70,11 +72,11 @@ function scoreStructure(analysis) {
   let bonus = 0;
   for (const field of VALUED_FIELDS) {
     if (analysis[field] !== undefined && analysis[field] !== null) {
-      bonus += 3; // up to 12 bonus points
+      bonus += 2; // up to 14 bonus points (7 valued fields)
     }
   }
 
-  const baseScore = (present / REQUIRED_FIELDS.length) * 80;
+  const baseScore = (present / REQUIRED_FIELDS.length) * 70;
   return { score: Math.min(100, baseScore + bonus), issues };
 }
 
@@ -335,7 +337,7 @@ function buildRetryHints(analysis, issues) {
   const hints = [];
 
   if (issues.some(i => i.includes('Missing required field'))) {
-    hints.push('CRITICAL: Your previous response was missing required fields. You MUST include ALL of: tickets, action_items, change_requests, summary. Use empty arrays [] if no items exist.');
+    hints.push('CRITICAL: Your previous response was missing the required "summary" field. You MUST include a "summary" string. Include tickets, action_items, and change_requests arrays if relevant — omit them or use empty arrays [] if none exist in this segment.');
   }
 
   if (issues.some(i => i.includes('JSON parse failed'))) {

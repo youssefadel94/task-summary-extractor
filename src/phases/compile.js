@@ -8,7 +8,7 @@ const { compileFinalResult } = require('../services/gemini');
 
 // --- Utils ---
 const { calculateCompilationBudget } = require('../utils/adaptive-budget');
-const { validateAnalysis, formatSchemaLine } = require('../utils/schema-validator');
+const { validateAnalysis, formatSchemaLine, normalizeAnalysis } = require('../utils/schema-validator');
 const { c } = require('../utils/colors');
 
 // --- Shared state ---
@@ -41,7 +41,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
         { thinkingBudget: compBudget.budget }
       );
 
-      compiledAnalysis = compilationResult.compiled;
+      compiledAnalysis = normalizeAnalysis(compilationResult.compiled);
       compilationRun = compilationResult.run;
 
       // Track compilation cost
