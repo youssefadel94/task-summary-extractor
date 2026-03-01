@@ -1,0 +1,36 @@
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",
+      "documented_state": "Implementation started, token refresh logic pending",
+      "discussed_state": "Team agreed to use PKCE flow for public clients; backend endpoints ready, frontend integration underway",
+      "video_segments": [
+        { "start": "00:01:15", "end": "00:04:32" },
+        { "start": "00:09:10", "end": "00:10:45" }
+      ],
+      "comments": [
+        "Need to handle token expiry edge case when user is offline",
+        "Redirect URI whitelist must be updated in staging before QA"
+      ],
+      "code_changes": [
+        "src/auth/oauth2-client.js",
+        "src/middleware/token-validator.js"
+      ],
+      "confidence": "HIGH",
+      "confidence_reason": "Ticket ID explicitly mentioned on screen and discussed at length"
+    },
+    {
+      "ticket_id": "CR31298104",
+      "title": "Database schema migration for multi-tenant support",
+      "status": "blocked",
+      "assignee": "Youssef",
+      "documented_state": "Schema design approved, migration script drafted",
+      "discussed_state": "Migration blocked on production freeze window; rollback plan reviewed",
+      "video_segments": [
+        { "start": "00:05:00", "end": "00:08:20" }
+      ],
+      "comments": [
+        "Rollback script tested locally but needs stagi

@@ -1,0 +1,81 @@
+WEBVTT
+
+1
+00:00:05.000 --> 00:00:12.500
+<v Mohamed Elhadi>Alright, let's get started. First item on the agenda is the OAuth2 migration, ticket CR31296872.</v>
+
+2
+00:00:13.000 --> 00:00:22.800
+<v Youssef>Sure. Mohamed, can you give us a quick status update on the API integration side?</v>
+
+3
+00:00:23.500 --> 00:00:38.200
+<v Mohamed Elhadi>Yeah, so the backend endpoints are done. I've got the token validation middleware deployed to staging. The PKCE flow is working for the web client. Still need to update the redirect URI whitelist though.</v>
+
+4
+00:00:39.000 --> 00:00:52.100
+<v Sara>Quick question — will the OAuth2 tokens work with the WebSocket handshake? I need to authenticate the WebSocket connection for the notification service.</v>
+
+5
+00:00:53.000 --> 00:01:08.500
+<v Mohamed Elhadi>Good point. We haven't tested that path yet. The token format is standard JWT so it should work, but we'd need to add a verification step in the WebSocket server before upgrading the connection.</v>
+
+6
+00:01:10.000 --> 00:01:25.300
+<v Youssef>Let's make sure that's covered. Mohamed, can you add that to CR31296872? The scope is expanding a bit — we now need OAuth2 for web, mobile, CLI, and WebSocket auth.</v>
+
+7
+00:01:26.000 --> 00:01:40.800
+<v Mohamed Elhadi>Noted. I'll update the ticket. For mobile we'll definitely need PKCE since it's a public client. CLI can use device authorization flow.</v>
+
+8
+00:02:00.000 --> 00:02:18.500
+<v Youssef>OK, next topic. The database migration for multi-tenant support, CR31298104. I've got the schema design finalized and the migration script is ready, but we're blocked by the production freeze.</v>
+
+9
+00:02:19.000 --> 00:02:35.700
+<v Sara>When does the freeze end?</v>
+
+10
+00:02:36.000 --> 00:02:52.400
+<v Youssef>March 5th. So I'm planning to do a dry run on staging on March 3rd. The migration adds a tenant_id column to the core tables and creates composite indexes. We've got about 4.2 million rows to backfill.</v>
+
+11
+00:02:53.000 --> 00:03:12.800
+<v Mohamed Elhadi>That's a lot of rows. What's the backfill strategy?</v>
+
+12
+00:03:13.500 --> 00:03:30.200
+<v Youssef>Batch processing, 1000 rows per chunk. I wrote a backfill runner script. At that rate it's roughly 70 minutes. I'm also setting up a monitoring dashboard so we can track progress in real time.</v>
+
+13
+00:05:00.000 --> 00:05:18.600
+<v Sara>Alright, switching to the notification service. I've got a quick demo of the WebSocket server. Let me share my screen.</v>
+
+14
+00:05:20.000 --> 00:05:42.300
+<v Sara>So here's the channel manager — clients subscribe to topics and we route messages through Redis pub/sub. Basic pub/sub is working. I've tested with about 500 concurrent connections locally.</v>
+
+15
+00:05:43.000 --> 00:06:02.100
+<v Youssef>Nice work. What's the target for load testing?</v>
+
+16
+00:06:03.000 --> 00:06:20.500
+<v Sara>We want to hit 10,000 concurrent connections. I'm a bit worried about Redis memory though — between the rate limiting counters and the pub/sub channels, we might need to upgrade the cluster.</v>
+
+17
+00:08:00.000 --> 00:08:22.400
+<v Mohamed Elhadi>One more thing — I think we should add rate limiting to the public API endpoints. The load test we ran last week showed some endpoints are completely unprotected. That's a compliance risk for the Q1 audit.</v>
+
+18
+00:08:23.000 --> 00:08:45.100
+<v Youssef>Agreed. Let's use express-rate-limit with a Redis-backed store. We can do token-bucket with per-tenant quotas. Mohamed, can you draft the implementation plan?</v>
+
+19
+00:10:00.000 --> 00:10:25.300
+<v Sara>Also, I want to propose we phase the notification service delivery. Phase 1 is in-app WebSocket notifications only. Email, SMS, and push notifications can come in Phase 2. That way we can ship something in two weeks.</v>
+
+20
+00:10:26.000 --> 00:10:48.500
+<v Youssef>That makes sense. Let's go with the phased approach. OK, to summarize action items: Mohamed updates the redirect URI whitelist by March 2nd, I run the migration rollback test on staging by March 3rd, and Sara preps the WebSocket load test environment. Let's reconvene on Wednesday.</v>

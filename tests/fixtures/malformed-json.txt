@@ -1,0 +1,98 @@
+---SAMPLE---
+Here is the analysis result:
+
+```json
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",
+      "confidence": "HIGH",
+      "confidence_reason": "Explicitly discussed"
+    }
+  ],
+  "summary": "OAuth2 migration in progress"
+}
+```
+
+That concludes the analysis.
+---SAMPLE---
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",
+      "confidence": "HIGH",
+      "confidence_reason": "Ticket explicitly referenced"
+    }
+  ],
+  "action_items": [
+    {
+      "id": "AI-001",
+      "description": "Update staging redirect URIs",
+      "assigned_to": "Mohamed Elhadi",
+      "status": "pending",
+      "confidence": "HIGH",
+      "confidence_reason": "Directly assigned"
+    }
+  ],
+  "summary": "Team reviewed OAuth2 migration status"
+}}
+---SAMPLE---
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",,
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",,
+      "confidence": "HIGH",
+      "confidence_reason": "Discussed at length"
+    }
+  ],
+  "action_items": [],
+  "summary": "Migration work continues"
+}
+---SAMPLE---
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",
+      "confidence": "HIGH",
+      "confidence_reason": "Ticket visible on screen",
+    }
+  ],
+  "action_items": [
+    {
+      "id": "AI-001",
+      "description": "Run rollback script on staging",
+      "assigned_to": "Youssef",
+      "status": "pending",
+      "confidence": "MEDIUM",
+      "confidence_reason": "Implied from discussion",
+    },
+  ],
+  "summary": "Database migration planning session",
+}
+---SAMPLE---
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate auth \design to OAuth2",
+      "status": "in_progress",
+      "assignee": "Mohamed \Elhadi",
+      "documented_state": "Token refresh \scheme pending",
+      "confidence": "HIGH",
+      "confidence_reason": "Path is C:\data\source\new"
+    }
+  ],
+  "summary": "Auth migration \status reviewed"
+}

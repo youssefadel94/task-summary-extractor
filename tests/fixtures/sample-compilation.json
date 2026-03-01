@@ -1,0 +1,233 @@
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",
+      "documented_state": "Implementation started, token refresh logic pending. Frontend redirect handling added in latest commit.",
+      "discussed_state": "Team agreed to use PKCE flow for public clients. Backend endpoints ready. Frontend integration 70% complete. Mobile SDK wrapper planned for next sprint.",
+      "video_segments": [
+        { "start": "00:01:15", "end": "00:04:32" },
+        { "start": "00:09:10", "end": "00:10:45" },
+        { "start": "00:22:00", "end": "00:24:18" },
+        { "start": "00:45:30", "end": "00:47:00" }
+      ],
+      "comments": [
+        "Need to handle token expiry edge case when user is offline",
+        "Redirect URI whitelist must be updated in staging before QA",
+        "Mobile deep-link callback scheme registered in app manifest",
+        "Consider adding silent token renewal for long-running sessions"
+      ],
+      "code_changes": [
+        "src/auth/oauth2-client.js",
+        "src/middleware/token-validator.js",
+        "src/auth/pkce-helper.js",
+        "mobile/src/auth/deep-link-handler.ts"
+      ],
+      "confidence": "HIGH",
+      "confidence_reason": "Ticket discussed across multiple segments with explicit ID references and detailed status updates from assignee"
+    },
+    {
+      "ticket_id": "CR31298104",
+      "title": "Database schema migration for multi-tenant support",
+      "status": "blocked",
+      "assignee": "Youssef",
+      "documented_state": "Schema design approved. Migration script v2 drafted with tenant_id column and composite indexes. Rollback script tested locally.",
+      "discussed_state": "Migration blocked on production freeze window ending March 5. Rollback plan reviewed and approved. Staging dry-run scheduled for March 3. Data backfill strategy agreed upon: batch processing with 1000-row chunks.",
+      "video_segments": [
+        { "start": "00:05:00", "end": "00:08:20" },
+        { "start": "00:30:15", "end": "00:34:50" }
+      ],
+      "comments": [
+        "Rollback script tested locally but needs staging validation",
+        "Tenant isolation index must be created before data backfill",
+        "Estimated 4.2M rows to backfill — at 1000/batch that's ~70 minutes",
+        "Need monitoring dashboard for backfill progress"
+      ],
+      "code_changes": [
+        "migrations/0042_add_tenant_id.sql",
+        "migrations/0042_rollback.sql",
+        "src/db/tenant-resolver.js",
+        "src/db/backfill-runner.js",
+        "scripts/monitor-backfill.sh"
+      ],
+      "confidence": "HIGH",
+      "confidence_reason": "Ticket discussed in two separate segments with detailed technical planning and explicit timeline commitments"
+    },
+    {
+      "ticket_id": "CR31299450",
+      "title": "Implement real-time notification service via WebSocket",
+      "status": "in_progress",
+      "assignee": "Sara",
+      "documented_state": "WebSocket server scaffold complete. Message schema defined. Client reconnection logic implemented with exponential backoff.",
+      "discussed_state": "Demo shown during call — basic pub/sub working. Need to add authentication handshake and channel-based subscriptions. Load test target: 10k concurrent connections.",
+      "video_segments": [
+        { "start": "00:12:00", "end": "00:18:30" },
+        { "start": "00:35:00", "end": "00:38:20" }
+      ],
+      "comments": [
+        "WebSocket auth should reuse the OAuth2 token from CR31296872",
+        "Redis pub/sub as message broker for horizontal scaling",
+        "Client SDK needs TypeScript types for message payloads",
+        "Consider fallback to SSE for environments that block WebSocket"
+      ],
+      "code_changes": [
+        "src/ws/server.js",
+        "src/ws/channel-manager.js",
+        "src/ws/client-sdk.ts",
+        "src/ws/message-schemas.json"
+      ],
+      "confidence": "HIGH",
+      "confidence_reason": "Live demo shown during call with screen share. Ticket ID referenced in Jira board visible on screen."
+    }
+  ],
+  "change_requests": [
+    {
+      "id": "CR-REQ-001",
+      "title": "Add rate limiting to public API endpoints",
+      "where": "API gateway layer and individual route handlers",
+      "what": "Implement token-bucket rate limiting with configurable thresholds per endpoint and per-tenant quotas",
+      "how": "Use express-rate-limit middleware with Redis-backed store for distributed counting. Add X-RateLimit-* response headers.",
+      "why": "Recent load testing revealed unprotected endpoints vulnerable to abuse; compliance requirement for Q1 audit",
+      "type": "enhancement",
+      "priority": "high",
+      "status": "approved",
+      "related_tickets": ["CR31296872", "CR31299450"],
+      "confidence": "HIGH",
+      "confidence_reason": "Proposed in segment 1, refined in segment 3, formally approved by team lead during call"
+    },
+    {
+      "id": "CR-REQ-002",
+      "title": "Add structured logging with correlation IDs across services",
+      "where": "All microservices and API gateway",
+      "what": "Replace console.log with structured JSON logging. Inject correlation ID at gateway and propagate through service calls.",
+      "how": "Adopt pino logger with custom serializers. Use AsyncLocalStorage for correlation ID propagation. Ship logs to ELK stack.",
+      "why": "Current logging makes cross-service debugging nearly impossible. Incident response time is too high.",
+      "type": "improvement",
+      "priority": "medium",
+      "status": "proposed",
+      "related_tickets": ["CR31298104"],
+      "confidence": "MEDIUM",
+      "confidence_reason": "Discussed as a follow-up improvement; no formal approval but strong consensus among engineers"
+    }
+  ],
+  "action_items": [
+    {
+      "id": "AI-001",
+      "description": "Update staging environment redirect URI whitelist for OAuth2 integration testing",
+      "assigned_to": "Mohamed Elhadi",
+      "status": "pending",
+      "confidence": "HIGH",
+      "confidence_reason": "Directly assigned during discussion with explicit confirmation and deadline of March 2"
+    },
+    {
+      "id": "AI-002",
+      "description": "Run migration rollback script on staging environment and document results before production freeze ends",
+      "assigned_to": "Youssef",
+      "status": "pending",
+      "confidence": "HIGH",
+      "confidence_reason": "Explicitly assigned with March 3 deadline confirmed by assignee"
+    },
+    {
+      "id": "AI-003",
+      "description": "Prepare WebSocket load test environment and run 10k concurrent connection benchmark",
+      "assigned_to": "Sara",
+      "status": "pending",
+      "confidence": "MEDIUM",
+      "confidence_reason": "Discussed as next step after demo; assignee agreed but no specific date committed"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "BLK-001",
+      "type": "process",
+      "description": "Production deployment freeze until March 5 prevents schema migration rollout",
+      "owner": "Youssef",
+      "blocks": ["CR31298104"],
+      "environments": ["production"],
+      "status": "active",
+      "confidence": "HIGH",
+      "confidence_reason": "Freeze window dates explicitly stated and confirmed by team lead"
+    },
+    {
+      "id": "BLK-002",
+      "type": "technical",
+      "description": "Redis cluster memory capacity insufficient for combined rate-limiting counters and WebSocket pub/sub at projected scale",
+      "owner": "Sara",
+      "blocks": ["CR31299450", "CR-REQ-001"],
+      "environments": ["staging", "production"],
+      "status": "investigating",
+      "confidence": "MEDIUM",
+      "confidence_reason": "Raised as concern during capacity planning discussion; needs profiling data to confirm"
+    }
+  ],
+  "scope_changes": [
+    {
+      "id": "SC-001",
+      "type": "expansion",
+      "original_scope": "OAuth2 migration covers web application only",
+      "new_scope": "OAuth2 migration now includes mobile app, CLI tool, and WebSocket authentication",
+      "reason": "Product team requested unified auth experience across all client types; WebSocket auth dependency identified during call",
+      "impact": "Estimated 3 additional sprint points; requires PKCE implementation for public clients and WebSocket handshake auth module",
+      "confidence": "HIGH",
+      "confidence_reason": "Scope expansion discussed and approved by product owner during the call"
+    },
+    {
+      "id": "SC-002",
+      "type": "reduction",
+      "original_scope": "Notification service supports email, SMS, push, and in-app channels",
+      "new_scope": "Phase 1 limited to in-app WebSocket notifications only; email/SMS/push deferred to Phase 2",
+      "reason": "Timeline constraints — team agreed to ship core functionality first and iterate",
+      "impact": "Reduces initial delivery estimate by 2 weeks; external notification provider integration deferred",
+      "confidence": "HIGH",
+      "confidence_reason": "Explicit agreement during call to phase the delivery; captured in meeting notes"
+    }
+  ],
+  "file_references": [
+    {
+      "path": "src/auth/oauth2-client.js",
+      "context": "New OAuth2 client implementation with PKCE support",
+      "mentioned_at": "00:02:45"
+    },
+    {
+      "path": "migrations/0042_add_tenant_id.sql",
+      "context": "Schema migration adding tenant_id column to core tables",
+      "mentioned_at": "00:06:30"
+    },
+    {
+      "path": "src/ws/server.js",
+      "context": "WebSocket server entry point shown during live demo",
+      "mentioned_at": "00:13:15"
+    },
+    {
+      "path": "src/ws/channel-manager.js",
+      "context": "Channel subscription logic for topic-based message routing",
+      "mentioned_at": "00:15:00"
+    }
+  ],
+  "your_tasks": {
+    "user_name": "Youssef",
+    "tasks_todo": [
+      "Run migration rollback script on staging environment by March 3",
+      "Document rollback test results and share with team",
+      "Set up monitoring dashboard for backfill progress tracking",
+      "Review Redis capacity requirements for rate limiting and WebSocket pub/sub"
+    ],
+    "tasks_waiting_on_others": [
+      "Waiting on Mohamed to complete redirect URI whitelist update before end-to-end OAuth2 testing",
+      "Waiting on Sara to provide WebSocket load test results for capacity planning"
+    ],
+    "decisions_needed": [
+      "Decide whether to proceed with tenant isolation index creation before or after data backfill",
+      "Approve Redis cluster upgrade request for combined rate-limiting and pub/sub workload"
+    ],
+    "completed_in_call": [
+      "Reviewed and approved database schema design for multi-tenant support",
+      "Approved rate limiting change request CR-REQ-001",
+      "Agreed on phased delivery approach for notification service"
+    ],
+    "summary": "Primary focus is unblocking the database migration once production freeze lifts on March 5. Validate rollback procedures on staging by March 3. Secondary priority: review infrastructure capacity for Redis-dependent features (rate limiting + WebSocket pub/sub)."
+  },
+  "summary": "Team discussed migration plan for OAuth2 authentication, multi-tenant database schema, and real-time notification service. OAuth2 scope expanded to cover mobile, CLI, and WebSocket auth. Database migration blocked by production freeze until March 5 — staging dry-run scheduled for March 3. WebSocket notification service demo was successful; Phase 1 scoped to in-app only. Rate limiting approved as new requirement. Structured logging proposed as cross-cutting improvement. Redis capacity identified as potential blocker for multiple features."
+}

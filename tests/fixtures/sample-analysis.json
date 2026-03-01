@@ -1,0 +1,131 @@
+{
+  "tickets": [
+    {
+      "ticket_id": "CR31296872",
+      "title": "Migrate user authentication to OAuth2 flow",
+      "status": "in_progress",
+      "assignee": "Mohamed Elhadi",
+      "documented_state": "Implementation started, token refresh logic pending",
+      "discussed_state": "Team agreed to use PKCE flow for public clients; backend endpoints ready, frontend integration underway",
+      "video_segments": [
+        { "start": "00:01:15", "end": "00:04:32" },
+        { "start": "00:09:10", "end": "00:10:45" }
+      ],
+      "comments": [
+        "Need to handle token expiry edge case when user is offline",
+        "Redirect URI whitelist must be updated in staging before QA"
+      ],
+      "code_changes": [
+        "src/auth/oauth2-client.js",
+        "src/middleware/token-validator.js"
+      ],
+      "confidence": "HIGH",
+      "confidence_reason": "Ticket ID explicitly mentioned on screen and discussed at length with clear status updates"
+    },
+    {
+      "ticket_id": "CR31298104",
+      "title": "Database schema migration for multi-tenant support",
+      "status": "blocked",
+      "assignee": "Youssef",
+      "documented_state": "Schema design approved, migration script drafted",
+      "discussed_state": "Migration blocked on production freeze window; rollback plan reviewed and deemed sufficient",
+      "video_segments": [
+        { "start": "00:05:00", "end": "00:08:20" }
+      ],
+      "comments": [
+        "Rollback script tested locally but needs staging validation",
+        "Tenant isolation index must be created before data backfill"
+      ],
+      "code_changes": [
+        "migrations/0042_add_tenant_id.sql",
+        "src/db/tenant-resolver.js"
+      ],
+      "confidence": "MEDIUM",
+      "confidence_reason": "Ticket ID visible briefly; status inferred from discussion about production freeze blocking deployment"
+    }
+  ],
+  "change_requests": [
+    {
+      "id": "CR-REQ-001",
+      "title": "Add rate limiting to public API endpoints",
+      "where": "API gateway layer and individual route handlers",
+      "what": "Implement token-bucket rate limiting with configurable thresholds per endpoint",
+      "how": "Use express-rate-limit middleware with Redis-backed store for distributed counting",
+      "why": "Recent load testing revealed unprotected endpoints vulnerable to abuse; compliance requirement for Q1",
+      "type": "enhancement",
+      "priority": "high",
+      "status": "proposed",
+      "related_tickets": ["CR31296872"],
+      "confidence": "HIGH",
+      "confidence_reason": "Explicitly proposed during the call with detailed implementation approach discussed"
+    }
+  ],
+  "action_items": [
+    {
+      "id": "AI-001",
+      "description": "Update staging environment redirect URI whitelist for OAuth2 integration testing",
+      "assigned_to": "Mohamed Elhadi",
+      "status": "pending",
+      "confidence": "HIGH",
+      "confidence_reason": "Directly assigned during discussion with explicit confirmation from assignee"
+    },
+    {
+      "id": "AI-002",
+      "description": "Run migration rollback script on staging and document results before production freeze window",
+      "assigned_to": "Youssef",
+      "status": "pending",
+      "confidence": "MEDIUM",
+      "confidence_reason": "Implied from blocker discussion; assignee acknowledged but no firm deadline set"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "BLK-001",
+      "type": "process",
+      "description": "Production deployment freeze until March 5 prevents schema migration rollout",
+      "owner": "Youssef",
+      "blocks": ["CR31298104"],
+      "environments": ["production"],
+      "status": "active",
+      "confidence": "HIGH",
+      "confidence_reason": "Freeze window dates explicitly stated and confirmed by team lead"
+    }
+  ],
+  "scope_changes": [
+    {
+      "id": "SC-001",
+      "type": "expansion",
+      "original_scope": "OAuth2 migration covers web application only",
+      "new_scope": "OAuth2 migration now includes mobile app and CLI tool authentication",
+      "reason": "Product team requested unified auth experience across all client types",
+      "impact": "Estimated 1.5 additional sprint points; requires PKCE implementation for public clients",
+      "confidence": "MEDIUM",
+      "confidence_reason": "Discussed verbally but no formal scope change document referenced"
+    }
+  ],
+  "file_references": [
+    {
+      "path": "src/auth/oauth2-client.js",
+      "context": "New OAuth2 client implementation with PKCE support",
+      "mentioned_at": "00:02:45"
+    }
+  ],
+  "your_tasks": {
+    "user_name": "Youssef",
+    "tasks_todo": [
+      "Run migration rollback script on staging environment",
+      "Document rollback test results and share with team"
+    ],
+    "tasks_waiting_on_others": [
+      "Waiting on Mohamed to complete redirect URI whitelist update before end-to-end OAuth2 testing"
+    ],
+    "decisions_needed": [
+      "Decide whether to proceed with tenant isolation index creation before or after data backfill"
+    ],
+    "completed_in_call": [
+      "Reviewed and approved database schema design for multi-tenant support"
+    ],
+    "summary": "Primary focus is unblocking the database migration once production freeze lifts on March 5. Meanwhile, validate rollback procedures on staging."
+  },
+  "summary": "Team discussed migration plan for OAuth2 authentication and multi-tenant database schema. OAuth2 work is in progress with frontend integration underway. Database migration is blocked by production freeze until March 5. Rate limiting was proposed as a new requirement for public API endpoints. Scope of OAuth2 migration expanded to include mobile and CLI clients."
+}
