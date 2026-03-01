@@ -135,7 +135,7 @@
           "why": { "type": "string" },
           "type": {
             "type": "string",
-            "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "contract_revision", "design_change"]
+            "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "contract_revision", "design_change", "content_update", "documentation"]
           },
           "priority": {
             "type": "string",
@@ -345,7 +345,7 @@
             "enum": [
               "database_prerequisite", "pending_decision", "dba_work", "external_dependency",
               "testing", "deployment", "legal_review", "budget_approval", "vendor_dependency",
-              "regulatory", "access_permission", "resource_constraint"
+              "regulatory", "access_permission", "resource_constraint", "backend_work"
             ]
           },
           "description": { "type": "string" },

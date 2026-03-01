@@ -12,6 +12,7 @@
     "prompt.json",
     "process_and_upload.js",
     "setup.js",
+    ".env.example",
     "README.md",
     "QUICK_START.md",
     "ARCHITECTURE.md",
@@ -74,7 +75,6 @@
   },
   "author": "Youssef Adel",
   "license": "UNLICENSED",
-  "private": true,
   "dependencies": {
     "@google/genai": "^1.42.0",
     "ajv": "^8.18.0",

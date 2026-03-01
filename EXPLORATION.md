@@ -11,7 +11,7 @@
 
 ### Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │          taskex (bin/taskex.js) or process_and_upload.js            │
 │                          (Entry Points)                             │
@@ -58,7 +58,7 @@
 ### Codebase Stats
 
 | Category | Files | Lines |
-|----------|-------|-------|
+| ---------- | ------- | ------- |
 | Pipeline orchestrator | 1 | ~920 |
 | Pipeline phases (`src/phases/`) | 9 | ~1,800 |
 | Services (Gemini, Firebase, Video, Git, Doc-Parser) | 5 | ~1,650 |
@@ -76,7 +76,7 @@
 ### Version History
 
 | Version | Theme | Key Additions |
-|---------|-------|---------------|
+| --------- | ------- | --------------- |
 | **v3** | Core Improvements | dotenv, logger, retry logic, CLI args, graceful shutdown, config validation, progress persistence, error handling, video fixes, parallel uploads |
 | **v4** | Architecture & Orchestration | Phase decomposition (7 phases), CostTracker, configurable thinking budget, poll timeouts, dead code cleanup, no `process.exit()`, CLI enhancements |
 | **v5** | Smart & Accurate | Quality Gate (4-dimension scoring), auto-retry with corrective hints, adaptive thinking budget, smart boundary detection, health dashboard, enhanced prompt engineering, compilation quality assessment |
@@ -98,24 +98,27 @@
 ### What v6 Delivers
 
 #### 1. Confidence Scoring Per Extracted Item
+
 Every ticket, action item, CR, blocker, and scope change now carries a `confidence` field (HIGH / MEDIUM / LOW) and a `confidence_reason` explaining the evidence basis.
 
 | Confidence | Meaning | Example |
-|------------|---------|---------|
+| ------------ | --------- | --------- |
 | **HIGH** | Explicitly stated + corroborated by docs/context | "Mentioned by name with ticket ID in VTT and Azure DevOps" |
 | **MEDIUM** | Partially stated or single-source | "Discussed verbally but no written reference" |
 | **LOW** | Inferred from context, not directly stated | "Implied from related discussion, not explicitly assigned" |
 
 **Where it shows up:**
+
 - **Quality Gate** (`quality-gate.js` — 366 lines): New 15-point confidence coverage dimension in density scoring. Flags missing confidence fields and suspicious uniformity (all HIGH = likely not calibrated). Generates retry hints for poor confidence.
 - **Markdown Renderer** (`markdown.js` — 879 lines): Confidence badges (🟢 🟡 🔴) on every ticket header, action item row, CR row, blocker, scope change, and todo item. "📊 Confidence Distribution" summary table near report header.
 - **Prompt** (`prompt.json` — 333 lines): Explicit confidence scoring instructions injected into extraction prompt. Self-verification checklist updated.
 
 #### 2. Focused Re-Analysis (`focused-reanalysis.js` — 268 lines)
+
 When the quality gate identifies specific weak dimensions (score <60, ≥2 weak areas), a **targeted second pass** runs instead of a full re-analysis.
 
 | Component | What It Does |
-|-----------|--------------|
+| ----------- | -------------- |
 | `identifyWeaknesses()` | Analyzes quality dimensions + confidence coverage to find gaps (missing tickets, sparse assignees, low confidence items, broken cross-refs) |
 | `runFocusedPass()` | Sends a focused Gemini prompt targeting ONLY the weak areas, with reduced thinking budget (12K tokens) |
 | `mergeFocusedResults()` | Intelligent merge: updates existing items by ID, appends new items, marks `_enhanced_by_focused_pass` / `_from_focused_pass` |
@@ -123,15 +126,17 @@ When the quality gate identifies specific weak dimensions (score <60, ≥2 weak 
 **Pipeline integration**: Runs after the quality gate + retry cycle for each segment. Controlled by `--no-focused-pass` flag. Costs tracked separately in cost tracker.
 
 #### 3. Learning & Improvement Loop (`learning-loop.js` — 269 lines)
+
 The pipeline remembers its past performance and auto-tunes for the future.
 
 **How it works:**
+
 1. **Before processing**: `loadHistory()` reads `history.json` (up to 50 past runs), `analyzeHistory()` computes trends and budget adjustments
 2. **Budget auto-tuning**: If avg quality <45 across recent runs → boost thinking budget +4096 tokens. If >80 → reduce by 2048 to save cost.
 3. **Retry effectiveness**: Tracks whether retries actually improve quality. If retry success rate <30%, recommends increasing base budget instead.
 4. **After processing**: `saveHistory()` persists compact metrics (quality scores, extraction counts, costs, budgets, retry stats) for the next run.
 
-```
+```text
   📈 Learning Insights:
     Historical runs : 12
     Quality trend   : improving (avg: 74/100)
@@ -142,10 +147,11 @@ The pipeline remembers its past performance and auto-tunes for the future.
 ```
 
 #### 4. Diff-Aware Compilation (`diff-engine.js` — 277 lines)
+
 Compares the current run's compiled analysis against the previous run to produce a delta report.
 
 | Diff Category | What's Detected |
-|---------------|-----------------|
+| --------------- | ----------------- |
 | **New items** | Tickets, CRs, action items, blockers, scope changes that didn't exist before |
 | **Removed items** | Items from the previous run that no longer appear |
 | **Changed items** | Status, priority, assignee, or confidence changes on existing items |
@@ -154,22 +160,26 @@ Compares the current run's compiled analysis against the previous run to produce
 **Output**: Appended to `results.md` as a "🔄 Changes Since Previous Run" section with summary table + detailed new/removed/changed listings. Also saved as `diff.json` in the run folder.
 
 #### 5. Structured Logging & Observability (`logger.js` — 306 lines)
+
 The logger now writes **three parallel outputs**:
 
 | Output | Format | Purpose |
-|--------|--------|---------|
+| -------- | -------- | --------- |
 | `*_detailed.log` | Human-readable | Full debug/info/warn/error messages |
 | `*_minimal.log` | Compact steps | Steps + timestamps only |
 | `*_structured.jsonl` | Machine-readable JSONL | Every event as a JSON object with level, timestamp, context, phase |
 
 **New capabilities:**
+
 - **Phase spans**: `phaseStart(name)` / `phaseEnd(meta)` track timing per pipeline phase with structured records
 - **Operation context**: `setContext()` / `clearContext()` stack for enriching log entries with segment/operation metadata
 - **Structured metrics**: `metric(name, value)` for recording quantitative data (confidence coverage, token counts, etc.)
 - All phase timers auto-emit structured span events
 
 #### 6. Enhanced Quality Gate (`quality-gate.js` — 366 lines)
+
 **New in v6:** Confidence coverage is now a scoring dimension within density (15 points):
+
 - Checks percentage of items with valid confidence fields
 - Detects suspicious uniformity (all same confidence = likely not calibrated)
 - New `getConfidenceStats(analysis)` export returns `{total, high, medium, low, missing, coverage}`
@@ -178,7 +188,7 @@ The logger now writes **three parallel outputs**:
 ### All v5 Features Retained
 
 | Feature | Module | Description |
-|---------|--------|-------------|
+| --------- | -------- | ------------- |
 | Quality Gate | `quality-gate.js` | 4-dimension scoring (structure, density, integrity, cross-refs), auto-retry on FAIL |
 | Adaptive Thinking Budget | `adaptive-budget.js` | Segment position, complexity, context docs → dynamic 8K–32K range |
 | Smart Boundary Detection | `context-manager.js` | Mid-conversation detection, open ticket carry-forward, continuity hints |
@@ -188,7 +198,7 @@ The logger now writes **three parallel outputs**:
 ### Current Capabilities
 
 | Capability | Status | Description |
-|------------|--------|-------------|
+| ------------ | -------- | ------------- |
 | Video compression | ✅ Mature | ffmpeg-based, CRF, configurable speed/preset |
 | Video segmentation | ✅ Mature | Time-based splitting, segment pre-validation |
 | Firebase upload | ✅ Mature | Parallel, retry, skip-existing, anonymous auth, async I/O, `--force-upload` re-upload |
@@ -212,7 +222,7 @@ The logger now writes **three parallel outputs**:
 
 ### CLI Reference
 
-```
+```text
 Usage: taskex [options] [folder]
 
 Install: npm i -g task-summary-extractor
@@ -274,7 +284,7 @@ Info:
 
 ### Full Module Map
 
-```
+```text
 bin/
 └── taskex.js                 65 ln  ★ v8.0.0 — Global CLI entry point, config flag injection
 
@@ -349,7 +359,7 @@ setup.js                     418 ln  Automated first-time setup & environment va
 The following features from the original exploration have been **fully implemented**:
 
 | Feature | Status | Implemented In |
-|---------|--------|----------------|
+| --------- | -------- | ---------------- |
 | 📊 Confidence Scoring Per Extracted Item | ✅ Done | `prompt.json`, `quality-gate.js`, `markdown.js` |
 | 🔄 Multi-Pass Analysis (Focused Re-extraction) | ✅ Done | `modes/focused-reanalysis.js` (268 ln), pipeline integration |
 | 🧠 Learning & Improvement Loop | ✅ Done | `learning-loop.js` (270 ln), pipeline init + save |
@@ -374,12 +384,14 @@ The following features from the original exploration have been **fully implement
 ### Tier 1: High-Impact, Medium Effort
 
 #### 🔊 Speaker Diarization & Attribution
+
 **What**: Automatically identify who is speaking at each moment in the video.  
 **How**: Use Gemini's audio understanding or integrate a dedicated diarization API (e.g., AssemblyAI, Deepgram) as a preprocessing step. Map speaker segments to VTT timestamps.  
 **Impact**: Dramatically improves action item attribution ("Mohamed said X" vs. "someone said X"). Currently relies on Gemini inferring speakers from VTT voice tags or contextual clues.  
 **Modules affected**: New `services/diarization.js`, updates to `gemini.js` content building, `context-manager.js` for speaker-aware slicing.
 
 #### 🌐 ~~Web Dashboard / Viewer~~ ✅ Done (v9.0.0)
+
 **Status**: Implemented as `src/renderers/html.js` — self-contained HTML report with collapsible sections, confidence badges, filtering, dark mode, and print-friendly styling. Generated as `results.html` alongside `results.md`.
 **Next step**: Build a hosted React/Next.js viewer that reads from Firebase for team-wide access.
 
@@ -388,12 +400,14 @@ The following features from the original exploration have been **fully implement
 ### Tier 2: Differentiation Features
 
 #### 🎯 Task Board Integration (Azure DevOps / Jira / Linear)
+
 **What**: Push extracted action items and tickets directly to your project management tool.  
 **How**: After compilation, map extracted items to work item templates. Use Azure DevOps REST API / Jira API / Linear API to create/update items. Cross-reference extracted CR numbers with existing work items.  
 **Impact**: Closes the loop — call discussions automatically become tracked work items. No manual "meeting notes → task creation" step.  
 **Modules affected**: New `services/task-board.js`, integration config in `config.js`, new CLI flags (`--push-to-jira`, `--sync-devops`).
 
 #### 🎙️ Real-Time / Live Analysis Mode
+
 **What**: Analyze calls as they happen, producing running analysis instead of post-call batch processing.  
 **How**: Stream audio/video chunks to Gemini in real-time using Live API. Maintain a rolling context window. Produce incremental analysis updates.  
 **Impact**: During the call, participants see extracted items appearing in real-time. Post-call report is instant.  
@@ -404,22 +418,26 @@ The following features from the original exploration have been **fully implement
 ### Tier 3: Platform Evolution
 
 #### 🏗️ Plugin Architecture
+
 **What**: Allow custom plugins for different output formats, analysis types, and integrations.  
 **How**: Define hook points: `onSegmentAnalyzed`, `onCompiled`, `onOutput`. Plugins register handlers. Ship with built-in plugins (markdown, json, firebase). Community can add: Slack notifications, email summaries, PDF reports, custom prompts per team.  
 **Impact**: Transforms from a single-purpose tool to a platform. Different teams customize for their workflow.
 
 #### 🤖 Multi-Model Support
+
 **What**: Support different AI models beyond Gemini — OpenAI GPT-4o, Claude, Llama local models.  
 **Status**: *Partially implemented in v7.2* — runtime model selection across 5 Gemini models with `--model` flag and interactive selector. Full multi-provider abstraction (OpenAI, Claude, local) remains a future enhancement.  
 **Next step**: Abstract the AI service behind a provider interface. Each provider implements: `upload()`, `analyze()`, `compile()`. Config selects the active provider.  
 **Impact**: Users choose the best model for their budget/accuracy needs. Can run local models for sensitive content. Enables A/B testing between models.
 
 #### 📱 Mobile App / Bot
+
 **What**: Telegram/Teams/Slack bot that accepts video links and returns analysis.  
 **How**: Bot receives a shared video/meeting link → triggers pipeline → sends back the compiled Markdown or a link to the web dashboard.  
 **Impact**: Zero-friction usage — share a link, get a task summary. No CLI needed.
 
 #### 🔐 Multi-Tenant SaaS
+
 **What**: Hosted version where teams sign up, configure their projects, and get analysis as a service.  
 **How**: Next.js frontend, Node.js API (reusing current pipeline), per-team Firebase/S3 storage, Stripe billing, queue-based processing.  
 **Impact**: Commercial product. Teams pay per call analyzed. Revenue model.
@@ -429,20 +447,24 @@ The following features from the original exploration have been **fully implement
 ### Tier 4: Polish & Reliability
 
 #### 🧪 ~~Test Suite~~ ✅ Done (v9.0.0)
+
 **Status**: 285 tests across 13 files using vitest. Covers: quality-gate, adaptive-budget, json-parser, confidence-filter, context-manager, diff-engine, format, progress-bar, retry, schema-validator, cli, and renderers (html, markdown).
 **Commands**: `npm test`, `npm run test:watch`, `npm run test:coverage`.
 
 #### 📦 ~~Packaging & Distribution~~ ✅ Done (v8.0.0)
+
 **Status**: Published as `task-summary-extractor` on npm. Global CLI: `taskex`. Install: `npm i -g task-summary-extractor`.  
 **What was done**: `bin/taskex.js` entry point, `--gemini-key`/`--firebase-*` CLI config flags, CWD-based `.env` resolution, `PKG_ROOT`/`PROJECT_ROOT` path split for global compatibility.
 
 #### 🔍 Advanced Observability (OpenTelemetry)
+
 **What**: Extend the existing structured JSONL logging with OpenTelemetry trace export for external monitoring.  
 **How**: Wrap existing `phaseStart`/`phaseEnd` spans with OTel SDK. Export traces to Jaeger/Grafana. Add alert rules on quality metric degradation.  
 **Impact**: Production monitoring. Performance profiling across runs. Alert on quality regression trends.  
 **Note**: Basic structured logging is already done in v6. This extends it to distributed tracing systems.
 
 #### 🌍 i18n Prompt Library
+
 **What**: Support different language pairs beyond Arabic+English. Ship prompt templates per domain.  
 **How**: Move prompt.json to a `prompts/` directory with variants: `arabic-english-dotnet.json`, `spanish-english-react.json`, `french-english-java.json`. CLI flag: `--prompt-template react-english`.  
 **Impact**: Anyone can use this tool regardless of their team's language or tech stack.
@@ -452,7 +474,7 @@ The following features from the original exploration have been **fully implement
 ### Quick Wins (< 1 day each)
 
 | Feature | Effort | Impact |
-|---------|--------|--------|
+| --------- | -------- | -------- |
 | **Email summary** — send compiled MD via SMTP after processing | ~2 hrs | Users get results in inbox |
 | **Slack webhook** — post summary to a channel | ~1 hr | Team-wide visibility |
 | **Segment preview** — show first 3 VTT lines per segment before analyzing | ~30 min | Better UX during processing |
@@ -486,7 +508,7 @@ These five deliver: reliability (tests), accessibility (dashboard), accuracy (sp
 ## See Also
 
 | Doc | What's In It |
-|-----|-------------|
+| ----- | ------------- |
 | 📖 [README.md](README.md) | Setup, CLI flags, configuration, features |
 | 📖 [QUICK_START.md](QUICK_START.md) | Step-by-step first-time walkthrough |
 | 🏗️ [ARCHITECTURE.md](ARCHITECTURE.md) | Pipeline phases, processing flows, Mermaid diagrams |

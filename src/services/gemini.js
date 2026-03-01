@@ -272,21 +272,10 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   let file;
   let usedExternalUrl = false;
 
-  if (existingFileUri) {
-    // Strategy A: Reuse Gemini File API URI from a previous pass
-    file = { uri: existingFileUri, mimeType: existingFileMime, name: existingGeminiFileName, state: 'ACTIVE' };
-    console.log(`    Reusing Gemini File API URI (skip upload)`);
-  } else if (storageDownloadUrl) {
-    // Strategy B: Use Firebase Storage download URL as Gemini External URL
-    // Supported for models >= 2.5; limit 100MB per payload.
-    // Gemini fetches the file on-demand — no separate upload + polling needed.
-    file = { uri: storageDownloadUrl, mimeType: 'video/mp4', name: null, state: 'ACTIVE' };
-    usedExternalUrl = true;
-    console.log(`    Using Firebase Storage URL as external reference (skip Gemini upload)`);
-  } else {
-    // Strategy C: Upload to Gemini File API (default fallback)
+  // Helper: upload via Gemini File API with polling (Strategy C)
+  async function uploadViaFileApi() {
     console.log(`    Uploading to Gemini File API...`);
-    file = await withRetry(
+    let uploaded = await withRetry(
       () => ai.files.upload({
         file: filePath,
         config: { mimeType: 'video/mp4', displayName },
@@ -294,26 +283,51 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       { label: `Gemini file upload (${displayName})`, maxRetries: 3 }
     );
 
-    // 3. Wait for processing (with polling + retry on get + timeout)
     let waited = 0;
     const pollStart = Date.now();
-    while (file.state === 'PROCESSING') {
+    while (uploaded.state === 'PROCESSING') {
       if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
         throw new Error(`Gemini file processing timed out after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s for ${displayName}. Try again or increase GEMINI_POLL_TIMEOUT_MS.`);
       }
       process.stdout.write(`    Processing${'.'.repeat((waited % 3) + 1)}   \r`);
       await new Promise(r => setTimeout(r, 5000));
       waited++;
-      file = await withRetry(
-        () => ai.files.get({ name: file.name }),
+      uploaded = await withRetry(
+        () => ai.files.get({ name: uploaded.name }),
         { label: 'Gemini file status check', maxRetries: 2, baseDelay: 1000 }
       );
     }
     console.log('    Processing complete.        ');
 
-    if (file.state === 'FAILED') {
+    if (uploaded.state === 'FAILED') {
       throw new Error(`Gemini file processing failed for ${displayName}. The file may be corrupt or in an unsupported format — try re-compressing or converting to MP4.`);
     }
+    return uploaded;
+  }
+
+  const EXTERNAL_URL_MAX_BYTES = 20 * 1024 * 1024; // 20 MB — Gemini rejects HTTPS URLs for larger files
+
+  if (existingFileUri) {
+    // Strategy A: Reuse Gemini File API URI from a previous pass
+    file = { uri: existingFileUri, mimeType: existingFileMime, name: existingGeminiFileName, state: 'ACTIVE' };
+    console.log(`    Reusing Gemini File API URI (skip upload)`);
+  } else if (storageDownloadUrl) {
+    // Strategy B: Use Firebase Storage download URL as Gemini External URL
+    // Supported for models >= 2.5; Gemini rejects external HTTPS URLs for files > ~20 MB.
+    const fileSizeBytes = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+    if (fileSizeBytes > EXTERNAL_URL_MAX_BYTES) {
+      console.log(`    Segment too large for external URL (${(fileSizeBytes / 1048576).toFixed(1)} MB > 20 MB) — using File API upload`);
+      // file stays null → falls through to Strategy C below
+    } else {
+      file = { uri: storageDownloadUrl, mimeType: 'video/mp4', name: null, state: 'ACTIVE' };
+      usedExternalUrl = true;
+      console.log(`    Using Firebase Storage URL as external reference (skip Gemini upload)`);
+    }
+  }
+
+  if (!file) {
+    // Strategy C: Upload to Gemini File API (default fallback, or after B was skipped for large files)
+    file = await uploadViaFileApi();
   }
 
   // 4. Build content parts with SMART CONTEXT MANAGEMENT
@@ -401,10 +415,46 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   };
 
   const t0 = Date.now();
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: `Gemini segment analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
-  );
+  let response;
+  try {
+    response = await withRetry(
+      () => ai.models.generateContent(requestPayload),
+      { label: `Gemini segment analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+    );
+  } catch (apiErr) {
+    const errMsg = apiErr.message || '';
+
+    // Automatic fallback: if external URL was rejected, retry via Gemini File API upload
+    if (usedExternalUrl && errMsg.includes('INVALID_ARGUMENT')) {
+      console.log(`    ${c.warn('External URL rejected by Gemini — falling back to File API upload...')}`);
+      try {
+        file = await uploadViaFileApi();
+        usedExternalUrl = false;
+        // Replace the video reference in contentParts[0]
+        contentParts[0] = { fileData: { mimeType: file.mimeType, fileUri: file.uri } };
+        requestPayload.contents[0].parts = contentParts;
+        response = await withRetry(
+          () => ai.models.generateContent(requestPayload),
+          { label: `Gemini segment analysis — File API retry (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+        );
+        console.log(`    ${c.success('File API fallback succeeded')}`);
+      } catch (fallbackErr) {
+        console.error(`    ${c.error(`File API fallback also failed: ${fallbackErr.message}`)}`);
+        throw fallbackErr;
+      }
+    } else {
+      // Log request diagnostics for other errors to aid debugging
+      const partSummary = contentParts.map((p, i) => {
+        if (p.fileData) return `  [${i}] fileData: ${p.fileData.mimeType} → ${(p.fileData.fileUri || '').substring(0, 120)}`;
+        if (p.text) return `  [${i}] text: ${p.text.length} chars → ${p.text.substring(0, 80).replace(/\n/g, ' ')}...`;
+        return `  [${i}] unknown part`;
+      });
+      console.error(`    ${c.error('Request diagnostics:')}`);
+      console.error(`    Model: ${config.GEMINI_MODEL} | Parts: ${contentParts.length} | maxOutput: 65536`);
+      partSummary.forEach(s => console.error(`    ${s}`));
+      throw apiErr;
+    }
+  }
   const durationMs = Date.now() - t0;
 
   const rawText = response.text;

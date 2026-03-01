@@ -164,24 +164,52 @@ function buildTable(headers, rows) {
 //  Section renderers
 // ════════════════════════════════════════════════════════════
 
-function renderYourTasks(yourTasks, clusterMap) {
+function renderYourTasks(yourTasks, clusterMap, allTickets) {
   if (!yourTasks) return [];
   const elements = [];
   elements.push(heading('⭐ Your Tasks', 2));
   if (yourTasks.user_name) {
     elements.push(para(`Assigned to: ${resolve(yourTasks.user_name, clusterMap)}`, { bold: true, color: BRAND_BLUE }));
   }
+  // owned_tickets are plain ticket-ID strings (e.g. ["CR31296872"])
   if (yourTasks.owned_tickets?.length) {
     elements.push(heading('Owned Tickets', 3));
-    for (const t of yourTasks.owned_tickets) {
-      const desc = t.description || t.summary || '';
-      elements.push(bulletItem(`${t.ticket_id || '?'} — ${desc}${t.priority ? ` [${t.priority}]` : ''}`));
+    const ticketMap = new Map((allTickets || []).map(t => [t.ticket_id, t]));
+    for (const ticketId of yourTasks.owned_tickets) {
+      const t = ticketMap.get(ticketId);
+      const title = t?.title || t?.summary || '';
+      const status = t?.status ? ` [${t.status.replace(/_/g, ' ')}]` : '';
+      elements.push(bulletItem(`${ticketId}${title ? ` — ${title}` : ''}${status}`));
+    }
+  }
+  // tasks_todo — the main todo list
+  if (yourTasks.tasks_todo?.length) {
+    elements.push(heading('Tasks To-Do', 3));
+    for (const task of yourTasks.tasks_todo) {
+      const pri = task.priority ? ` [${task.priority}]` : '';
+      const src = task.source ? ` (from ${task.source})` : '';
+      elements.push(bulletItem(`${task.description || ''}${pri}${src}`));
     }
   }
   if (yourTasks.action_items?.length) {
     elements.push(heading('Action Items', 3));
     for (const ai of yourTasks.action_items) {
       elements.push(bulletItem(`${ai.description || ai.action || ''}${ai.deadline ? ` (by ${ai.deadline})` : ''}`));
+    }
+  }
+  // decisions_needed — decisions awaiting the user
+  if (yourTasks.decisions_needed?.length) {
+    elements.push(heading('Decisions Needed', 3));
+    for (const d of yourTasks.decisions_needed) {
+      const opts = (d.options || []).length ? ` — Options: ${d.options.join(', ')}` : '';
+      elements.push(bulletItem(`${d.description || d.question || ''}${opts}`));
+    }
+  }
+  // completed_in_call — items finished during this call
+  if (yourTasks.completed_in_call?.length) {
+    elements.push(heading('Completed In Call', 3));
+    for (const c of yourTasks.completed_in_call) {
+      elements.push(bulletItem(c.description || c.action || String(c)));
     }
   }
   if (yourTasks.tasks_waiting_on_others?.length) {
@@ -191,6 +219,10 @@ function renderYourTasks(yourTasks, clusterMap) {
       elements.push(bulletItem(`${w.description || ''} — waiting on ${who}`));
     }
   }
+  // summary
+  if (yourTasks.summary) {
+    elements.push(para(yourTasks.summary, { italic: true, color: MUTED_GRAY }));
+  }
   return elements;
 }
 
@@ -199,13 +231,13 @@ function renderTickets(tickets, clusterMap) {
   const elements = [heading('🎫 Tickets', 2)];
   const rows = tickets.map(t => [
     t.ticket_id || '—',
-    t.description || t.summary || '',
-    t.status || '—',
+    t.title || t.summary || '',
+    t.status ? t.status.replace(/_/g, ' ') : '—',
     t.priority || '—',
     t.assignee ? resolve(t.assignee, clusterMap) : '—',
     t.confidence || '—',
   ]);
-  elements.push(buildTable(['ID', 'Description', 'Status', 'Priority', 'Assignee', 'Conf.'], rows));
+  elements.push(buildTable(['ID', 'Title', 'Status', 'Priority', 'Assignee', 'Conf.'], rows));
   return elements;
 }
 
@@ -228,17 +260,22 @@ function renderChangeRequests(crs, clusterMap) {
   const elements = [heading('🔄 Change Requests', 2)];
   for (const cr of crs) {
     const { Paragraph, TextRun } = loadDocx();
+    const typeLabel = cr.type ? ` (${cr.type.replace(/_/g, ' ')})` : '';
+    const statusLabel = cr.status ? ` [${cr.status.replace(/_/g, ' ')}]` : '';
     elements.push(new Paragraph({
       children: [
-        new TextRun({ text: cr.description || cr.title || 'Untitled', bold: true }),
+        new TextRun({ text: `${cr.id}: ${cr.title || cr.what || 'Untitled'}${typeLabel}${statusLabel}`, bold: true }),
         badge(cr.priority || '—', PRI_COLOR[cr.priority] || MUTED_GRAY),
         badge(cr.confidence || '—', CONF_COLOR[cr.confidence] || MUTED_GRAY),
       ],
       spacing: { before: 120, after: 40 },
     }));
-    if (cr.reason) elements.push(bulletItem(`Reason: ${cr.reason}`));
+    if (cr.what && cr.what !== cr.title) elements.push(bulletItem(`What: ${cr.what}`));
+    if (cr.how) elements.push(bulletItem(`How: ${cr.how}`));
+    if (cr.why) elements.push(bulletItem(`Why: ${cr.why}`));
+    if (cr.where?.file_path) elements.push(bulletItem(`File: ${cr.where.file_path}`));
     if (cr.assigned_to) elements.push(bulletItem(`Owner: ${resolve(cr.assigned_to, clusterMap)}`));
-    if (cr.files_affected?.length) elements.push(bulletItem(`Files: ${cr.files_affected.join(', ')}`));
+    if ((cr.related_tickets || []).length > 0) elements.push(bulletItem(`Tickets: ${cr.related_tickets.join(', ')}`));
   }
   return elements;
 }
@@ -261,9 +298,17 @@ function renderScopeChanges(scopes, clusterMap) {
   if (!scopes.length) return [];
   const elements = [heading('📐 Scope Changes', 2)];
   for (const sc of scopes) {
-    elements.push(bulletItem(
-      `${sc.description || ''} — decided by ${sc.decided_by ? resolve(sc.decided_by, clusterMap) : 'Unknown'} [${sc.impact || '?'}]`
-    ));
+    const icon = { added: '➕', removed: '➖', deferred: '⏸️', approach_changed: '🔄', ownership_changed: '👤', requirements_changed: '📋' }[sc.type] || '🔀';
+    const decidedBy = sc.decided_by ? resolve(sc.decided_by, clusterMap) : null;
+    const typeLabel = (sc.type || '').replace(/_/g, ' ');
+    const mainText = sc.new_scope || sc.reason || sc.id || '';
+    elements.push(bulletItem(`${icon} ${sc.id} (${typeLabel}): ${mainText} [${sc.impact || '?'}]`));
+    if (sc.original_scope && sc.original_scope !== 'not documented') {
+      elements.push(bulletItem(`Was: ${sc.original_scope}`, 1));
+    }
+    if (sc.reason && sc.new_scope) elements.push(bulletItem(`Reason: ${sc.reason}`, 1));
+    if (decidedBy) elements.push(bulletItem(`Decided by: ${decidedBy}`, 1));
+    if ((sc.related_tickets || []).length > 0) elements.push(bulletItem(`Tickets: ${sc.related_tickets.join(', ')}`, 1));
   }
   return elements;
 }
@@ -271,12 +316,33 @@ function renderScopeChanges(scopes, clusterMap) {
 function renderFileReferences(files) {
   if (!files.length) return [];
   const elements = [heading('📁 File References', 2)];
-  const rows = files.map(f => [
-    f.resolved_path || f.file_name || '—',
-    f.context || '—',
-    f.mentioned_by || '—',
-  ]);
-  elements.push(buildTable(['File', 'Context', 'Mentioned By'], rows));
+  // Split into actionable and reference-only (matches HTML/MD renderers)
+  const actionable = files.filter(f => f.role && !['reference_only', 'source_of_truth'].includes(f.role));
+  const reference = files.filter(f => !f.role || ['reference_only', 'source_of_truth'].includes(f.role));
+
+  if (actionable.length > 0) {
+    elements.push(heading('Files Requiring Action', 3));
+    const rows = actionable.map(f => [
+      f.file_name || '—',
+      (f.role || '').replace(/_/g, ' '),
+      (f.file_type || '').replace(/_/g, ' '),
+      (f.mentioned_in_tickets || []).join(', ') || '—',
+      (f.mentioned_in_changes || []).join(', ') || '—',
+      f.resolved_path || '—',
+    ]);
+    elements.push(buildTable(['File', 'Role', 'Type', 'Tickets', 'Changes', 'Path'], rows));
+  }
+
+  if (reference.length > 0) {
+    elements.push(heading('Reference Files', 3));
+    const rows = reference.map(f => [
+      f.file_name || '—',
+      (f.file_type || '').replace(/_/g, ' '),
+      (f.mentioned_in_tickets || []).join(', ') || '—',
+      f.notes ? f.notes.slice(0, 80) + (f.notes.length > 80 ? '...' : '') : '—',
+    ]);
+    elements.push(buildTable(['File', 'Type', 'Tickets', 'Notes'], rows));
+  }
   return elements;
 }
 
@@ -397,7 +463,7 @@ async function renderResultsDocx({ compiled, meta }) {
   }
 
   // Your Tasks
-  children.push(...renderYourTasks(yourTasks, clusterMap));
+  children.push(...renderYourTasks(yourTasks, clusterMap, allTickets));
 
   // Tickets
   children.push(...renderTickets(allTickets, clusterMap));
