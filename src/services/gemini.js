@@ -389,7 +389,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
 
   contentParts.push({ text: promptText });
 
-  // 5. Send request (configurable thinking budget for complex multi-ticket analysis)
+  // 5. Send request (model uses its default thinking budget)
   const requestPayload = {
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
@@ -397,7 +397,6 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       systemInstruction,
       maxOutputTokens: 65536,
       temperature: 0,
-      thinkingConfig: { thinkingBudget },
     },
   };
 
@@ -570,11 +569,6 @@ ${segmentDumps}`;
       systemInstruction: `${systemInstruction}\n\nYou are now in COMPILATION MODE — your job is to merge multiple segment analyses into one final unified output. Deduplicate, reconcile conflicts, and produce the definitive analysis. Output valid JSON only — no markdown fences.`,
       maxOutputTokens: 65536,
       temperature: 0,
-      // Thinking tokens share the maxOutputTokens pool in Gemini 2.5+ models.
-      // Default 10240 leaves ~55K for output — enough for full structured merge.
-      // Too low (4096) → model hits ceiling and produces minimal output.
-      // Too high (16384) → eats into output budget causing truncation.
-      thinkingConfig: { thinkingBudget: compilationThinking },
     },
   };
 
@@ -715,7 +709,6 @@ FORMAT:
       systemInstruction: 'You are a meticulous video analyst. Produce comprehensive, detailed summaries that capture everything in the video. Write in clear Markdown prose.',
       maxOutputTokens: 32768,
       temperature: 0.1,
-      thinkingConfig: { thinkingBudget },
     },
   };
 

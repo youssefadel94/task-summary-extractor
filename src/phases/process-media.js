@@ -444,8 +444,8 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           log.step(`Quality gate FAIL for ${segName} (score: ${qualityReport.score}) — retrying`);
           retried = true;
 
-          // Boost thinking budget for retry (+25%)
-          const retryBudget = Math.min(32768, Math.round(adaptiveBudget * 1.25));
+          // Boost thinking budget for retry (+25%, clamped to model max)
+          const retryBudget = Math.min(config.getMaxThinkingBudget(), Math.round(adaptiveBudget * 1.25));
 
           try {
             const retryRun = await processWithGemini(

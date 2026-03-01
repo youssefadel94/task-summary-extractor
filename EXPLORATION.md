@@ -45,9 +45,10 @@
 │firebase│ │-gate     │ │(801 ln) │ │struct│ │comp  ││validation│
 │video   │ │colors    │ │html.js  │ │spans │ │      ││env helper│
 │git     │ │progress  │ │(673 ln) │ │phases│ │      ││model reg │
-│doc-    │ │-bar      │ │shared   │ │metric│ │      ││          │
-│parser  │ │confidence│ │(212 ln) │ │      │ │      ││          │
-│        │ │-filter   │ │         │ │      │ │      ││          │
+│doc-    │ │-bar      │ │pdf.js   │ │metric│ │      ││          │
+│parser  │ │confidence│ │docx.js  │ │      │ │      ││          │
+│        │ │-filter   │ │shared   │ │      │ │      ││          │
+│        │ │          │ │(212 ln) │ │      │ │      ││          │
 │        │ │schema-   │ │         │ │      │ │      ││          │
 │        │ │validator │ │         │ │      │ │      ││          │
 │        │ │+15 more  │ │         │ │      │ │      ││          │
@@ -63,7 +64,7 @@
 | Services (Gemini, Firebase, Video, Git, Doc-Parser) | 5 | ~1,650 |
 | Modes (AI pipeline phases) | 5 | 2,054 |
 | Utilities (19 modules) | 19 | ~4,100 |
-| Renderers (markdown, html, shared) | 3 | ~1,686 |
+| Renderers (markdown, html, pdf, docx, shared) | 5 | ~2,100 |
 | Config + Logger | 2 | 597 |
 | Schemas (JSON) | 2 | ~400 |
 | Entry points (taskex + legacy) | 2 | 79 |
@@ -92,7 +93,7 @@
 | **v8.1.0** | Smart Global Config | Persistent `~/.taskexrc` config, `taskex config` subcommand, first-run API key prompting, 5-level config resolution, production audit (14 fixes), shared CLI flag injection, boolean flag parser fix |
 | **v8.2.0** | Architecture Cleanup | `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.3.0** | Universal Content Analysis | prompt.json v4.0.0 — input type auto-detection (video/audio/document/mixed), timestamps conditional, domain-adaptive extraction for any content source, gemini.js bridge text generalized |
-| **v9.0.0** | CLI UX + Pipeline Decomposition | Colors & progress bar, HTML reports (`results.html`), JSON Schema validation (`src/schemas/`), confidence filter (`--min-confidence`), pipeline decomposed into `src/phases/` (9 modules), test suite (285 tests via vitest), multi-format output (`--format`), doc-parser service, shared renderer utilities |
+| **v9.0.0** | CLI UX + Pipeline Decomposition | Colors & progress bar, HTML reports (`results.html`), PDF & DOCX output (`results.pdf`, `results.docx`), JSON Schema validation (`src/schemas/`), confidence filter (`--min-confidence`), pipeline decomposed into `src/phases/` (9 modules), test suite (285 tests via vitest), multi-format output (`--format`: md/html/json/pdf/docx/all), doc-parser service, shared renderer utilities |
 
 ### What v6 Delivers
 
@@ -262,7 +263,7 @@ Tuning:
   --no-diff                         Disable diff comparison
 
 Output:
-  --format <type>                   Output format: md, html, json, all (default: md)
+  --format <type>                   Output format: md, html, json, pdf, docx, all (default: md)
   --min-confidence <level>          Filter by confidence: high, medium, low
   --no-html                         Suppress HTML report generation
 
@@ -300,6 +301,8 @@ src/
 ├── renderers/
 │   ├── markdown.js          801 ln  ★ v6 — Confidence badges (🟢🟡🔴), confidence distribution table, diff section
 │   ├── html.js              673 ln  ★ v9.0.0 — Self-contained HTML report: collapsible sections, confidence badges, filtering, dark mode
+│   ├── pdf.js                       ★ v9.0.0 — PDF report renderer: HTML → PDF conversion via puppeteer
+│   ├── docx.js                      ★ v9.0.0 — DOCX report renderer: programmatic Word document via docx npm package
 │   └── shared.js            212 ln  ★ v9.0.0 — Shared renderer utilities (name clustering, dedup, formatting)
 ├── services/
 │   ├── firebase.js           92 ln  Init, upload, exists check (with retry, async I/O)

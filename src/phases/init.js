@@ -141,13 +141,15 @@ async function phaseInit() {
     learningInsights = analyzeHistory(history);
     if (learningInsights.hasData) {
       printLearningInsights(learningInsights);
-      // Apply budget adjustments from learning
+      // Apply budget adjustments from learning (clamped to model max)
       if (learningInsights.budgetAdjustment !== 0) {
-        opts.thinkingBudget = Math.max(8192, opts.thinkingBudget + learningInsights.budgetAdjustment);
+        const modelMax = config.getMaxThinkingBudget();
+        opts.thinkingBudget = Math.min(modelMax, Math.max(8192, opts.thinkingBudget + learningInsights.budgetAdjustment));
         log.step(`Learning: adjusted thinking budget → ${opts.thinkingBudget}`);
       }
       if (learningInsights.compilationBudgetAdjustment !== 0) {
-        opts.compilationThinkingBudget = Math.max(8192, opts.compilationThinkingBudget + learningInsights.compilationBudgetAdjustment);
+        const modelMax = config.getMaxThinkingBudget();
+        opts.compilationThinkingBudget = Math.min(modelMax, Math.max(8192, opts.compilationThinkingBudget + learningInsights.compilationBudgetAdjustment));
         log.step(`Learning: adjusted compilation budget → ${opts.compilationThinkingBudget}`);
       }
     }

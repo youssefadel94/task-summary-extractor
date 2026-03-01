@@ -156,9 +156,9 @@ The pipeline will:
 4. **Analyze** each segment with Gemini AI — uses Firebase Storage URL directly when available (skips separate Gemini upload)
 5. **Quality check** — retry weak segments automatically (reuses file reference — no re-upload)
 6. **Compile** results across all segments
-7. **Output** `results.md` + `results.html` + `results.json`
+7. **Output** `results.md` + `results.html` + `results.json` (+ `results.pdf` / `results.docx` if requested via `--format`)
 
-> **Tip:** Use `--format html` to get only HTML output, or `--format all` for Markdown + HTML + JSON. Use `--min-confidence high` to filter out low-confidence items.
+> **Tip:** Use `--format html` to get only HTML output, `--format pdf` for PDF, `--format docx` for Word, or `--format all` for Markdown + HTML + JSON + PDF + DOCX. Use `--min-confidence high` to filter out low-confidence items.
 
 > **Tip:** Use `--force-upload` to re-upload files that already exist in Storage. Use `--no-storage-url` to bypass Storage URL optimization and force Gemini File API uploads.
 

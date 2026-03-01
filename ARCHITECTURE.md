@@ -99,6 +99,8 @@ flowchart TB
     subgraph Renderers["Renderers"]
         MD["markdown.js"]
         HTML["html.js"]
+        PDF["pdf.js"]
+        DOCX["docx.js"]
         SHARED["shared.js"]
     end
 
@@ -553,6 +555,8 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | **Gemini AI** | `@google/genai@^1.42.0` | Video analysis, File API, 1M context window |
 | **Firebase** | `firebase@^12.9.0` | Anonymous auth + Cloud Storage uploads |
 | **dotenv** | `dotenv@^17.3.1` | Environment variable loading |
+| **puppeteer** | `puppeteer` | HTML → PDF conversion for PDF output format |
+| **docx** | `docx` | Programmatic Word document generation for DOCX output format |
 | **mammoth** | `mammoth` | DOCX → plain text conversion |
 | **xlsx** | `xlsx` | Excel spreadsheet parsing (XLSX/XLS) |
 | **officeparser** | `officeparser` | DOC, PPTX, ODT, RTF, EPUB text extraction |

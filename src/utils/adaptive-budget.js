@@ -14,6 +14,8 @@
 
 'use strict';
 
+const config = require('../config');
+
 // ======================== BUDGET RANGES ========================
 
 const BUDGET = {
@@ -21,12 +23,12 @@ const BUDGET = {
   MIN: 8192,
   /** Base thinking budget for a simple segment */
   BASE: 16384,
-  /** Maximum thinking budget per segment (avoid eating output token pool) */
-  MAX: 32768,
+  /** Maximum thinking budget per segment — dynamically read from model config */
+  get MAX() { return config.getMaxThinkingBudget(); },
   /** Base compilation thinking budget */
   COMPILATION_BASE: 10240,
-  /** Max compilation thinking budget */
-  COMPILATION_MAX: 24576,
+  /** Max compilation thinking budget — dynamically read from model config */
+  get COMPILATION_MAX() { return config.getMaxThinkingBudget(); },
 };
 
 // ======================== COMPLEXITY ANALYSIS ========================

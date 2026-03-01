@@ -169,7 +169,7 @@ These are the ones you'll actually use:
 | `--resume` | Continue an interrupted run | `--resume` |
 | `--reanalyze` | Force fresh analysis (ignore cache) | `--reanalyze` |
 | `--dry-run` | Preview what would run, without running | `--dry-run` |
-| `--format <type>` | Output format: `md`, `html`, `json`, `all` (default: `md`) | `--format html` |
+| `--format <type>` | Output format: `md`, `html`, `json`, `pdf`, `docx`, `all` (default: `md`) | `--format html` |
 | `--min-confidence <level>` | Filter items by confidence: `high`, `medium`, `low` | `--min-confidence high` |
 | `--no-html` | Suppress HTML report generation | `--no-html` |
 
@@ -261,7 +261,7 @@ CONFIG     --gemini-key  --firebase-key  --firebase-project
            --firebase-bucket  --firebase-domain
 MODES      --dynamic  --deep-dive  --update-progress
 CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
-OUTPUT     --format <md|html|json|all>  --min-confidence <high|medium|low>
+OUTPUT     --format <md|html|json|pdf|docx|all>  --min-confidence <high|medium|low>
            --no-html
 UPLOAD     --force-upload  --no-storage-url
 SKIP       --skip-compression  --skip-gemini
@@ -434,7 +434,7 @@ GEMINI_API_KEY=your-key-here
 | **HTML Report** | Self-contained HTML report with collapsible sections, filtering, dark mode |
 | **JSON Schema Validation** | Validates AI output against JSON Schema (segment + compiled) |
 | **Confidence Filter** | `--min-confidence` flag to exclude low-confidence items from output |
-| **Multi-Format Output** | `--format` flag: Markdown, HTML, JSON, or all formats at once |
+| **Multi-Format Output** | `--format` flag: Markdown, HTML, JSON, PDF, DOCX, or all formats at once |
 | **Interactive CLI** | Run with no args → guided experience |
 | **Resume / Checkpoint** | `--resume` continues interrupted runs |
 | **Firebase Upload** | Team access via cloud (optional) |
@@ -515,6 +515,8 @@ task-summary-extractor/
 │   ├── renderers/
 │   │   ├── markdown.js         Markdown report renderer
 │   │   ├── html.js             HTML report renderer (self-contained)
+│   │   ├── pdf.js              PDF report renderer (HTML → PDF via puppeteer)
+│   │   ├── docx.js             DOCX report renderer (programmatic Word document)
 │   │   └── shared.js           Shared renderer utilities
 │   ├── schemas/
 │   │   ├── analysis-segment.schema.json   Segment analysis JSON Schema
@@ -559,7 +561,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
-| **v9.0.0** | **CLI UX upgrade** — colors & progress bar, HTML reports, JSON Schema validation, confidence filter (`--min-confidence`), pipeline decomposition (`src/phases/` — 9 modules), test suite (285 tests via vitest), multi-format output (`--format`), doc-parser service, shared renderer utilities |
+| **v9.0.0** | **CLI UX upgrade** — colors & progress bar, HTML reports, PDF & DOCX output (via puppeteer and docx npm package), JSON Schema validation, confidence filter (`--min-confidence`), pipeline decomposition (`src/phases/` — 9 modules), test suite (285 tests via vitest), multi-format output (`--format`: md/html/json/pdf/docx/all), doc-parser service, shared renderer utilities |
 | **v8.3.0** | **Universal content analysis** — prompt v4.0.0 supports video, audio, documents, and mixed content; input type auto-detection; timestamps conditional on content type; gemini.js bridge text generalized; all markdown docs updated |
 | **v8.2.0** | **Architecture cleanup** — `src/modes/` for AI pipeline phases, `retry.js` self-contained defaults, dead code removal, export trimming, `process_and_upload.js` slim shim, `progress.js` → `checkpoint.js`, merged `prompt.js` into `cli.js` |
 | **v8.1.0** | **Smart global config** — `taskex config` persistent setup (`~/.taskexrc`), first-run prompting, 5-level config resolution, production audit fixes, shared CLI flag injection, boolean flag parser fix |

@@ -87,6 +87,7 @@ const GEMINI_MODELS = {
     description: 'Latest & most capable — best reasoning, agentic workflows, vibe-coding',
     contextWindow: 1_048_576,
     maxOutput: 65536,
+    maxThinkingBudget: 32768,
     thinking: true,
     tier: 'premium',
     pricing: {
@@ -104,6 +105,7 @@ const GEMINI_MODELS = {
     description: 'Frontier intelligence at flash speed — rivals larger models at fraction of cost',
     contextWindow: 1_048_576,
     maxOutput: 65536,
+    maxThinkingBudget: 24576,
     thinking: true,
     tier: 'balanced',
     pricing: {
@@ -121,6 +123,7 @@ const GEMINI_MODELS = {
     description: 'Stable premium — deep reasoning, coding, math, STEM, long context',
     contextWindow: 1_048_576,
     maxOutput: 65536,
+    maxThinkingBudget: 32768,
     thinking: true,
     tier: 'premium',
     pricing: {
@@ -138,6 +141,7 @@ const GEMINI_MODELS = {
     description: 'Best price-performance — thinking, 1M context, high throughput',
     contextWindow: 1_048_576,
     maxOutput: 65536,
+    maxThinkingBudget: 24576,
     thinking: true,
     tier: 'balanced',
     pricing: {
@@ -155,6 +159,7 @@ const GEMINI_MODELS = {
     description: 'Cheapest available — fastest, most cost-efficient for high-volume tasks',
     contextWindow: 1_048_576,
     maxOutput: 65536,
+    maxThinkingBudget: 24576,
     thinking: true,
     tier: 'economy',
     pricing: {
@@ -201,6 +206,16 @@ function setActiveModel(modelId) {
 function getActiveModelPricing() {
   const specs = GEMINI_MODELS[module.exports.GEMINI_MODEL];
   return specs ? specs.pricing : GEMINI_MODELS['gemini-2.5-flash'].pricing;
+}
+
+/**
+ * Get the maximum thinking budget allowed by the currently active model.
+ * Used to clamp adaptive budgets before sending API requests.
+ * @returns {number} Maximum thinking budget in tokens
+ */
+function getMaxThinkingBudget() {
+  const specs = GEMINI_MODELS[module.exports.GEMINI_MODEL];
+  return (specs && specs.maxThinkingBudget) || 24576;
 }
 
 // ======================== VIDEO PROCESSING ========================
@@ -336,6 +351,7 @@ module.exports = {
   GEMINI_MODELS,
   setActiveModel,
   getActiveModelPricing,
+  getMaxThinkingBudget,
   SPEED,
   SEG_TIME,
   PRESET,

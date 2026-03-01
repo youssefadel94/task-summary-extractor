@@ -2,6 +2,7 @@ const {
   calculateThinkingBudget,
   calculateCompilationBudget,
 } = require('../../src/utils/adaptive-budget.js');
+const config = require('../../src/config.js');
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -124,7 +125,8 @@ describe('calculateThinkingBudget', () => {
     expect(result.reason).toContain('docs');
   });
 
-  it('never exceeds MAX (32768) even with all boosts active', () => {
+  it('never exceeds model MAX even with all boosts active', () => {
+    const modelMax = config.getMaxThinkingBudget();
     const prev = Array.from({ length: 10 }, () =>
       makeAnalysis({ tickets: 5, actions: 3, crs: 2, blockers: 1 }),
     );
@@ -137,8 +139,8 @@ describe('calculateThinkingBudget', () => {
       vttContent: TECHNICAL_VTT,
       baseBudget: 24000, // push well past MAX before clamping
     });
-    expect(result.budget).toBeLessThanOrEqual(32768);
-    expect(result.budget).toBe(32768);
+    expect(result.budget).toBeLessThanOrEqual(modelMax);
+    expect(result.budget).toBe(modelMax);
   });
 
   it('never falls below MIN (8192) even with very low baseBudget', () => {
