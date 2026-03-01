@@ -12,7 +12,7 @@ const {
 
 // --- Utils ---
 const { c } = require('../utils/colors');
-const { parseArgs, showHelp, selectFolder, selectModel } = require('../utils/cli');
+const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence } = require('../utils/cli');
 const { promptForKey } = require('../utils/global-config');
 const Logger = require('../logger');
 const Progress = require('../utils/checkpoint');
@@ -73,8 +73,77 @@ async function phaseInit() {
     repoPath: flags.repo || null,
     model: typeof flags.model === 'string' ? flags.model : null,
     minConfidence: typeof flags['min-confidence'] === 'string' ? flags['min-confidence'].toLowerCase() : null,
-    format: typeof flags.format === 'string' ? flags.format.toLowerCase() : 'all',
+    format: typeof flags.format === 'string' ? flags.format.toLowerCase() : null,
+    runMode: null, // will be populated by interactive selector or inferred
   };
+
+  // --- Determine if user provided enough flags to skip interactive mode ---
+  const hasExplicitMode = opts.model || flags['no-focused-pass'] || flags['no-learning'] || flags['no-diff'] || opts.format;
+  const isNonInteractive = !process.stdin.isTTY;
+
+  // --- Interactive Run-Mode selector (only when TTY and no explicit flags) ---
+  if (!hasExplicitMode && !isNonInteractive && !opts.skipGemini) {
+    // Show the welcome banner
+    const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
+    console.log('');
+    console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
+    console.log(c.heading(`  │  ${c.bold('taskex')} ${c.dim(`v${pkg.version}`)}  —  AI-powered meeting analysis                              │`));
+    console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
+
+    const mode = await selectRunMode();
+    opts.runMode = mode;
+
+    if (mode !== 'custom') {
+      // Apply preset overrides
+      const { selectRunMode: _ignore, ...cliModule } = require('../utils/cli');
+      // Access RUN_PRESETS from the module
+      const presetOverrides = {
+        fast: {
+          disableFocusedPass: true,
+          disableLearning: true,
+          disableDiff: true,
+          format: 'md,json',
+          formats: new Set(['md', 'json']),
+          modelTier: 'economy',
+        },
+        balanced: {
+          disableFocusedPass: false,
+          disableLearning: false,
+          disableDiff: false,
+          format: 'all',
+          formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
+          modelTier: 'balanced',
+        },
+        detailed: {
+          disableFocusedPass: false,
+          disableLearning: false,
+          disableDiff: false,
+          format: 'all',
+          formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
+          modelTier: 'premium',
+        },
+      };
+      const preset = presetOverrides[mode];
+      if (preset) {
+        opts.disableFocusedPass = preset.disableFocusedPass;
+        opts.disableLearning = preset.disableLearning;
+        opts.disableDiff = preset.disableDiff;
+        opts.format = preset.format;
+        opts.formats = preset.formats;
+        opts._modelTier = preset.modelTier; // used later for model auto-selection
+      }
+    } else {
+      // Custom mode: show interactive pickers for format & confidence
+      const chosenFormats = await selectFormats();
+      opts.formats = chosenFormats;
+      opts.format = chosenFormats.size === 5 ? 'all' : [...chosenFormats].join(',');
+
+      const chosenConfidence = await selectConfidence();
+      if (chosenConfidence) {
+        opts.minConfidence = chosenConfidence;
+      }
+    }
+  }
 
   // --- Validate min-confidence level ---
   if (opts.minConfidence) {
@@ -87,18 +156,22 @@ async function phaseInit() {
   }
 
   // --- Validate --format flag (supports comma-separated: md,html,pdf) ---
-  const VALID_FORMATS = new Set(['md', 'html', 'json', 'pdf', 'docx', 'all']);
-  const requestedFormats = opts.format.split(',').map(f => f.trim()).filter(Boolean);
-  const invalidFormats = requestedFormats.filter(f => !VALID_FORMATS.has(f));
-  if (invalidFormats.length > 0) {
-    throw new Error(`Invalid --format "${invalidFormats.join(', ')}". Valid: md, html, json, pdf, docx, all`);
+  // If format wasn't set by interactive picker or flag, default to 'all'
+  if (!opts.format) opts.format = 'all';
+  if (!opts.formats) {
+    const VALID_FORMATS = new Set(['md', 'html', 'json', 'pdf', 'docx', 'all']);
+    const requestedFormats = opts.format.split(',').map(f => f.trim()).filter(Boolean);
+    const invalidFormats = requestedFormats.filter(f => !VALID_FORMATS.has(f));
+    if (invalidFormats.length > 0) {
+      throw new Error(`Invalid --format "${invalidFormats.join(', ')}". Valid: md, html, json, pdf, docx, all`);
+    }
+    // Normalise: "all" or set of specific formats
+    opts.formats = requestedFormats.includes('all')
+      ? new Set(['md', 'html', 'json', 'pdf', 'docx'])
+      : new Set(requestedFormats);
+    // Keep opts.format as the original string for backwards compatibility
+    opts.format = requestedFormats.includes('all') ? 'all' : requestedFormats.join(',');
   }
-  // Normalise: "all" or set of specific formats
-  opts.formats = requestedFormats.includes('all')
-    ? new Set(['md', 'html', 'json', 'pdf', 'docx'])
-    : new Set(requestedFormats);
-  // Keep opts.format as the original string for backwards compatibility
-  opts.format = requestedFormats.includes('all') ? 'all' : requestedFormats.join(',');
 
   // --- Resolve folder: positional arg or interactive selection ---
   let folderArg = positional[0];
@@ -186,12 +259,30 @@ async function phaseInit() {
     // CLI flag: --model <id> — validate and activate
     setActiveModel(opts.model);
     log.step(`Model set via flag: ${config.GEMINI_MODEL}`);
+  } else if (opts._modelTier) {
+    // Preset-driven: auto-select the best model for the chosen tier
+    const modelIds = Object.keys(GEMINI_MODELS);
+    const tierModel = modelIds.find(id => GEMINI_MODELS[id].tier === opts._modelTier);
+    if (tierModel) {
+      setActiveModel(tierModel);
+      console.log(c.success(`Model auto-selected: ${GEMINI_MODELS[tierModel].name} (${opts._modelTier} tier)`));
+      log.step(`Model auto-selected for ${opts._modelTier} tier: ${config.GEMINI_MODEL}`);
+    } else {
+      // Fallback to interactive if tier not found
+      const chosenModel = await selectModel(GEMINI_MODELS, config.GEMINI_MODEL);
+      setActiveModel(chosenModel);
+      log.step(`Model selected: ${config.GEMINI_MODEL}`);
+    }
+    delete opts._modelTier;
   } else {
     // Interactive model selection
     const chosenModel = await selectModel(GEMINI_MODELS, config.GEMINI_MODEL);
     setActiveModel(chosenModel);
     log.step(`Model selected: ${config.GEMINI_MODEL}`);
   }
+
+  // --- Print run summary ---
+  _printRunSummary(opts, config.GEMINI_MODEL, GEMINI_MODELS, targetDir);
 
   // --- Initialize progress tracking ---
   const progress = new Progress(targetDir);
@@ -202,6 +293,58 @@ async function phaseInit() {
   });
 
   return { opts, targetDir, progress, costTracker, progressBar };
+}
+
+/**
+ * Print a compact run summary with all active settings.
+ */
+function _printRunSummary(opts, modelId, models, targetDir) {
+  const modelName = (models[modelId] || {}).name || modelId;
+  const tier = (models[modelId] || {}).tier || '?';
+  const cost = (models[modelId] || {}).costEstimate || '';
+
+  console.log('');
+  console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
+  console.log(c.heading('  │                        📋  Run Summary                                       │'));
+  console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
+  console.log('');
+  console.log(`    ${c.dim('Folder:')}      ${c.bold(path.basename(targetDir))}`);
+  console.log(`    ${c.dim('Model:')}       ${c.bold(modelName)} ${c.dim(`(${tier})`)} ${cost ? c.dim(cost) : ''}`);
+  console.log(`    ${c.dim('Formats:')}     ${c.bold(opts.format === 'all' ? 'all (md, html, json, pdf, docx)' : opts.format)}`);
+
+  if (opts.minConfidence) {
+    console.log(`    ${c.dim('Confidence:')}  ${c.bold(opts.minConfidence)}+`);
+  }
+
+  // Feature toggles
+  const features = [];
+  if (!opts.disableFocusedPass) features.push(c.green('focused-pass'));
+  if (!opts.disableLearning) features.push(c.green('learning'));
+  if (!opts.disableDiff) features.push(c.green('diff'));
+  if (opts.deepDive) features.push(c.cyan('deep-dive'));
+  if (opts.dynamic) features.push(c.cyan('dynamic'));
+  if (opts.resume) features.push(c.yellow('resume'));
+  if (opts.dryRun) features.push(c.yellow('dry-run'));
+  if (opts.skipUpload) features.push(c.dim('skip-upload'));
+
+  const disabled = [];
+  if (opts.disableFocusedPass) disabled.push(c.dim('no-focused'));
+  if (opts.disableLearning) disabled.push(c.dim('no-learning'));
+  if (opts.disableDiff) disabled.push(c.dim('no-diff'));
+
+  if (features.length > 0) {
+    console.log(`    ${c.dim('Features:')}    ${features.join(c.dim(' · '))}`);
+  }
+  if (disabled.length > 0) {
+    console.log(`    ${c.dim('Disabled:')}    ${disabled.join(c.dim(' · '))}`);
+  }
+
+  if (opts.runMode) {
+    console.log(`    ${c.dim('Run mode:')}    ${c.bold(opts.runMode)}`);
+  }
+
+  console.log(c.dim('  ' + '─'.repeat(78)));
+  console.log('');
 }
 
 module.exports = phaseInit;

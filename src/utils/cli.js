@@ -354,6 +354,11 @@ function showHelp() {
     ${c.bold('taskex setup')} ${c.dim('[--check | --silent]')}
     ${c.bold('taskex config')} ${c.dim('[--show | --clear]')}
 
+  ${h('INTERACTIVE MODE')}
+${f('taskex', 'Launch interactive wizard — choose run mode, model, format, confidence')}
+${f2('Run modes: ⚡ Fast · ⚖️ Balanced · 🔬 Detailed · ⚙️ Custom')}
+${f2('When flags are provided, interactive prompts are skipped automatically.')}
+
   ${h('SUBCOMMANDS')}
 ${f('setup', 'Full interactive setup (prerequisites, deps, .env)')}
 ${f('setup --check', 'Validation only — verify environment')}
@@ -417,8 +422,10 @@ ${f('--help, -h', 'Show this help message')}
 ${f('--version, -v', 'Show version')}
 
   ${h('EXAMPLES')}
-    ${c.dim('$')} taskex ${c.dim('# Interactive mode')}
-    ${c.dim('$')} taskex "call 1" ${c.dim('# Analyze a call')}
+    ${c.dim('$')} taskex ${c.dim('# Interactive wizard — choose mode, model, format')}
+    ${c.dim('$')} taskex "call 1" ${c.dim('# Analyze a call (interactive wizard)')}
+    ${c.dim('$')} taskex --model gemini-2.5-pro "call 1" ${c.dim('# Skip wizard, use specific model')}
+    ${c.dim('$')} taskex --format md,html "call 1" ${c.dim('# Skip wizard, specific formats')}
     ${c.dim('$')} taskex --name "Jane" --skip-upload "call 1"
     ${c.dim('$')} taskex --model gemini-2.5-pro --deep-dive "call 1"
     ${c.dim('$')} taskex --dynamic --request "Plan API migration" "specs"
@@ -434,7 +441,10 @@ ${f('--version, -v', 'Show version')}
   throw Object.assign(new Error('HELP_SHOWN'), { code: 'HELP_SHOWN' });
 }
 
-module.exports = { parseArgs, showHelp, discoverFolders, selectFolder, selectModel, promptUser, promptUserText };
+module.exports = {
+  parseArgs, showHelp, discoverFolders, selectFolder, selectModel,
+  promptUser, promptUserText, selectRunMode, selectFormats, selectConfidence,
+};
 
 // ======================== INTERACTIVE PROMPTS ========================
 
@@ -459,6 +469,255 @@ function promptUserText(question) {
     rl.question(question, answer => {
       rl.close();
       resolve((answer || '').trim());
+    });
+  });
+}
+
+// ======================== RUN MODE SELECTOR ========================
+
+/**
+ * Run-mode presets. Each key maps to a set of opts overrides.
+ * 'custom' triggers the interactive per-setting prompts.
+ */
+const RUN_PRESETS = {
+  fast: {
+    label: 'Fast',
+    icon: '⚡',
+    description: 'Economy model, skip extras, Markdown + JSON only — fastest & cheapest',
+    overrides: {
+      disableFocusedPass: true,
+      disableLearning: true,
+      disableDiff: true,
+      format: 'md,json',
+      formats: new Set(['md', 'json']),
+      modelTier: 'economy',
+    },
+  },
+  balanced: {
+    label: 'Balanced',
+    icon: '⚖️',
+    description: 'Balanced model, learning enabled, all formats — recommended default',
+    overrides: {
+      disableFocusedPass: false,
+      disableLearning: false,
+      disableDiff: false,
+      format: 'all',
+      formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
+      modelTier: 'balanced',
+    },
+  },
+  detailed: {
+    label: 'Detailed',
+    icon: '🔬',
+    description: 'Premium model, all features, all formats — highest quality analysis',
+    overrides: {
+      disableFocusedPass: false,
+      disableLearning: false,
+      disableDiff: false,
+      format: 'all',
+      formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
+      modelTier: 'premium',
+    },
+  },
+  custom: {
+    label: 'Custom',
+    icon: '⚙️',
+    description: 'Choose each setting interactively',
+    overrides: {},
+  },
+};
+
+/**
+ * Interactive run-mode selector. Shows preset options and returns the chosen
+ * preset key. The caller applies overrides to opts.
+ *
+ * @returns {Promise<string>} Preset key: 'fast' | 'balanced' | 'detailed' | 'custom'
+ */
+async function selectRunMode() {
+  const readline = require('readline');
+  const presetKeys = Object.keys(RUN_PRESETS);
+
+  console.log('');
+  console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
+  console.log(c.heading('  │                        🚀  Run Mode                                          │'));
+  console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
+  console.log('');
+
+  presetKeys.forEach((key, i) => {
+    const p = RUN_PRESETS[key];
+    const num = c.cyan(`[${i + 1}]`);
+    const label = c.bold(`${p.icon} ${p.label}`);
+    const desc = c.dim(p.description);
+    const marker = key === 'balanced' ? c.green(' ← default') : '';
+    console.log(`    ${num} ${label}${marker}`);
+    console.log(`        ${desc}`);
+  });
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question('  Select run mode [1-4] (Enter = balanced): ', answer => {
+      rl.close();
+      const trimmed = (answer || '').trim();
+
+      if (!trimmed) {
+        console.log(c.success('Using balanced mode'));
+        resolve('balanced');
+        return;
+      }
+
+      const num = parseInt(trimmed, 10);
+      if (num >= 1 && num <= presetKeys.length) {
+        const key = presetKeys[num - 1];
+        console.log(c.success(`Using ${RUN_PRESETS[key].label} mode`));
+        resolve(key);
+        return;
+      }
+
+      // Try matching by name
+      const lower = trimmed.toLowerCase();
+      const match = presetKeys.find(k => k === lower || RUN_PRESETS[k].label.toLowerCase() === lower);
+      if (match) {
+        console.log(c.success(`Using ${RUN_PRESETS[match].label} mode`));
+        resolve(match);
+        return;
+      }
+
+      console.log(c.warn(`Unknown "${trimmed}" — using balanced mode`));
+      resolve('balanced');
+    });
+  });
+}
+
+// ======================== FORMAT PICKER ========================
+
+const ALL_FORMATS = [
+  { key: 'md',   icon: '📝', label: 'Markdown',  desc: 'Human-readable report' },
+  { key: 'html', icon: '🌐', label: 'HTML',      desc: 'Styled web page' },
+  { key: 'pdf',  icon: '📄', label: 'PDF',       desc: 'Portable document' },
+  { key: 'docx', icon: '📘', label: 'Word',      desc: 'Editable Word document' },
+  { key: 'json', icon: '🔧', label: 'JSON',      desc: 'Machine-readable data' },
+];
+
+/**
+ * Interactive format picker — user enters comma-separated numbers or "all".
+ * Returns a Set of chosen format keys.
+ *
+ * @returns {Promise<Set<string>>}
+ */
+async function selectFormats() {
+  const readline = require('readline');
+
+  console.log('');
+  console.log(`  ${c.bold('📦 Output Formats')} ${c.dim('(select one or more)')}`);
+  console.log(c.dim('  ' + '─'.repeat(50)));
+
+  ALL_FORMATS.forEach((f, i) => {
+    const num = c.cyan(`[${i + 1}]`);
+    console.log(`    ${num} ${f.icon} ${c.bold(f.label.padEnd(12))} ${c.dim(f.desc)}`);
+  });
+  console.log(`    ${c.cyan('[A]')} ${c.bold('All formats')}`);
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question('  Formats (e.g. 1,2,3 or A for all) [Enter = all]: ', answer => {
+      rl.close();
+      const trimmed = (answer || '').trim().toLowerCase();
+
+      if (!trimmed || trimmed === 'a' || trimmed === 'all') {
+        const all = new Set(ALL_FORMATS.map(f => f.key));
+        console.log(c.success('All formats selected'));
+        resolve(all);
+        return;
+      }
+
+      const parts = trimmed.split(/[\s,]+/).filter(Boolean);
+      const chosen = new Set();
+      for (const p of parts) {
+        const num = parseInt(p, 10);
+        if (num >= 1 && num <= ALL_FORMATS.length) {
+          chosen.add(ALL_FORMATS[num - 1].key);
+        } else {
+          // Try matching format key by name
+          const match = ALL_FORMATS.find(f => f.key === p || f.label.toLowerCase() === p);
+          if (match) chosen.add(match.key);
+        }
+      }
+
+      if (chosen.size === 0) {
+        console.log(c.warn('No valid formats selected — using all'));
+        resolve(new Set(ALL_FORMATS.map(f => f.key)));
+        return;
+      }
+
+      const labels = [...chosen].map(k => ALL_FORMATS.find(f => f.key === k)?.label || k);
+      console.log(c.success(`Formats: ${labels.join(', ')}`));
+      resolve(chosen);
+    });
+  });
+}
+
+// ======================== CONFIDENCE PICKER ========================
+
+/**
+ * Interactive confidence-level selector.
+ * Returns null (keep all) or a string like 'high' or 'medium'.
+ *
+ * @returns {Promise<string|null>}
+ */
+async function selectConfidence() {
+  const readline = require('readline');
+
+  const levels = [
+    { key: null,     icon: '🌐', label: 'All',    desc: 'Keep everything — no filtering' },
+    { key: 'low',    icon: '🟡', label: 'Low+',   desc: 'Keep low, medium & high confidence' },
+    { key: 'medium', icon: '🟠', label: 'Medium+', desc: 'Keep medium & high confidence' },
+    { key: 'high',   icon: '🔴', label: 'High',   desc: 'Only high-confidence items' },
+  ];
+
+  console.log('');
+  console.log(`  ${c.bold('🎯 Confidence Filter')}`);
+  console.log(c.dim('  ' + '─'.repeat(50)));
+
+  levels.forEach((l, i) => {
+    const num = c.cyan(`[${i + 1}]`);
+    const marker = i === 0 ? c.green(' ← default') : '';
+    console.log(`    ${num} ${l.icon} ${c.bold(l.label.padEnd(10))} ${c.dim(l.desc)}${marker}`);
+  });
+  console.log('');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => {
+    rl.question('  Confidence filter [1-4] (Enter = keep all): ', answer => {
+      rl.close();
+      const trimmed = (answer || '').trim();
+
+      if (!trimmed) {
+        console.log(c.success('Keeping all confidence levels'));
+        resolve(null);
+        return;
+      }
+
+      const num = parseInt(trimmed, 10);
+      if (num >= 1 && num <= levels.length) {
+        const chosen = levels[num - 1];
+        console.log(c.success(`Confidence filter: ${chosen.label}`));
+        resolve(chosen.key);
+        return;
+      }
+
+      // Try matching by name
+      const lower = trimmed.toLowerCase();
+      const match = levels.find(l => l.key === lower || l.label.toLowerCase() === lower);
+      if (match) {
+        console.log(c.success(`Confidence filter: ${match.label}`));
+        resolve(match.key);
+        return;
+      }
+
+      console.log(c.warn(`Unknown "${trimmed}" — keeping all`));
+      resolve(null);
     });
   });
 }
