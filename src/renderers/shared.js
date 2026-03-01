@@ -54,7 +54,10 @@ function clusterNames(rawNames) {
 
     let merged = false;
     for (const [existNk, c] of normToCluster) {
-      if (existNk.includes(nk) || nk.includes(existNk)) {
+      // Only merge via substring if the shorter name is at least 5 chars
+      // to prevent false merges (e.g. "Ed" matching "Jeddah Dev")
+      const shorter = nk.length < existNk.length ? nk : existNk;
+      if (shorter.length >= 5 && (existNk.includes(nk) || nk.includes(existNk))) {
         c.variants.add(raw);
         normToCluster.set(nk, c);
         if (stripped.length >= c.canonical.length && stripped[0] === stripped[0].toUpperCase()) {
@@ -92,7 +95,8 @@ function resolve(name, clusterMap) {
       if (normalizeKey(v) === nk) return canonical;
     }
     const cnk = normalizeKey(canonical);
-    if (cnk.includes(nk) || nk.includes(cnk)) return canonical;
+    const shorter = nk.length < cnk.length ? nk : cnk;
+    if (shorter.length >= 5 && (cnk.includes(nk) || nk.includes(cnk))) return canonical;
   }
   return stripParens(name).trim() || name;
 }

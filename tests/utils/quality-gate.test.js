@@ -121,8 +121,8 @@ function makeDefaultContext(overrides = {}) {
 describe('quality-gate', () => {
   describe('THRESHOLDS', () => {
     it('exposes correct threshold values', () => {
-      expect(THRESHOLDS.PASS).toBe(45);
-      expect(THRESHOLDS.WARN).toBe(65);
+      expect(THRESHOLDS.FAIL_BELOW).toBe(45);
+      expect(THRESHOLDS.PASS_ABOVE).toBe(65);
       expect(THRESHOLDS.MAX_RETRIES).toBe(1);
     });
   });
@@ -136,7 +136,7 @@ describe('quality-gate', () => {
       const report = assessQuality(makeRichAnalysis(), makeDefaultContext());
 
       expect(report.grade).toBe('PASS');
-      expect(report.score).toBeGreaterThanOrEqual(THRESHOLDS.WARN); // >= 65
+      expect(report.score).toBeGreaterThanOrEqual(THRESHOLDS.PASS_ABOVE); // >= 65
       expect(report.shouldRetry).toBe(false);
       expect(report.retryHints).toHaveLength(0);
       // All dimension keys present
@@ -152,7 +152,7 @@ describe('quality-gate', () => {
       const report = assessQuality({}, makeDefaultContext());
 
       expect(report.grade).toBe('FAIL');
-      expect(report.score).toBeLessThan(THRESHOLDS.PASS);
+      expect(report.score).toBeLessThan(THRESHOLDS.FAIL_BELOW);
       expect(report.shouldRetry).toBe(true);
       expect(report.retryHints.length).toBeGreaterThan(0);
     });
@@ -163,7 +163,7 @@ describe('quality-gate', () => {
       const report = assessQuality(null, makeDefaultContext());
 
       expect(report.grade).toBe('FAIL');
-      expect(report.score).toBeLessThan(THRESHOLDS.PASS);
+      expect(report.score).toBeLessThan(THRESHOLDS.FAIL_BELOW);
       expect(report.shouldRetry).toBe(true);
     });
 

@@ -246,7 +246,7 @@ async function selectModel(GEMINI_MODELS, currentModel) {
   const indexMap = {}; // index → modelId
   for (const id of modelIds) {
     const m = GEMINI_MODELS[id];
-    const tier = tiers[m.tier] || tiers.fast;
+    const tier = tiers[m.tier] || tiers.economy;
     idx++;
     indexMap[idx] = id;
     tier.models.push({ idx, id, ...m });

@@ -39,7 +39,8 @@ function makeCompiled() {
       ],
       decisions_needed: [],
       completed_in_call: [
-        { id: 'YC-1', description: 'Approved design', confidence: 'HIGH' },
+        'Approved design',
+        'Reviewed schema changes',
       ],
     },
     file_references: [
@@ -71,8 +72,8 @@ describe('countItems', () => {
     expect(counts.change_requests).toBe(1);
     expect(counts.blockers).toBe(2);
     expect(counts.scope_changes).toBe(1);
-    expect(counts.your_tasks).toBe(4); // 2 + 1 + 0 + 1
-    expect(counts.total).toBe(13);
+    expect(counts.your_tasks).toBe(5); // 2 + 2 + 0 + 1
+    expect(counts.total).toBe(14);
   });
 
   it('handles empty/missing arrays', () => {
@@ -137,7 +138,9 @@ describe('filterByConfidence', () => {
     expect(result.your_tasks.tasks_todo).toHaveLength(1);
     expect(result.your_tasks.tasks_todo[0].id).toBe('YT-1');
     expect(result.your_tasks.tasks_waiting_on_others).toHaveLength(0);
-    expect(result.your_tasks.completed_in_call).toHaveLength(1);
+    // completed_in_call are plain strings — always preserved regardless of filter
+    expect(result.your_tasks.completed_in_call).toHaveLength(2);
+    expect(result.your_tasks.completed_in_call[0]).toBe('Approved design');
   });
 
   it('preserves summary and file_references', () => {
@@ -156,8 +159,8 @@ describe('filterByConfidence', () => {
     const result = filterByConfidence(makeCompiled(), 'MEDIUM');
     const meta = result._filterMeta;
     expect(meta.minConfidence).toBe('MEDIUM');
-    expect(meta.originalCounts.total).toBe(13);
-    expect(meta.filteredCounts.total).toBeLessThan(13);
+    expect(meta.originalCounts.total).toBe(14);
+    expect(meta.filteredCounts.total).toBeLessThan(14);
     expect(meta.removed).toBe(meta.originalCounts.total - meta.filteredCounts.total);
     expect(meta.removed).toBeGreaterThan(0);
   });

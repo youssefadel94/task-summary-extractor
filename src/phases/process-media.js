@@ -440,7 +440,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
         // === AUTO-RETRY on FAIL ===
         if (qualityReport.shouldRetry && !isShuttingDown()) {
-          console.log(`    ↻ Quality below threshold (${qualityReport.score}/${THRESHOLDS.PASS}) — retrying with enhanced hints...`);
+          console.log(`    ↻ Quality below threshold (${qualityReport.score}/${THRESHOLDS.FAIL_BELOW}) — retrying with enhanced hints...`);
           log.step(`Quality gate FAIL for ${segName} (score: ${qualityReport.score}) — retrying`);
           retried = true;
 

@@ -23,6 +23,13 @@ const { loadHistory, analyzeHistory, printLearningInsights } = require('../utils
 // --- Shared state ---
 const { PKG_ROOT, PROJECT_ROOT, setLog, isShuttingDown, setShuttingDown } = require('./_shared');
 
+/** Parse an integer flag, falling back to `defaultVal` only when the input is absent or NaN. */
+function safeInt(raw, defaultVal) {
+  if (raw === undefined || raw === null || raw === true) return defaultVal;
+  const n = parseInt(raw, 10);
+  return Number.isNaN(n) ? defaultVal : n;
+}
+
 // ======================== PHASE: INIT ========================
 
 /**
@@ -49,12 +56,12 @@ async function phaseInit() {
     reanalyze: !!flags.reanalyze,
     dryRun: !!flags['dry-run'],
     userName: flags.name || null,
-    parallel: parseInt(flags.parallel, 10) || MAX_PARALLEL_UPLOADS,
+    parallel: safeInt(flags.parallel, MAX_PARALLEL_UPLOADS),
     logLevel: flags['log-level'] || LOG_LEVEL,
     outputDir: flags.output || null,
-    thinkingBudget: parseInt(flags['thinking-budget'], 10) || THINKING_BUDGET,
-    compilationThinkingBudget: parseInt(flags['compilation-thinking-budget'], 10) || COMPILATION_THINKING_BUDGET,
-    parallelAnalysis: parseInt(flags['parallel-analysis'], 10) || 2, // concurrent segment analysis
+    thinkingBudget: safeInt(flags['thinking-budget'], THINKING_BUDGET),
+    compilationThinkingBudget: safeInt(flags['compilation-thinking-budget'], COMPILATION_THINKING_BUDGET),
+    parallelAnalysis: safeInt(flags['parallel-analysis'], 2), // concurrent segment analysis
     disableFocusedPass: !!flags['no-focused-pass'],
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],

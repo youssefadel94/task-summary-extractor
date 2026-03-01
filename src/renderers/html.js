@@ -455,10 +455,10 @@ function renderResultsHtml({ compiled, meta }) {
       const comments = t.comments || [];
       if (comments.length > 0) {
         ln('<h4>🗣️ Key Quotes</h4><ul>');
-        for (const c of comments) {
-          const speaker = c.speaker ? resolve(c.speaker, clusterMap) : 'Unknown';
-          const ts = c.timestamp ? `<code>${e(c.timestamp)}</code> ` : '';
-          ln(`<li>${ts}<strong>${e(speaker)}</strong>: "${e(c.text)}"</li>`);
+        for (const cmt of comments) {
+          const speaker = cmt.speaker ? resolve(cmt.speaker, clusterMap) : 'Unknown';
+          const ts = cmt.timestamp ? `<code>${e(cmt.timestamp)}</code> ` : '';
+          ln(`<li>${ts}<strong>${e(speaker)}</strong>: "${e(cmt.text)}"</li>`);
         }
         ln('</ul>');
       }

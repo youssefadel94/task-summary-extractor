@@ -19,10 +19,10 @@ const { c } = require('./colors');
 // ======================== QUALITY THRESHOLDS ========================
 
 const THRESHOLDS = {
-  /** Minimum score to PASS without retry (0-100) */
-  PASS: 45,
-  /** Score range for WARNING — will pass but flag issues (45-65 is typical) */
-  WARN: 65,
+  /** Minimum score to avoid FAIL. Below this → FAIL + retry (0-100) */
+  FAIL_BELOW: 45,
+  /** Minimum score for a clean PASS. Between FAIL_BELOW and PASS_ABOVE → WARN (45-65 is typical) */
+  PASS_ABOVE: 65,
   /** Maximum retries per segment */
   MAX_RETRIES: 1,
 };
@@ -301,9 +301,9 @@ function assessQuality(analysis, context = {}) {
   ];
 
   let grade;
-  if (compositeScore >= THRESHOLDS.WARN) {
+  if (compositeScore >= THRESHOLDS.PASS_ABOVE) {
     grade = 'PASS';
-  } else if (compositeScore >= THRESHOLDS.PASS) {
+  } else if (compositeScore >= THRESHOLDS.FAIL_BELOW) {
     grade = 'WARN';
   } else {
     grade = 'FAIL';

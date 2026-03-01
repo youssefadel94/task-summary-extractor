@@ -103,7 +103,8 @@ function filterByConfidence(compiled, minLevel = 'LOW') {
       tasks_todo: filterArr(compiled.your_tasks.tasks_todo),
       tasks_waiting_on_others: filterArr(compiled.your_tasks.tasks_waiting_on_others),
       decisions_needed: filterArr(compiled.your_tasks.decisions_needed),
-      completed_in_call: filterArr(compiled.your_tasks.completed_in_call),
+      // completed_in_call items are plain strings (no confidence field) — preserve unconditionally
+      completed_in_call: compiled.your_tasks.completed_in_call || [],
     };
   }
 
