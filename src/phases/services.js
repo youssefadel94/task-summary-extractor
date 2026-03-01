@@ -64,7 +64,7 @@ async function phaseServices(ctx) {
       .map(({ absPath, relPath }) => ({
         type: 'inlineText',
         fileName: relPath,
-        content: fs.readFileSync(absPath, 'utf8'),
+        content: fs.readFileSync(absPath, 'utf8').replace(/^\uFEFF/, ''),
       }));
   }
 

@@ -225,7 +225,7 @@
                 "what": "string (precise description of the change)",
                 "how": "string (implementation/execution approach discussed or specified)",
                 "why": "string (business, technical, legal, or strategic reason)",
-                "type": "bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|contract_revision|design_change",
+                "type": "bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|contract_revision|design_change|content_update|documentation",
                 "priority": "low|medium|high|critical",
                 "status": "actionable|pending_decision|blocked|completed",
                 "dependencies": ["string (IDs of other change requests this depends on)"],
@@ -316,7 +316,7 @@
         "blockers": [
             {
                 "id": "string (BLK-1, BLK-2, or matching ID from tracking docs like DB-1, LEGAL-1, INFRA-1)",
-                "type": "database_prerequisite|pending_decision|dba_work|external_dependency|testing|deployment|legal_review|budget_approval|vendor_dependency|regulatory|access_permission|resource_constraint",
+                "type": "database_prerequisite|pending_decision|dba_work|external_dependency|testing|deployment|legal_review|budget_approval|vendor_dependency|regulatory|access_permission|resource_constraint|backend_work",
                 "description": "string",
                 "owner": "string (who needs to resolve this — person, team, department, external party, etc.)",
                 "blocks": ["string (work-item IDs or action items blocked by this)"],

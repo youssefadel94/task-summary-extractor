@@ -234,7 +234,7 @@ function stripHtml(html) {
  */
 async function parseBuiltinText(filePath) {
   try {
-    const content = await fs.promises.readFile(filePath, 'utf8');
+    const content = (await fs.promises.readFile(filePath, 'utf8')).replace(/^\uFEFF/, '');
     return { text: content.trim(), warnings: [] };
   } catch (err) {
     return { text: '', warnings: [`Failed to read file: ${err.message}`] };
@@ -248,7 +248,7 @@ async function parseBuiltinText(filePath) {
  */
 async function parseHtmlFile(filePath) {
   try {
-    const html = await fs.promises.readFile(filePath, 'utf8');
+    const html = (await fs.promises.readFile(filePath, 'utf8')).replace(/^\uFEFF/, '');
     const text = stripHtml(html);
     return { text, warnings: [] };
   } catch (err) {

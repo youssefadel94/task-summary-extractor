@@ -641,7 +641,7 @@ async function runDynamic(initCtx) {
     const ext = path.extname(absPath).toLowerCase();
     try {
       if (INLINE_EXTS.includes(ext)) {
-        let content = fs.readFileSync(absPath, 'utf8');
+        let content = fs.readFileSync(absPath, 'utf8').replace(/^\uFEFF/, '');
         if (content.length > 8000) {
           content = content.slice(0, 8000) + '\n... (truncated)';
         }

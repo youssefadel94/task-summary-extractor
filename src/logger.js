@@ -13,6 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { strip: stripAnsi } = require('./utils/colors');
 
 const LOG_LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 
@@ -85,12 +86,12 @@ class Logger {
 
   _writeDetailed(line) {
     if (this.closed) return;
-    this._detailedBuffer.push(line + '\n');
+    this._detailedBuffer.push(stripAnsi(line) + '\n');
   }
 
   _writeMinimal(line) {
     if (this.closed) return;
-    this._minimalBuffer.push(line + '\n');
+    this._minimalBuffer.push(stripAnsi(line) + '\n');
   }
 
   _writeBoth(line) {
@@ -104,6 +105,8 @@ class Logger {
    */
   _writeStructured(entry) {
     if (this.closed) return;
+    // Strip ANSI from message fields so structured logs are clean
+    if (entry.message) entry.message = stripAnsi(entry.message);
     const enriched = {
       ...entry,
       elapsedMs: this._elapsedMs(),
@@ -117,8 +120,8 @@ class Logger {
 
   _flush(sync = false) {
     const writeFn = sync
-      ? (p, d) => fs.appendFileSync(p, d)
-      : (p, d) => fs.appendFile(p, d, () => {});
+      ? (p, d) => fs.appendFileSync(p, d, 'utf8')
+      : (p, d) => fs.appendFile(p, d, 'utf8', () => {});
 
     if (this._detailedBuffer.length > 0) {
       const data = this._detailedBuffer.join('');

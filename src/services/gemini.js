@@ -61,7 +61,7 @@ async function prepareDocsForGemini(ai, docFileList) {
     try {
       if (INLINE_TEXT_EXTS.includes(ext)) {
         console.log(`    Reading ${name} (inline text)...`);
-        const content = await fs.promises.readFile(docPath, 'utf8');
+        const content = (await fs.promises.readFile(docPath, 'utf8')).replace(/^\uFEFF/, '');
         prepared.push({ type: 'inlineText', fileName: name, content });
         console.log(`    ${c.success(`${name} ready (${(content.length / 1024).toFixed(1)} KB)`)}`);
       } else if (DOC_PARSER_EXTS.includes(ext)) {
@@ -441,6 +441,22 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       } catch (fallbackErr) {
         console.error(`    ${c.error(`File API fallback also failed: ${fallbackErr.message}`)}`);
         throw fallbackErr;
+      }
+    } else if (!usedExternalUrl && errMsg.includes('INVALID_ARGUMENT')) {
+      // File API upload was used but still got INVALID_ARGUMENT — re-upload fresh and retry once
+      console.log(`    ${c.warn('INVALID_ARGUMENT with File API — re-uploading and retrying...')}`);
+      try {
+        file = await uploadViaFileApi();
+        contentParts[0] = { fileData: { mimeType: file.mimeType, fileUri: file.uri } };
+        requestPayload.contents[0].parts = contentParts;
+        response = await withRetry(
+          () => ai.models.generateContent(requestPayload),
+          { label: `Gemini segment analysis — re-upload retry (${displayName})`, maxRetries: 1, baseDelay: 5000 }
+        );
+        console.log(`    ${c.success('Re-upload retry succeeded')}`);
+      } catch (reuploadErr) {
+        console.error(`    ${c.error(`Re-upload retry also failed: ${reuploadErr.message}`)}`);
+        throw reuploadErr;
       }
     } else {
       // Log request diagnostics for other errors to aid debugging
