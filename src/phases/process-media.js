@@ -279,14 +279,14 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
       for (let bIdx = 0; bIdx < batches.length; bIdx++) {
         if (isShuttingDown()) break;
-        const batchIndices = batches[bIdx];
-        const batchSegs = batchIndices.map(i => ({
+        let batchIndices = batches[bIdx];
+        let batchSegs = batchIndices.map(i => ({
           segPath: segmentMeta[i].segPath,
           segName: segmentMeta[i].segName,
           durSec: segmentMeta[i].durSec,
           storageUrl: segmentMeta[i].storageUrl,
         }));
-        const batchTimes = batchIndices.map(i => ({
+        let batchTimes = batchIndices.map(i => ({
           startTimeSec: segmentMeta[i].startTimeSec,
           endTimeSec: segmentMeta[i].endTimeSec,
         }));
@@ -296,60 +296,89 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           : `segs ${batchIndices[0] + 1}–${batchIndices[batchIndices.length - 1] + 1}`;
         console.log(`  ${c.cyan('══')} Batch ${c.highlight(`${bIdx + 1}/${batches.length}`)} (${batchLabel}) ${c.cyan('══')}`);
 
-        // Skip batches where all segments have cached runs and user didn't force re-analyze
+        // Partial-cache support: load cached segments individually, only re-analyze uncached
         if (!forceReanalyze) {
-          const allCached = batchIndices.every(i => {
-            const prefix = `segment_${String(i).padStart(2, '0')}_`;
-            const existing = fs.readdirSync(geminiRunsDir).filter(f => f.startsWith(prefix) && f.endsWith('.json'));
-            return existing.length > 0;
-          });
-          if (allCached) {
-            // Load cached results for all segments in this batch
-            let cacheOk = true;
-            for (const i of batchIndices) {
-              const prefix = `segment_${String(i).padStart(2, '0')}_`;
-              const existing = fs.readdirSync(geminiRunsDir).filter(f => f.startsWith(prefix) && f.endsWith('.json')).sort();
-              const latestFile = existing[existing.length - 1];
-              try {
-                const cached = JSON.parse(fs.readFileSync(path.join(geminiRunsDir, latestFile), 'utf8'));
-                const analysis = normalizeAnalysis(cached.output.parsed || { rawResponse: cached.output.raw });
-                analysis._geminiMeta = {
-                  model: cached.run.model,
-                  processedAt: cached.run.timestamp,
-                  durationMs: cached.run.durationMs,
-                  tokenUsage: cached.run.tokenUsage || null,
-                  runFile: path.relative(PROJECT_ROOT, path.join(geminiRunsDir, latestFile)),
-                  parseSuccess: cached.output.parseSuccess,
-                  skipped: true,
-                };
-                if (cached.run.tokenUsage) {
-                  costTracker.addSegment(segmentMeta[i].segName, cached.run.tokenUsage, cached.run.durationMs, true);
-                }
-                const cachedQuality = assessQuality(analysis, { parseSuccess: cached.output.parseSuccess, rawLength: (cached.output.raw || '').length });
-                segmentReports.push({ segmentName: segmentMeta[i].segName, qualityReport: cachedQuality, retried: false, retryImproved: false });
-                previousAnalyses.push(analysis);
-                segmentAnalyses.push(analysis);
+          const dirFiles = fs.readdirSync(geminiRunsDir).filter(f => f.endsWith('.json'));
+          const cachedSegs = [];
+          const uncachedSegs = [];
 
-                fileResult.segments.push({
-                  segmentFile: segmentMeta[i].segName, segmentIndex: i,
-                  storagePath: segmentMeta[i].storagePath, storageUrl: segmentMeta[i].storageUrl,
-                  duration: fmtDuration(segmentMeta[i].durSec), durationSeconds: segmentMeta[i].durSec,
-                  fileSizeMB: parseFloat(segmentMeta[i].sizeMB),
-                  geminiRunFile: path.relative(PROJECT_ROOT, path.join(geminiRunsDir, latestFile)),
-                  analysis,
-                });
-                console.log(`    ${c.success(`seg ${i + 1}: loaded from cache (${latestFile})`)}`);
-              } catch (err) {
-                console.warn(`    ${c.warn(`seg ${i + 1}: cache corrupt — will re-analyze`)}`);
-                cacheOk = false;
-                break;
+          for (const i of batchIndices) {
+            const prefix = `segment_${String(i).padStart(2, '0')}_`;
+            const segHits = dirFiles.filter(f => f.startsWith(prefix)).sort();
+            if (segHits.length > 0) {
+              cachedSegs.push({ i, file: segHits[segHits.length - 1] });
+            } else {
+              // Also check batch files whose segment range includes this index
+              const batchHits = dirFiles.filter(f => {
+                const m = f.match(/^batch_\d+_segs_(\d+)-(\d+)_/);
+                return m && i >= parseInt(m[1]) && i <= parseInt(m[2]);
+              }).sort();
+              if (batchHits.length > 0) {
+                cachedSegs.push({ i, file: batchHits[batchHits.length - 1], isBatch: true });
+              } else {
+                uncachedSegs.push(i);
               }
             }
-            if (cacheOk) {
-              console.log('');
-              continue; // skip to next batch
+          }
+
+          // Load all cached segments
+          for (const { i, file, isBatch } of cachedSegs) {
+            try {
+              const cached = JSON.parse(fs.readFileSync(path.join(geminiRunsDir, file), 'utf8'));
+              const analysis = normalizeAnalysis(cached.output.parsed || { rawResponse: cached.output.raw });
+              analysis._geminiMeta = {
+                model: cached.run.model,
+                processedAt: cached.run.timestamp,
+                durationMs: cached.run.durationMs,
+                tokenUsage: cached.run.tokenUsage || null,
+                runFile: path.relative(PROJECT_ROOT, path.join(geminiRunsDir, file)),
+                parseSuccess: cached.output.parseSuccess,
+                skipped: true,
+                ...(isBatch ? { batchMode: true } : {}),
+              };
+              if (cached.run.tokenUsage) {
+                costTracker.addSegment(segmentMeta[i].segName, cached.run.tokenUsage, cached.run.durationMs, true);
+              }
+              const cachedQuality = assessQuality(analysis, { parseSuccess: cached.output.parseSuccess, rawLength: (cached.output.raw || '').length });
+              segmentReports.push({ segmentName: segmentMeta[i].segName, qualityReport: cachedQuality, retried: false, retryImproved: false });
+              previousAnalyses.push(analysis);
+              segmentAnalyses.push(analysis);
+
+              fileResult.segments.push({
+                segmentFile: segmentMeta[i].segName, segmentIndex: i,
+                storagePath: segmentMeta[i].storagePath, storageUrl: segmentMeta[i].storageUrl,
+                duration: fmtDuration(segmentMeta[i].durSec), durationSeconds: segmentMeta[i].durSec,
+                fileSizeMB: parseFloat(segmentMeta[i].sizeMB),
+                geminiRunFile: path.relative(PROJECT_ROOT, path.join(geminiRunsDir, file)),
+                analysis,
+              });
+              console.log(`    ${c.success(`seg ${i + 1}: loaded from cache (${file})`)}`);
+            } catch (err) {
+              console.warn(`    ${c.warn(`seg ${i + 1}: cache corrupt — will re-analyze`)}`);
+              uncachedSegs.push(i);
             }
           }
+
+          if (uncachedSegs.length === 0) {
+            console.log('');
+            continue; // All segments in batch cached — skip
+          }
+
+          // Trim batch to only uncached segments
+          uncachedSegs.sort((a, b) => a - b);
+          batchIndices = uncachedSegs;
+          batchSegs = uncachedSegs.map(i => ({
+            segPath: segmentMeta[i].segPath,
+            segName: segmentMeta[i].segName,
+            durSec: segmentMeta[i].durSec,
+            storageUrl: segmentMeta[i].storageUrl,
+          }));
+          batchTimes = uncachedSegs.map(i => ({
+            startTimeSec: segmentMeta[i].startTimeSec,
+            endTimeSec: segmentMeta[i].endTimeSec,
+          }));
+          const uncachedLabel = uncachedSegs.map(i => i + 1).join(', ');
+          console.log(`    ${c.dim(`${cachedSegs.length} cached, ${uncachedSegs.length} to analyze (segs ${uncachedLabel})`)}`);
         }
 
         // Verify all segments in batch
