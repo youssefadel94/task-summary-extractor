@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v9.8.2** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.2.1** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
-  <img src="https://img.shields.io/badge/gemini-2.5--flash-blue" alt="Gemini" />
+  <img src="https://img.shields.io/badge/gemini-2.5%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-9.7.0-brightgreen" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-345%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-10.2.1-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-423%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -211,7 +211,7 @@ Choose what the tool does. Only use one at a time:
 
 | Flag | Mode | What You Get |
 |------|------|-------------|
-| *(none)* | **Content analysis** | `results.md` + `results.html` — structured task document |
+| *(none)* | **Content analysis** | `results.md` + `results.html` + `results.json` + `results.pdf` + `results.docx` — structured task document (all formats by default) |
 | `--dynamic` | **Doc generation** | `INDEX.md` + 3–15 topic documents |
 | `--deep-dive` | **Topic explainers** | `INDEX.md` + per-topic deep-dive docs |
 | `--deep-summary` | **Token-efficient analysis** | Same as content analysis, but context docs pre-summarized (60-80% savings) |
@@ -371,7 +371,7 @@ my-meeting/
     └── requirements.md
 ```
 
-**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.mp3` `.wav` `.ogg` `.m4a` (audio) · `.vtt` `.srt` `.txt` `.md` `.csv` `.pdf` (docs)
+**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.mp3` `.wav` `.ogg` `.m4a` `.flac` `.aac` `.wma` (audio) · `.vtt` `.srt` `.txt` `.md` `.csv` `.pdf` (docs)
 
 The tool **recursively scans all subfolders**. `.tasks/` gets highest priority weighting but everything is included.
 
@@ -470,7 +470,13 @@ GEMINI_API_KEY=your-key-here
 | **HTML Report** | Self-contained HTML report with collapsible sections, filtering, dark mode |
 | **JSON Schema Validation** | Validates AI output against JSON Schema (segment + compiled) |
 | **Confidence Filter** | `--min-confidence` flag to exclude low-confidence items from output |
-| **Deep Summary** | `--deep-summary` pre-summarizes context docs, 60-80% token savings per segment |
+| **Deep Summary** | `--deep-summary` pre-summarizes context docs, 60-80% token savings per segment — auto-splits failed batches and retries |
+| **Deep Summary Batch Recovery** | When a batch returns 0 output (model exhausts thinking budget), splits in half and retries each sub-batch |
+| **Compilation Auto-Retry** | Phase 5 auto-retries with 1.5× thinking budget on parse failure or quality FAIL |
+| **Dynamic Mode Fallback** | If compilation fails in dynamic mode, merges segment analyses directly — prevents silent 0-output |
+| **Interactive Feature Flags** | Run `taskex` → select run mode → checkbox UI to toggle deep-summary, deep-dive, progress tracker, learning loop, diff engine, batch processing |
+| **Run Mode Presets** | Fast, Balanced, Detailed, Custom, or Dynamic — preconfigured flag combinations for common workflows |
+| **File Integrity Probing** | Pre-flight ffprobe check detects corrupt, truncated, or suspicious media files before processing |
 | **Context Window Safety** | Auto-truncation, pre-flight token checks, RESOURCE_EXHAUSTED recovery |
 | **Multi-Format Output** | `--format` flag: Markdown, HTML, JSON, PDF, DOCX, or all formats at once |
 | **Multi-Segment Batching** | Groups consecutive segments into single API calls when context window has headroom — fewer calls, better cross-segment awareness. `--no-batch` to disable |
@@ -568,9 +574,11 @@ task-summary-extractor/
 │       ├── schema-validator.js JSON Schema validation (ajv)
 │       └── ... (15 more utility modules)
 │
-├── tests/                      Test suite — 331 tests across 15 files (vitest)
+├── tests/                      Test suite — 423 tests across 18 files (vitest)
 │   ├── utils/                  Utility module tests
-│   └── renderers/              Renderer tests
+│   ├── modes/                  Mode module tests (deep-summary, focused-reanalysis)
+│   ├── renderers/              Renderer tests
+│   └── logger.test.js          Structured logger tests
 │
 ├── QUICK_START.md              Step-by-step setup guide
 └── ARCHITECTURE.md             Technical deep dive
@@ -585,10 +593,10 @@ task-summary-extractor/
 | Script | What |
 |--------|------|
 | `npm run setup` | First-time setup |
-| `npm run check` | Validate environment |
+| `npm run setup:check` | Validate environment |
 | `npm start` | Run the pipeline |
 | `npm run help` | Show CLI help |
-| `npm test` | Run test suite (345 tests) |
+| `npm test` | Run test suite (423 tests) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage report |
 
@@ -598,6 +606,11 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.2.1** | **Docs & release polish** — README/ARCHITECTURE/QUICK_START fully updated with all v10.x features, test counts, and corrected constants |
+| **v10.2.0** | **Deep summary batch-split retry** — failed batches auto-split in half and retry sub-batches (fixes 0-output on large batches), compilation auto-retry with 1.5× budget, dynamic mode fallback via segment merge, interactive feature flags (checkbox UI for deep-summary/deep-dive/etc.), prompt enum sync (blocker types + ticket types match schemas), 423 tests |
+| **v10.1.0** | **Batch quality-gate retry** — auto-retry failing segment batches, deep summary caching, compact doc UX |
+| **v10.0.1** | **Batch caching fix** — corrected segment batch cache key computation |
+| **v10.0.0** | **Dynamic mode restructure** — HTML parity for dynamic mode output, restructured mode modules |
 | **v9.8.2** | **Windowed interactive picker** — `selectOne()` and `selectMany()` now use viewport scrolling with ↑↓ indicators, prevents garbled display when doc list exceeds terminal height, stable redraw with fixed slot count, 378 tests |
 | **v9.8.1** | `--name` is now optional — warns instead of fatal error, personalized task attribution skipped gracefully when no name provided, all prompts guard empty userName |
 | **v9.8.0** | **Schema hardening & transcript handling** — VTT/SRT auto-excluded from deep-summary (transcripts routed to workflow, not summarizer), `normalizeAnalysis()` fills missing `summary`/`confidence`/`discussed_state` defaults before validation, batch Storage URL→File API auto-retry on `INVALID_ARGUMENT`, focused re-analysis skips sparse segments (≤2 items + low density), 367 tests |

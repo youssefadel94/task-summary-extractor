@@ -109,7 +109,8 @@ The tool **automatically scans all subfolders** for documents. Use whatever stru
 
 **Supported files:**
 - Video: `.mp4`, `.mkv`, `.webm`, `.avi`, `.mov`
-- Docs: `.vtt`, `.srt`, `.txt`, `.md`, `.csv`, `.pdf`
+- Audio: `.mp3`, `.wav`, `.ogg`, `.m4a`, `.flac`, `.aac`, `.wma`
+- Docs: `.vtt`, `.srt`, `.txt`, `.md`, `.csv`, `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`
 
 ---
 
@@ -122,10 +123,13 @@ taskex
 ```
 
 The tool will:
-1. Show available folders — pick one
-2. Ask for your name
-3. Show available Gemini models — pick one (or press Enter for default)
-4. Run the full analysis pipeline
+1. Show a welcome banner
+2. **Select a run mode** — Fast, Balanced, Detailed, Custom, or Dynamic
+3. **Select feature flags** — checkbox UI for deep-summary, deep-dive, progress tracker, etc.
+4. Show available folders — pick one
+5. Ask for your name
+6. Show available Gemini models — pick one (or press Enter for default)
+7. Run the full analysis pipeline
 
 ### Option B: Specify everything upfront
 
@@ -156,7 +160,7 @@ The pipeline will:
 4. **Analyze** each segment with Gemini AI — uses Firebase Storage URL directly when available (skips separate Gemini upload)
 5. **Quality check** — retry weak segments automatically (reuses file reference — no re-upload)
 6. **Compile** results across all segments
-7. **Output** `results.md` + `results.html` + `results.json` (+ `results.pdf` / `results.docx` if requested via `--format`)
+7. **Output** `results.md` + `results.html` + `results.json` + `results.pdf` + `results.docx` (all formats by default — use `--format md` for Markdown only)
 
 > **Tip:** Use `--format html` to get only HTML output, `--format pdf` for PDF, `--format docx` for Word, or `--format all` for Markdown + HTML + JSON + PDF + DOCX. Use `--min-confidence high` to filter out low-confidence items.
 
@@ -240,10 +244,13 @@ my-project/runs/{timestamp}/
 
 | Feature | Flag | Description |
 | --------- | ------ | ------------- |
-| **Deep Summary** | `--deep-summary` | Pre-summarizes context docs — saves 60-80% input tokens per segment |
+| **Deep Summary** | `--deep-summary` | Pre-summarizes context docs — saves 60-80% input tokens per segment. Auto-splits failed batches and retries |
 | **Deep Dive** | `--deep-dive` | Generates explanatory docs for each discussion topic |
 | **Multi-Segment Batching** | enabled by default | When context window has headroom, groups consecutive segments into single API calls — fewer requests, better cross-segment awareness. Use `--no-batch` to disable |
 | **Raw Video Mode** | `--no-compress` | Skip re-encoding — pass video directly to Gemini |
+| **Interactive Feature Flags** | (interactive) | Checkbox UI to toggle deep-summary, deep-dive, progress tracker, learning loop, diff engine, batching |
+| **Run Mode Presets** | (interactive) | Fast, Balanced, Detailed, Custom, or Dynamic — preconfigured flag combinations |
+| **Multi-Format Output** | `--format` | Output all formats by default: MD, HTML, JSON, PDF, DOCX — or pick specific ones with `--format md,html` |
 
 ---
 

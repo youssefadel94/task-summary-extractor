@@ -85,7 +85,7 @@ flowchart TB
         JP["json-parser"]
         AB["adaptive-budget"]
         HD["health-dashboard"]
-        OT["+ 7 more"]
+        OT["+ 14 more"]
     end
 
     subgraph Modes["Modes — AI pipeline phases"]
@@ -94,6 +94,7 @@ flowchart TB
         PU["progress-updater"]
         DD["deep-dive"]
         DM["dynamic-mode"]
+        DS["deep-summary"]
     end
 
     subgraph Renderers["Renderers"]
@@ -123,13 +124,13 @@ flowchart TB
 
 | Phase | Name | What Happens |
 |-------|------|-------------|
-| 1 | **Init** | CLI parsing, interactive folder selection (if no arg), config validation, logger setup, load learning insights, route to dynamic/progress mode |
+| 1 | **Init** | CLI parsing, **run-mode preset selection** (Fast/Balanced/Detailed/Custom/Dynamic), **feature flag picker** (checkbox UI), interactive folder selection, config validation, logger setup, load learning insights, route to dynamic/progress mode |
 | 2 | **Discover** | Find videos/audio, discover documents, resolve user name, check resume state |
 | 3 | **Services** | Firebase auth, Gemini init, prepare document parts |
-| 3.5 | **Deep Summary** | (optional) Pre-summarize context docs with Gemini — 60-80% token savings |
+| 3.5 | **Deep Summary** | (optional) Pre-summarize context docs with Gemini — 60-80% token savings, auto-splits failed batches |
 | 4 | **Process** | Compress → Upload → Analyze → Quality Gate → Retry → Focused Pass |
-| 5 | **Compile** | Cross-segment compilation, diff engine comparison |
-| 6 | **Output** | Write JSON, render Markdown + HTML, upload to Firebase |
+| 5 | **Compile** | Cross-segment compilation, diff engine comparison — **auto-retry with 1.5× budget on failure** |
+| 6 | **Output** | Write JSON, render Markdown + HTML + PDF + DOCX, upload to Firebase |
 | 7 | **Health** | Quality metrics dashboard, cost breakdown |
 | 8 | **Summary** | Save learning history, print run summary |
 | 9 | **Deep Dive** | (optional, `--deep-dive`) Topic discovery + explanatory document generation |
@@ -142,6 +143,8 @@ flowchart TB
 flowchart LR
     subgraph P1["Phase 1: Init"]
         CLI["Parse CLI args"]
+        RM["Select run mode preset"]
+        FF["Feature flag picker"]
         CFG["Validate config"]
         LOG["Init logger"]
         LRN["Load learning history"]
@@ -177,6 +180,8 @@ flowchart LR
         JSON["results.json"]
         MDR["results.md"]
         HTMLR["results.html"]
+        PDFR["results.pdf"]
+        DOCXR["results.docx"]
         FBU["Firebase upload"]
     end
 
@@ -561,7 +566,7 @@ taskex --dynamic --request "Document this microservices architecture"
 |-----------|--------|-------------|
 | `.vtt` `.srt` `.txt` `.md` `.csv` | Inline text | Read and passed directly as text parts |
 | `.pdf` | Gemini File API | Uploaded as binary, Gemini processes natively |
-| `.mp3` `.wav` `.ogg` `.m4a` | Gemini File API | Uploaded as audio, Gemini processes natively |
+| `.mp3` `.wav` `.ogg` `.m4a` `.flac` `.aac` `.wma` | Gemini File API | Uploaded as audio, Gemini processes natively |
 | `.docx` | Doc parser (mammoth) | Converted to plain text, sent as inline text |
 | `.xlsx` `.xls` | Doc parser (xlsx) | Converted to pipe-delimited tables, sent as inline text |
 | `.doc` `.pptx` `.ppt` `.odt` `.odp` `.ods` `.rtf` `.epub` | Doc parser (officeparser) | Converted to plain text, sent as inline text |
@@ -691,8 +696,8 @@ The project includes a comprehensive test suite using [vitest](https://vitest.de
 
 | Metric | Value |
 |--------|-------|
-| Test files | 15 |
-| Total tests | 331 |
+| Test files | 18 |
+| Total tests | 423 |
 | Framework | vitest v4.x |
 | Coverage | `@vitest/coverage-v8` |
 
@@ -700,8 +705,10 @@ The project includes a comprehensive test suite using [vitest](https://vitest.de
 
 | Directory | What's Tested |
 |-----------|---------------|
-| `tests/utils/` | Utility modules: adaptive-budget, cli, confidence-filter, context-manager, diff-engine, format, json-parser, progress-bar, quality-gate, retry, schema-validator |
+| `tests/utils/` | Utility modules: adaptive-budget, cli, confidence-filter, context-manager, diff-engine, file-integrity, format, interactive, json-parser, progress-bar, quality-gate, retry, schema-validator |
+| `tests/modes/` | Mode modules: deep-summary (batch-split retry, batching, summarization), focused-reanalysis |
 | `tests/renderers/` | Renderer modules: html, markdown |
+| `tests/` (root) | Structured logger |
 
 **Commands:**
 
@@ -743,10 +750,55 @@ flowchart TB
 |----------|-------|---------|
 | `BATCH_MAX_CHARS` | 600,000 | Max input chars per summarization batch |
 | `MAX_DOC_CHARS` | 900,000 | Hard cap per-document before truncation |
-| `SUMMARY_MAX_OUTPUT` | 16,384 | Max output tokens per summarization call |
+| `SUMMARY_MAX_OUTPUT` | 65,536 | Max output tokens per summarization call |
 | `MIN_SUMMARIZE_LENGTH` | 500 | Docs below this skip summarization |
 
 Typical savings: 60-80% reduction in per-segment context tokens. The user can exclude specific docs from summarization via `--exclude-docs` or the interactive picker.
+
+### Batch-Split Retry
+
+When a summarization batch returns 0 output (the model exhausts its thinking budget on a large batch), the system automatically:
+
+1. **Detects** the failure — `summarizeBatch()` returns `null` with 0 output tokens
+2. **Splits** the failed batch in half
+3. **Retries** each sub-batch independently
+4. **Collects** any successful summaries from the sub-batches
+
+This handles the common case where a batch with many docs (~13+ docs, ~94K input tokens) overwhelms the model's thinking budget. Single-doc batches that fail are not split — the original doc is kept at full fidelity.
+
+### Compilation Auto-Retry
+
+Phase 5 (Compile) now auto-retries on failure:
+
+1. First attempt uses the standard compilation thinking budget
+2. If the result fails JSON parsing or quality gate returns FAIL:
+   - Retries with **1.5× thinking budget**
+   - Logs the retry attempt and budget increase
+3. If the retry also fails, the pipeline falls back gracefully
+
+### Dynamic Mode Compilation Fallback
+
+When compilation fails in dynamic mode (where segments are document-based rather than time-based):
+
+1. The system detects 0-output compilation
+2. Falls back to `mergeSegmentAnalysesForDynamic()` — directly merges individual segment analyses
+3. Produces usable output instead of silent 0-output runs
+
+### Interactive Feature Flags
+
+When running in interactive mode, after selecting a run mode preset (Fast/Balanced/Detailed/Custom/Dynamic), a checkbox UI lets users toggle:
+
+| Flag | CLI Equivalent | Default |
+|------|---------------|---------|
+| Deep Summary | `--deep-summary` | Off (On in Detailed) |
+| Deep Dive | `--deep-dive` | Off |
+| Dynamic Mode | `--dynamic` | Off |
+| Progress Tracker | `--update-progress` | Off |
+| Disable Focused Pass | `--no-focused-pass` | Off |
+| Disable Learning | `--no-learning` | Off |
+| Disable Diff | `--no-diff` | Off |
+| Disable Batching | `--no-batch` | Off |
+| Disable HTML | `--no-html` | Off |
 
 ---
 

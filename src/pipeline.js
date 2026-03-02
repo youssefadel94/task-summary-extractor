@@ -7,14 +7,19 @@
  * The shared `ctx` (context) object flows through phases. This makes phases
  * independently testable and allows run() to read as a clean sequence of steps.
  *
- * v6 improvements:
+ * v10 improvements:
+ *  - Deep Summary Batch Recovery: auto-split failed batches and retry sub-batches
+ *  - Compilation Auto-Retry: 1.5× budget on parse failure or quality FAIL
+ *  - Dynamic Mode Fallback: merges segment analyses when compilation fails
+ *  - Interactive Feature Flags: checkbox UI for toggling modes and features
+ *  - Run Mode Presets: Fast/Balanced/Detailed/Custom/Dynamic
  *  - Confidence Scoring: every extracted item gets HIGH/MEDIUM/LOW confidence
  *  - Multi-Pass Focused Re-extraction: targeted second pass for weak areas
  *  - Learning Loop: historical analysis to auto-adjust budgets and thresholds
  *  - Diff-Aware Compilation: delta report comparing against previous runs
  *  - Structured Logging: JSONL structured log with phase spans and metrics
  *  - Parallel Segment Analysis: process 2-3 segments concurrently
- *  - All v5 features retained: quality gate, adaptive budget, boundary detection, health dashboard
+ *  - All prior features retained: quality gate, adaptive budget, boundary detection, health dashboard
  */
 
 'use strict';
