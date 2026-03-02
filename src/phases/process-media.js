@@ -450,19 +450,121 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           costTracker.addSegment(`batch_${bIdx}`, batchRun.run.tokenUsage, batchRun.run.durationMs, false);
 
           // Quality gate
-          const qualityReport = assessQuality(analysis, {
+          let qualityReport = assessQuality(analysis, {
             parseSuccess: batchRun.output.parseSuccess,
             rawLength: (batchRun.output.raw || '').length,
           });
           console.log(formatQualityLine(qualityReport, `batch ${bIdx + 1}`));
 
           // Schema validation
-          const schemaReport = validateAnalysis(analysis, 'segment');
+          let schemaReport = validateAnalysis(analysis, 'segment');
           console.log(formatSchemaLine(schemaReport));
+
+          // Merge schema retry hints
+          if (schemaReport.retryHints.length > 0) {
+            qualityReport.retryHints = [...(qualityReport.retryHints || []), ...schemaReport.retryHints];
+          }
+          const sScore = schemaScore(schemaReport);
+          if (sScore < 50 && !qualityReport.shouldRetry) {
+            qualityReport.shouldRetry = true;
+            qualityReport.retryHints = qualityReport.retryHints || [];
+            qualityReport.retryHints.push('Your response had significant schema violations. Follow the output_structure EXACTLY as specified.');
+          }
+
+          // === BATCH AUTO-RETRY on FAIL ===
+          let retried = false;
+          let retryImproved = false;
+          if (qualityReport.shouldRetry && !isShuttingDown()) {
+            console.log(`    \u21bb Quality below threshold (${qualityReport.score}/${THRESHOLDS.FAIL_BELOW}) \u2014 retrying batch with enhanced hints...`);
+            log.step(`Quality gate FAIL for batch ${bIdx} (score: ${qualityReport.score}) \u2014 retrying`);
+            retried = true;
+
+            const retryBudget = Math.min(config.getMaxThinkingBudget(), Math.round((opts.thinkingBudget || 24576) * 1.25));
+            try {
+              let retryRun;
+              try {
+                retryRun = await processSegmentBatch(
+                  ai, batchSegs,
+                  `${callName}_${baseName}_batch${bIdx}_retry`,
+                  contextDocs, previousAnalyses, userName, PKG_ROOT,
+                  {
+                    segmentIndices: batchIndices,
+                    totalSegments: segments.length,
+                    segmentTimes: batchTimes,
+                    thinkingBudget: retryBudget,
+                    noStorageUrl: !!opts.noStorageUrl,
+                    retryHints: qualityReport.retryHints,
+                  }
+                );
+              } catch (retryBatchErr) {
+                const msg = retryBatchErr.message || '';
+                if (!opts.noStorageUrl && msg.includes('INVALID_ARGUMENT') && batchSegs.some(s => s.storageUrl)) {
+                  retryRun = await processSegmentBatch(
+                    ai, batchSegs,
+                    `${callName}_${baseName}_batch${bIdx}_retry`,
+                    contextDocs, previousAnalyses, userName, PKG_ROOT,
+                    {
+                      segmentIndices: batchIndices,
+                      totalSegments: segments.length,
+                      segmentTimes: batchTimes,
+                      thinkingBudget: retryBudget,
+                      noStorageUrl: true,
+                      retryHints: qualityReport.retryHints,
+                    }
+                  );
+                } else {
+                  throw retryBatchErr;
+                }
+              }
+
+              // Save retry run
+              const retryTs = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+              const retryRunFileName = `batch_${bIdx}_segs_${batchIndices[0]}-${batchIndices[batchIndices.length - 1]}_retry_${retryTs}.json`;
+              const retryRunPath = path.join(geminiRunsDir, retryRunFileName);
+              fs.writeFileSync(retryRunPath, JSON.stringify(retryRun, null, 2), 'utf8');
+
+              const retryAnalysis = normalizeAnalysis(retryRun.output.parsed || { rawResponse: retryRun.output.raw });
+              const retryQuality = assessQuality(retryAnalysis, {
+                parseSuccess: retryRun.output.parseSuccess,
+                rawLength: (retryRun.output.raw || '').length,
+              });
+              const retrySchema = validateAnalysis(retryAnalysis, 'segment');
+              console.log(formatSchemaLine(retrySchema));
+
+              costTracker.addSegment(`batch_${bIdx}_retry`, retryRun.run.tokenUsage, retryRun.run.durationMs, false);
+
+              if (retryQuality.score > qualityReport.score) {
+                retryImproved = true;
+                // Replace original with retry result
+                analysis = retryAnalysis;
+                analysis._geminiMeta = {
+                  model: retryRun.run.model,
+                  processedAt: retryRun.run.timestamp,
+                  durationMs: retryRun.run.durationMs,
+                  tokenUsage: retryRun.run.tokenUsage || null,
+                  runFile: path.relative(PROJECT_ROOT, retryRunPath),
+                  parseSuccess: retryRun.output.parseSuccess,
+                  batchMode: true,
+                  segmentIndices: batchIndices,
+                  retryOf: path.relative(PROJECT_ROOT, batchRunPath),
+                };
+                batchRunPath = retryRunPath;
+                qualityReport = retryQuality;
+                schemaReport = retrySchema;
+                console.log(`    ${c.success(`Retry improved quality: ${qualityReport.score} \u2192 ${retryQuality.score}`)}`);
+                console.log(formatQualityLine(retryQuality, `batch ${bIdx + 1}`));
+                log.step(`Batch ${bIdx} retry improved: ${qualityReport.score} \u2192 ${retryQuality.score}`);
+              } else {
+                console.log(`    ${c.warn(`Retry did not improve (${qualityReport.score} \u2192 ${retryQuality.score}), keeping original`)}`);
+              }
+            } catch (retryErr) {
+              console.warn(`    ${c.warn(`Batch retry failed: ${retryErr.message} \u2014 keeping original result`)}`);
+            }
+          }
 
           // Assign batch analysis to each segment in the batch
           for (const i of batchIndices) {
-            segmentReports.push({ segmentName: segmentMeta[i].segName, qualityReport, retried: false, retryImproved: false });
+            segmentReports.push({ segmentName: segmentMeta[i].segName, qualityReport, retried, retryImproved });
             fileResult.segments.push({
               segmentFile: segmentMeta[i].segName, segmentIndex: i,
               storagePath: segmentMeta[i].storagePath, storageUrl: segmentMeta[i].storageUrl,

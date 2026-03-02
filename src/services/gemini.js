@@ -52,31 +52,34 @@ async function initGemini() {
 async function prepareDocsForGemini(ai, docFileList) {
   if (docFileList.length === 0) return [];
 
-  console.log(`  Found ${docFileList.length} document(s) to include as context:`);
-  docFileList.forEach(f => console.log(`    - ${f.relPath}`));
-  console.log('');
+  console.log(`  Preparing ${docFileList.length} context document(s)...`);
 
   const prepared = [];
+  let totalBytes = 0;
+  let inlineRead = 0;
+  let parsed = 0;
+  let fileApiUploaded = 0;
+  const warnings = [];
+
   for (const { absPath: docPath, relPath } of docFileList) {
     const ext = path.extname(docPath).toLowerCase();
     const name = relPath;
 
     try {
       if (INLINE_TEXT_EXTS.includes(ext)) {
-        console.log(`    Reading ${name} (inline text)...`);
         const content = (await fs.promises.readFile(docPath, 'utf8')).replace(/^\uFEFF/, '');
         prepared.push({ type: 'inlineText', fileName: name, content });
-        console.log(`    ${c.success(`${name} ready (${(content.length / 1024).toFixed(1)} KB)`)}`);
+        totalBytes += content.length;
+        inlineRead++;
       } else if (DOC_PARSER_EXTS.includes(ext)) {
-        // Binary document — convert to text via doc-parser
-        console.log(`    Parsing ${name} (${ext} → text)...`);
         const result = await parseDocument(docPath, { silent: true });
         if (result.success && result.text) {
           prepared.push({ type: 'inlineText', fileName: name, content: result.text });
-          console.log(`    ${c.success(`${name} parsed (${(result.text.length / 1024).toFixed(1)} KB text extracted)`)}`);
+          totalBytes += result.text.length;
+          parsed++;
         } else {
           const reason = result.warnings.length > 0 ? result.warnings[0] : 'empty output';
-          console.warn(`    ${c.warn(`${name} — parse failed (${reason}), will upload to Firebase only`)}`);
+          warnings.push(`${name}: parse failed (${reason})`);
         }
       } else if (GEMINI_FILE_API_EXTS.includes(ext)) {
         const mime = MIME_MAP[ext] || 'application/octet-stream';
@@ -88,12 +91,11 @@ async function prepareDocsForGemini(ai, docFileList) {
             const parseResult = await parseDocument(docPath, { silent: true });
             if (parseResult.success && parseResult.text) {
               extractedText = parseResult.text;
-              console.log(`    ${c.dim(`${name} — text extracted (${(extractedText.length / 1024).toFixed(1)} KB) for deep-summary`)}`);
             }
           } catch { /* text extraction is best-effort */ }
         }
 
-        console.log(`    Uploading ${name} to Gemini File API...`);
+        console.log(`    ${c.dim('Uploading')} ${name} ${c.dim('to File API...')}`);
         let file = await withRetry(
           () => ai.files.upload({
             file: docPath,
@@ -106,7 +108,7 @@ async function prepareDocsForGemini(ai, docFileList) {
         const pollStart = Date.now();
         while (file.state === 'PROCESSING') {
           if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-            console.warn(`    ${c.warn(`${name} — file is still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s, skipping (you can increase the wait time with GEMINI_POLL_TIMEOUT_MS in .env)`)}`);
+            warnings.push(`${name}: still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s, skipped`);
             file = null;
             break;
           }
@@ -118,7 +120,7 @@ async function prepareDocsForGemini(ai, docFileList) {
         }
 
         if (!file || file.state === 'FAILED') {
-          console.warn(`    ${c.warn(`${name} — Gemini processing failed, skipping`)}`);
+          warnings.push(`${name}: Gemini processing failed, skipped`);
           continue;
         }
 
@@ -129,26 +131,36 @@ async function prepareDocsForGemini(ai, docFileList) {
           fileUri: file.uri,
           geminiFileName: file.name,
         };
-        // Attach extracted text for deep-summary (if available)
         if (extractedText) {
           fileDoc.content = extractedText;
+          totalBytes += extractedText.length;
         }
         prepared.push(fileDoc);
-        console.log(`    ${c.success(`${name} ready (File API${extractedText ? ' + text' : ''})`)}`);        
+        fileApiUploaded++;
       } else if (GEMINI_UNSUPPORTED.includes(ext)) {
-        console.warn(`    ${c.warn(`${name} — format not supported by Gemini, will upload to Firebase only`)}`);
+        warnings.push(`${name}: unsupported format, Firebase only`);
       } else {
-        console.warn(`    ${c.warn(`${name} — unknown doc type, skipping`)}`);
+        warnings.push(`${name}: unknown type, skipped`);
       }
     } catch (err) {
-      console.warn(`    ${c.warn(`${name} — failed: ${err.message}`)}`);
+      warnings.push(`${name}: ${err.message}`);
     }
   }
 
-  const inlineCount = prepared.filter(d => d.type === 'inlineText').length;
-  const fileCount = prepared.filter(d => d.type === 'fileData').length;
-  console.log(`  ${prepared.length} document(s) prepared (${inlineCount} inline, ${fileCount} File API)`);
-  console.log('');
+  // --- Compact summary ---
+  const sizeMB = (totalBytes / (1024 * 1024)).toFixed(1);
+  const sizeKB = (totalBytes / 1024).toFixed(0);
+  const sizeStr = totalBytes >= 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`;
+  const parts = [];
+  if (inlineRead > 0) parts.push(`${inlineRead} inline`);
+  if (parsed > 0) parts.push(`${parsed} parsed`);
+  if (fileApiUploaded > 0) parts.push(`${fileApiUploaded} File API`);
+  console.log(`  ${c.success(`${prepared.length} doc(s) ready`)} ${c.dim(`(${parts.join(', ')}) — ${sizeStr}`)}`);
+
+  for (const w of warnings) {
+    console.warn(`    ${c.warn(w)}`);
+  }
+
   return prepared;
 }
 
