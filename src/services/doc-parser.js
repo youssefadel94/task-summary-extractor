@@ -25,6 +25,9 @@ const { c } = require('../utils/colors');
  * Order matters: first match wins.
  */
 const PARSER_MAP = {
+  // pdf-parse — PDF text extraction
+  '.pdf': 'pdf',
+
   // mammoth — high-quality DOCX conversion
   '.docx': 'mammoth',
 
@@ -60,6 +63,36 @@ const PARSEABLE_EXTS = Object.keys(PARSER_MAP);
  * Used to update GEMINI_UNSUPPORTED → INLINE_TEXT_EXTS migration.
  */
 const NEWLY_SUPPORTED_EXTS = ['.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub', '.html', '.htm'];
+
+// ======================== PDF (pdf-parse) ========================
+
+/**
+ * Parse a PDF file to plain text using pdf-parse.
+ *
+ * @param {string} filePath - Absolute path to .pdf file
+ * @returns {Promise<{ text: string, warnings: string[] }>}
+ */
+async function parsePdf(filePath) {
+  const { PDFParse } = require('pdf-parse');
+  const warnings = [];
+
+  try {
+    const buffer = await fs.promises.readFile(filePath);
+    const data = new Uint8Array(buffer);
+    const parser = new PDFParse(data);
+    const result = await parser.getText();
+
+    let text = (result.text || '').trim();
+
+    if (!text) {
+      warnings.push('PDF produced no text (may be image-based / scanned)');
+    }
+
+    return { text, warnings };
+  } catch (err) {
+    return { text: '', warnings: [`pdf-parse failed: ${err.message}`] };
+  }
+}
 
 // ======================== MAMMOTH (DOCX) ========================
 
@@ -283,6 +316,9 @@ async function parseDocument(filePath, opts = {}) {
 
   let result;
   switch (parser) {
+    case 'pdf':
+      result = await parsePdf(filePath);
+      break;
     case 'mammoth':
       result = await parseDocx(filePath);
       break;

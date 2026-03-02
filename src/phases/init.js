@@ -102,7 +102,7 @@ async function phaseInit() {
     const mode = await selectRunMode();
     opts.runMode = mode;
 
-    if (mode !== 'custom') {
+    if (mode !== 'custom' && mode !== 'dynamic') {
       // Apply preset overrides from the shared RUN_PRESETS definition
       const { RUN_PRESETS } = require('../utils/cli');
       const presetDef = RUN_PRESETS[mode];
@@ -115,6 +115,9 @@ async function phaseInit() {
         opts.formats = preset.formats;
         opts._modelTier = preset.modelTier; // used later for model auto-selection
       }
+    } else if (mode === 'dynamic') {
+      // Dynamic document generation — set flag, request is prompted in pipeline
+      opts.dynamic = true;
     } else {
       // Custom mode: show interactive pickers for format & confidence
       const chosenFormats = await selectFormats();

@@ -29,7 +29,7 @@
             "properties": {
               "source": { "type": ["string", "null"] },
               "plan_status": { "type": "string" },
-              "checklist_progress": { "type": "string" },
+              "checklist_progress": { "type": ["string", "object"] },
               "sub_tickets": {
                 "type": "array",
                 "items": {
@@ -91,7 +91,7 @@
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "process_change", "policy_update", "design_revision", "content_update"]
+                  "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "design_revision", "content_update"]
                 },
                 "file_path": { "type": ["string", "null"] },
                 "description": { "type": "string" },
@@ -179,7 +179,7 @@
               "source_code", "configuration", "documentation", "database", "enum", "dto",
               "api_endpoint", "ui_component", "script", "diagram", "translation", "stylesheet",
               "contract", "report", "spreadsheet", "presentation", "mockup", "design_asset",
-              "policy", "form", "email", "crm_entry"
+              "policy", "form", "email", "crm_entry", "dashboard", "transcript"
             ]
           },
           "role": {
@@ -214,7 +214,7 @@
           "assigned_to": { "type": "string" },
           "status": {
             "type": "string",
-            "enum": ["todo", "in_progress", "done", "blocked", "deferred"]
+            "enum": ["todo", "in_progress", "done", "blocked", "deferred", "ongoing"]
           },
           "checklist_match": { "type": ["string", "null"] },
           "deadline": { "type": ["string", "null"] },

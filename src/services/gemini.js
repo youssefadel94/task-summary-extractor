@@ -20,7 +20,7 @@ const {
 // Access config.GEMINI_MODEL and config.GEMINI_CONTEXT_WINDOW at call time
 // (not destructured) so runtime model changes via setActiveModel() are visible.
 const { extractJson } = require('../utils/json-parser');
-const { parseDocument } = require('./doc-parser');
+const { parseDocument, canParse } = require('./doc-parser');
 const {
   selectDocsByBudget,
   sliceVttForSegment,
@@ -31,7 +31,7 @@ const {
   estimateDocTokens,
 } = require('../utils/context-manager');
 const { formatHMS } = require('../utils/format');
-const { withRetry } = require('../utils/retry');
+const { withRetry, parallelMap } = require('../utils/retry');
 const { c } = require('../utils/colors');
 
 // ======================== INIT ========================
@@ -79,6 +79,19 @@ async function prepareDocsForGemini(ai, docFileList) {
         }
       } else if (GEMINI_FILE_API_EXTS.includes(ext)) {
         const mime = MIME_MAP[ext] || 'application/octet-stream';
+
+        // Also extract text for deep-summary support (PDF text extraction)
+        let extractedText = null;
+        if (canParse(ext)) {
+          try {
+            const parseResult = await parseDocument(docPath, { silent: true });
+            if (parseResult.success && parseResult.text) {
+              extractedText = parseResult.text;
+              console.log(`    ${c.dim(`${name} — text extracted (${(extractedText.length / 1024).toFixed(1)} KB) for deep-summary`)}`);
+            }
+          } catch { /* text extraction is best-effort */ }
+        }
+
         console.log(`    Uploading ${name} to Gemini File API...`);
         let file = await withRetry(
           () => ai.files.upload({
@@ -108,14 +121,19 @@ async function prepareDocsForGemini(ai, docFileList) {
           continue;
         }
 
-        prepared.push({
+        const fileDoc = {
           type: 'fileData',
           fileName: name,
           mimeType: file.mimeType,
           fileUri: file.uri,
           geminiFileName: file.name,
-        });
-        console.log(`    ${c.success(`${name} ready (File API)`)}`);
+        };
+        // Attach extracted text for deep-summary (if available)
+        if (extractedText) {
+          fileDoc.content = extractedText;
+        }
+        prepared.push(fileDoc);
+        console.log(`    ${c.success(`${name} ready (File API${extractedText ? ' + text' : ''})`)}`);        
       } else if (GEMINI_UNSUPPORTED.includes(ext)) {
         console.warn(`    ${c.warn(`${name} — format not supported by Gemini, will upload to Firebase only`)}`);
       } else {
@@ -531,6 +549,13 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   console.log(`    Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()} | total: ${tokenUsage.totalTokens.toLocaleString()}`);
   console.log(`    Context — used: ${contextUsedPct}% | remaining: ${contextRemaining.toLocaleString()} / ${config.GEMINI_CONTEXT_WINDOW.toLocaleString()} tokens`);
 
+  // Detect output truncation
+  const MAX_OUTPUT_SINGLE = 65536;
+  const outputTruncated = tokenUsage.outputTokens >= Math.floor(MAX_OUTPUT_SINGLE * 0.98);
+  if (outputTruncated) {
+    console.warn(`    ⚠ Output likely truncated — ${tokenUsage.outputTokens.toLocaleString()} tokens used (max: ${MAX_OUTPUT_SINGLE.toLocaleString()}). JSON may be incomplete.`);
+  }
+
   // 7. Parse JSON response
   const parsed = extractJson(rawText);
 
@@ -562,6 +587,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       raw: rawText,
       parsed,
       parseSuccess: parsed !== null,
+      outputTruncated,
     },
   };
 }
@@ -603,46 +629,64 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   const EXTERNAL_URL_MAX_BYTES = 20 * 1024 * 1024;
 
   // ── Upload / reference all video files ─────────────────────────────────────
-  const fileRefs = []; // { uri, mimeType, name, usedExternalUrl }
 
-  for (const seg of batchSegments) {
+  // Helper: upload a single segment to Gemini File API and poll until ready
+  const uploadAndPoll = async (seg) => {
+    console.log(`    ${seg.segName}: uploading to Gemini File API...`);
+    let uploaded = await withRetry(
+      () => ai.files.upload({
+        file: seg.segPath,
+        config: { mimeType: 'video/mp4', displayName: `${displayName}_${seg.segName}` },
+      }),
+      { label: `Gemini upload (${seg.segName})`, maxRetries: 3 }
+    );
+
+    let waited = 0;
+    const pollStart = Date.now();
+    while (uploaded.state === 'PROCESSING') {
+      if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
+        throw new Error(`File "${seg.segName}" still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s`);
+      }
+      process.stdout.write(`    Processing ${seg.segName}${'.'.repeat((waited % 3) + 1)}   \r`);
+      await new Promise(r => setTimeout(r, 5000));
+      waited++;
+      uploaded = await withRetry(
+        () => ai.files.get({ name: uploaded.name }),
+        { label: 'Gemini file status', maxRetries: 2, baseDelay: 1000 }
+      );
+    }
+    if (uploaded.state === 'FAILED') {
+      throw new Error(`Gemini processing failed for ${seg.segName}`);
+    }
+    console.log(`    ${seg.segName}: upload complete`);
+    return { uri: uploaded.uri, mimeType: uploaded.mimeType || 'video/mp4', name: uploaded.name, usedExternalUrl: false };
+  };
+
+  // Separate segments: those using Storage URLs (instant) vs File API uploads (parallel)
+  const segRefs = new Array(batchSegments.length); // preserve order
+  const uploadQueue = [];
+
+  for (let i = 0; i < batchSegments.length; i++) {
+    const seg = batchSegments[i];
     const fileSizeBytes = fs.existsSync(seg.segPath) ? fs.statSync(seg.segPath).size : 0;
 
     if (!noStorageUrl && seg.storageUrl && fileSizeBytes <= EXTERNAL_URL_MAX_BYTES) {
-      fileRefs.push({ uri: seg.storageUrl, mimeType: 'video/mp4', name: null, usedExternalUrl: true });
+      segRefs[i] = { uri: seg.storageUrl, mimeType: 'video/mp4', name: null, usedExternalUrl: true };
       console.log(`    ${seg.segName}: using Storage URL`);
     } else {
-      // Upload via Gemini File API
-      console.log(`    ${seg.segName}: uploading to Gemini File API...`);
-      let uploaded = await withRetry(
-        () => ai.files.upload({
-          file: seg.segPath,
-          config: { mimeType: 'video/mp4', displayName: `${displayName}_${seg.segName}` },
-        }),
-        { label: `Gemini upload (${seg.segName})`, maxRetries: 3 }
-      );
-
-      let waited = 0;
-      const pollStart = Date.now();
-      while (uploaded.state === 'PROCESSING') {
-        if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-          throw new Error(`File "${seg.segName}" still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s`);
-        }
-        process.stdout.write(`    Processing ${seg.segName}${'.'.repeat((waited % 3) + 1)}   \r`);
-        await new Promise(r => setTimeout(r, 5000));
-        waited++;
-        uploaded = await withRetry(
-          () => ai.files.get({ name: uploaded.name }),
-          { label: 'Gemini file status', maxRetries: 2, baseDelay: 1000 }
-        );
-      }
-      if (uploaded.state === 'FAILED') {
-        throw new Error(`Gemini processing failed for ${seg.segName}`);
-      }
-      fileRefs.push({ uri: uploaded.uri, mimeType: uploaded.mimeType || 'video/mp4', name: uploaded.name, usedExternalUrl: false });
-      console.log(`    ${seg.segName}: upload complete`);
+      uploadQueue.push({ index: i, seg });
     }
   }
+
+  // Upload pending segments in parallel (concurrency 3)
+  if (uploadQueue.length > 0) {
+    console.log(`    Uploading ${uploadQueue.length} segment(s) via File API (parallel)...`);
+    await parallelMap(uploadQueue, async ({ index, seg }) => {
+      segRefs[index] = await uploadAndPoll(seg);
+    }, 3);
+  }
+
+  const fileRefs = segRefs;
 
   // ── Build content parts ────────────────────────────────────────────────────
   const contentParts = [];
@@ -744,6 +788,13 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   console.log(`    Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()}`);
   console.log(`    Context — used: ${contextUsedPct}% | remaining: ${contextRemaining.toLocaleString()} tokens`);
 
+  // Detect output truncation — if output tokens hit ≥98% of maxOutputTokens, the response was likely truncated
+  const MAX_OUTPUT = 65536;
+  const outputTruncated = tokenUsage.outputTokens >= Math.floor(MAX_OUTPUT * 0.98);
+  if (outputTruncated) {
+    console.warn(`    ⚠ Output likely truncated — ${tokenUsage.outputTokens.toLocaleString()} tokens used (max: ${MAX_OUTPUT.toLocaleString()}). JSON may be incomplete.`);
+  }
+
   // Parse
   const parsed = extractJson(rawText);
 
@@ -785,6 +836,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
       raw: rawText,
       parsed,
       parseSuccess: parsed !== null,
+      outputTruncated,
     },
     _geminiFileNames: geminiFileNames,
   };

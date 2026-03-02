@@ -546,17 +546,27 @@ function planSegmentBatches(segmentMetas, contextDocs, opts = {}) {
     promptOverhead = 120_000,
     previousAnalysesTokens = 0,
     maxBatchSize = 8,
+    maxOutputTokens = 65536,
+    outputPerSegmentEstimate = 13000,
   } = opts;
 
   // Total doc tokens
   const docTokens = contextDocs.reduce((sum, d) => sum + estimateDocTokens(d), 0);
 
-  // Available tokens for video
+  // Available tokens for video (input budget)
   const available = contextWindow - promptOverhead - docTokens - previousAnalysesTokens;
 
   if (available <= 0) {
     return { batches: segmentMetas.map((_, i) => [i]), batchSize: 1, reason: 'no headroom — 1 segment per call' };
   }
+
+  // Output budget cap: each segment generates ~13K output tokens.
+  // Reserve 10% safety margin to avoid hitting the exact model ceiling.
+  const safeOutputBudget = Math.floor(maxOutputTokens * 0.90);
+  const outputCap = Math.max(1, Math.floor(safeOutputBudget / outputPerSegmentEstimate));
+
+  // Effective max batch size is the minimum of the hard cap and output budget cap
+  const effectiveMaxBatch = Math.min(maxBatchSize, outputCap);
 
   // Greedy batching: pack consecutive segments while they fit
   const batches = [];
@@ -566,7 +576,7 @@ function planSegmentBatches(segmentMetas, contextDocs, opts = {}) {
   for (let i = 0; i < segmentMetas.length; i++) {
     const segTokens = Math.ceil((segmentMetas[i].durSec || 280) * VIDEO_TOKENS_PER_SEC);
 
-    if (batch.length > 0 && (batchTokens + segTokens > available || batch.length >= maxBatchSize)) {
+    if (batch.length > 0 && (batchTokens + segTokens > available || batch.length >= effectiveMaxBatch)) {
       batches.push(batch);
       batch = [];
       batchTokens = 0;
@@ -580,11 +590,18 @@ function planSegmentBatches(segmentMetas, contextDocs, opts = {}) {
   // Effective max batch size across all batches
   const effectiveBatchSize = Math.max(...batches.map(b => b.length));
 
-  const reason = effectiveBatchSize > 1
-    ? `${(available / 1000).toFixed(0)}K tokens available → up to ${effectiveBatchSize} segments/batch`
-    : 'segments too large for batching — 1 per call';
+  const reasonParts = [];
+  if (effectiveBatchSize > 1) {
+    reasonParts.push(`${(available / 1000).toFixed(0)}K input tokens available`);
+    if (outputCap < maxBatchSize) {
+      reasonParts.push(`output budget caps at ${outputCap} segs (${(safeOutputBudget / 1000).toFixed(0)}K safe / ~${(outputPerSegmentEstimate / 1000).toFixed(0)}K per seg)`);
+    }
+    reasonParts.push(`→ up to ${effectiveBatchSize} segments/batch`);
+  } else {
+    reasonParts.push('segments too large for batching — 1 per call');
+  }
 
-  return { batches, batchSize: effectiveBatchSize, reason };
+  return { batches, batchSize: effectiveBatchSize, reason: reasonParts.join(' | ') };
 }
 
 /**

@@ -465,6 +465,12 @@ const RUN_PRESETS = {
     description: 'Choose each setting interactively',
     overrides: {},
   },
+  dynamic: {
+    label: 'Dynamic',
+    icon: '📄',
+    description: 'Generate custom documents from your files — enter a request prompt',
+    overrides: {},
+  },
 };
 
 // Attach RUN_PRESETS to exports (defined after module.exports due to const ordering)
@@ -589,29 +595,47 @@ async function selectConfidence() {
 async function selectDocsToExclude(contextDocs) {
   const { isTranscriptFile } = require('../modes/deep-summary');
 
-  // Only show inlineText docs with actual content, excluding transcript files
-  // (VTT/SRT are auto-excluded from summarization — no need to show them)
+  // Show docs with text content (inlineText + fileData with extracted text),
+  // excluding transcript files (VTT/SRT are auto-excluded from summarization)
   const eligible = contextDocs
-    .filter(d => d.type === 'inlineText' && d.content && d.content.length > 0 && !isTranscriptFile(d.fileName))
+    .filter(d => d.content && d.content.length > 0 && !isTranscriptFile(d.fileName))
     .map(d => ({
       fileName: d.fileName,
       chars: d.content.length,
       tokensEst: Math.ceil(d.content.length * 0.3),
+      isFileApi: d.type === 'fileData',
     }));
 
-  if (eligible.length === 0) return [];
+  // Identify binary-only docs that bypass the picker (no text extracted — can't summarize)
+  const binaryOnlyDocs = contextDocs.filter(d => d.type === 'fileData' && !d.content);
+
+  if (eligible.length === 0) {
+    if (binaryOnlyDocs.length > 0) {
+      console.log('');
+      console.log(`  ${c.dim('ℹ')} ${c.cyan(binaryOnlyDocs.length)} file(s) included at full fidelity (no text extractable):`);
+      binaryOnlyDocs.forEach(d => console.log(`    ${c.dim('-')} ${c.cyan(d.fileName)} ${c.dim(`(${d.mimeType})`)}`));
+      console.log('');
+    }
+    return [];
+  }
 
   console.log('');
+  if (binaryOnlyDocs.length > 0) {
+    console.log(`  ${c.dim('ℹ')} ${c.cyan(binaryOnlyDocs.length)} file(s) included at full fidelity (no text extractable):`);
+    binaryOnlyDocs.forEach(d => console.log(`    ${c.dim('-')} ${c.cyan(d.fileName)} ${c.dim(`(${d.mimeType})`)}`));
+    console.log('');
+  }
   console.log(`  ${c.dim('Deep Summary will create short summaries of your reference documents.')}`);
   console.log(`  ${c.bold('Select documents to keep in FULL')} ${c.dim('(the rest will be condensed).')}`);
   console.log('');
 
   const items = eligible.map(d => {
     const size = d.tokensEst >= 1000
-      ? `~${(d.tokensEst / 1000).toFixed(0)}K words`
-      : `~${d.tokensEst} words`;
+      ? `~${(d.tokensEst / 1000).toFixed(0)}K tokens`
+      : `~${d.tokensEst} tokens`;
+    const tag = d.isFileApi ? ` ${c.dim('(File API)')}` : '';
     return {
-      label: c.bold(d.fileName),
+      label: c.bold(d.fileName) + tag,
       hint: size,
       value: d.fileName,
     };

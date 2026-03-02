@@ -41,8 +41,16 @@ function isTranscriptFile(fileName) {
   return TRANSCRIPT_EXTENSIONS.some(ext => lower.endsWith(ext));
 }
 
-/** Max tokens for a single summarization call output */
-const SUMMARY_MAX_OUTPUT = 16384;
+/**
+ * Max tokens for a single summarization call output.
+ * For Gemini 2.5 models, thinking tokens are deducted from maxOutputTokens,
+ * so this must be large enough to cover both thinking AND the JSON response.
+ * With ~20 docs per batch at 70-80% reduction, the JSON response alone can
+ * be 15-30K tokens. Adding 8K thinking = 23-38K tokens needed minimum.
+ * Setting to 65536 (model max) prevents truncation — the model stops
+ * naturally when done; the limit only prevents premature cutoff.
+ */
+const SUMMARY_MAX_OUTPUT = 65536;
 
 /** Max input chars to send in one summarization batch (~200K tokens @ 0.3 tok/char) */
 const BATCH_MAX_CHARS = 600000;
@@ -139,8 +147,9 @@ async function summarizeBatch(ai, docs, opts = {}) {
     totalBatches = 1,
   } = opts;
 
+  // Include both inlineText and fileData docs that have text content
   const docEntries = docs
-    .filter(d => d.type === 'inlineText' && d.content)
+    .filter(d => d.content && d.content.length > 0)
     .map(d => `=== DOCUMENT: ${d.fileName} ===\n${d.content}`);
 
   if (docEntries.length === 0) return null;
@@ -202,6 +211,12 @@ DOCUMENTS TO SUMMARIZE (${docEntries.length} documents):
 
 ${docEntries.join('\n\n')}`;
 
+  // Cap thinking budget for summarization — this is mechanical compression,
+  // not deep reasoning.  A small budget keeps quality while leaving max room
+  // for the JSON response (thinking tokens are deducted from maxOutputTokens
+  // in Gemini 2.5 models).
+  const summaryThinkingBudget = Math.min(thinkingBudget, 2048);
+
   const requestPayload = {
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: promptText }] }],
@@ -209,7 +224,7 @@ ${docEntries.join('\n\n')}`;
       systemInstruction: 'You are a lossless information compressor specialized in engineering and business documents. Preserve every ID, name, status, assignment, dependency, file path, decision rationale, and actionable detail. Maintain cross-document references (when doc A mentions entity from doc B, keep both sides). Output valid JSON only.',
       maxOutputTokens: SUMMARY_MAX_OUTPUT,
       temperature: 0,
-      thinkingConfig: { thinkingBudget },
+      thinkingConfig: { thinkingBudget: summaryThinkingBudget },
     },
   };
 
@@ -226,7 +241,21 @@ ${docEntries.join('\n\n')}`;
     const rawText = response.text;
     const parsed = extractJson(rawText);
 
-    if (!parsed || !parsed.summaries) return null;
+    if (!parsed || !parsed.summaries) {
+      const len = (rawText || '').length;
+      const preview = (rawText || '').substring(0, 300).replace(/\n/g, ' ');
+      console.warn(`    ${c.warn(`Deep summary batch ${batchIndex + 1}: JSON extraction failed`)}`);
+      console.warn(`    ${c.dim(`Response: ${len} chars | Preview: ${preview}`)}`);
+      if (parsed && !parsed.summaries) {
+        console.warn(`    ${c.dim(`Parsed keys: [${Object.keys(parsed).join(', ')}] — expected "summaries"`)}`);
+      }
+
+      const usage = response.usageMetadata || {};
+      if (usage.promptTokenCount || usage.candidatesTokenCount) {
+        console.warn(`    ${c.dim(`Tokens: in=${usage.promptTokenCount || 0} out=${usage.candidatesTokenCount || 0} think=${usage.thoughtsTokenCount || 0}`)}`);
+      }
+      return null;
+    }
 
     const usage = response.usageMetadata || {};
     const tokenUsage = {
@@ -270,8 +299,8 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   const keepFull = [];
 
   for (const doc of contextDocs) {
-    // Keep non-text docs (fileData = PDF etc.) as-is
-    if (doc.type !== 'inlineText') {
+    // fileData docs WITHOUT extracted text stay as-is (native binary only)
+    if (doc.type !== 'inlineText' && !doc.content) {
       keepFull.push(doc);
       continue;
     }
@@ -318,7 +347,7 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   // NOTE: transcript files (VTT/SRT) are auto-excluded but NOT used as focus
   // topics — they are time-sliced per segment and don't represent "topics".
   const focusTopics = keepFull
-    .filter(d => d.type === 'inlineText' && excludeSet.has(d.fileName.toLowerCase()))
+    .filter(d => d.content && excludeSet.has(d.fileName.toLowerCase()))
     .map(d => d.fileName);
 
   // Count auto-excluded transcript files for logging
@@ -368,7 +397,8 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   const resultDocs = [];
 
   for (const doc of contextDocs) {
-    if (doc.type !== 'inlineText') {
+    // Non-text docs without extracted content stay as-is
+    if (doc.type !== 'inlineText' && !doc.content) {
       resultDocs.push(doc);
       continue;
     }
@@ -395,13 +425,21 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
       originalTokens += origTokens;
       summaryTokens += sumTokens;
 
-      resultDocs.push({
+      // For fileData docs (PDF etc.), convert to inlineText with summary
+      // so segment analysis uses the condensed text instead of the binary
+      const summarizedDoc = {
         ...doc,
+        type: 'inlineText',
         content: `[Deep Summary — original: ~${origTokens.toLocaleString()} tokens → condensed: ~${sumTokens.toLocaleString()} tokens]\n\n${summary}`,
         _originalLength: doc.content.length,
         _summaryLength: summary.length,
         _deepSummarized: true,
-      });
+      };
+      // Remove fileData properties if this was a File API doc
+      delete summarizedDoc.fileUri;
+      delete summarizedDoc.mimeType;
+      delete summarizedDoc.geminiFileName;
+      resultDocs.push(summarizedDoc);
     } else {
       // No summary returned — keep original
       resultDocs.push(doc);

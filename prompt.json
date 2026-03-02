@@ -200,7 +200,7 @@
                 ],
                 "code_changes": [
                     {
-                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|process_change|policy_update|design_revision|content_update)",
+                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|design_revision|content_update)",
                         "file_path": "string (exact path, URL, document name, or artifact identifier — null if unresolvable)",
                         "description": "string",
                         "details": "string",
@@ -241,7 +241,7 @@
             {
                 "file_name": "string (artifact name as mentioned in the content — file, document, report, contract, mockup, dashboard, etc.)",
                 "resolved_path": "string or null (full path, URL, or identifier resolved from context documents; null if unresolvable)",
-                "file_type": "source_code|configuration|documentation|database|enum|dto|api_endpoint|ui_component|script|diagram|translation|stylesheet|contract|report|spreadsheet|presentation|mockup|design_asset|policy|form|email|crm_entry",
+                "file_type": "source_code|configuration|documentation|database|enum|dto|api_endpoint|ui_component|script|diagram|translation|stylesheet|contract|report|spreadsheet|presentation|mockup|design_asset|policy|form|email|crm_entry|dashboard|transcript",
                 "role": "needs_modification|reference_only|source_of_truth|to_be_created|to_be_deleted|to_be_reviewed|already_modified|needs_approval",
                 "mentioned_in_tickets": ["string (work-item IDs)"],
                 "mentioned_in_changes": ["string (change request IDs)"],
@@ -254,7 +254,7 @@
                 "id": "string (AI-1, AI-2, etc.)",
                 "description": "string",
                 "assigned_to": "string",
-                "status": "todo|in_progress|done|blocked|deferred",
+                "status": "todo|in_progress|done|blocked|deferred|ongoing",
                 "checklist_match": "string or null (matching checklist item ID if it exists e.g. '1.2', 'DB-1', 'Q8')",
                 "deadline": "string or null",
                 "depends_on": "string or null (other action item or external dependency)",

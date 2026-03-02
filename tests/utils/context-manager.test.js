@@ -458,6 +458,52 @@ describe('planSegmentBatches', () => {
     const result = planSegmentBatches(metas, docs, { contextWindow: 1_048_576 });
     expect(result.batchSize).toBe(1);
   });
+
+  it('caps batch size based on output token budget', () => {
+    // 8 tiny segments with tons of input headroom — output budget should limit
+    const metas = Array.from({ length: 8 }, () => makeMeta(60)); // small segments
+    const docs = [];
+    // maxOutputTokens = 65536, outputPerSegmentEstimate = 13000
+    // safeOutputBudget = floor(65536 * 0.90) = 58982
+    // outputCap = floor(58982 / 13000) = 4
+    const result = planSegmentBatches(metas, docs, {
+      contextWindow: 1_048_576,
+      maxOutputTokens: 65536,
+      outputPerSegmentEstimate: 13000,
+    });
+    for (const batch of result.batches) {
+      expect(batch.length).toBeLessThanOrEqual(4);
+    }
+    expect(result.reason).toContain('output budget');
+  });
+
+  it('output budget does not apply when segments are few', () => {
+    // Only 3 segments — output budget of 4 does not constrain
+    const metas = [makeMeta(60), makeMeta(60), makeMeta(60)];
+    const docs = [];
+    const result = planSegmentBatches(metas, docs, {
+      contextWindow: 1_048_576,
+      maxOutputTokens: 65536,
+      outputPerSegmentEstimate: 13000,
+    });
+    // All 3 should fit in one batch (outputCap = 4, segments = 3)
+    expect(result.batches).toHaveLength(1);
+    expect(result.batches[0]).toHaveLength(3);
+  });
+
+  it('handles very small output budget gracefully', () => {
+    const metas = [makeMeta(60), makeMeta(60), makeMeta(60)];
+    const docs = [];
+    const result = planSegmentBatches(metas, docs, {
+      contextWindow: 1_048_576,
+      maxOutputTokens: 10000,
+      outputPerSegmentEstimate: 13000,
+    });
+    // safeOutputBudget = 9000, outputCap = max(1, floor(9000/13000)) = 1
+    // But floor gives 0, so max(1, 0) = 1
+    expect(result.batchSize).toBe(1);
+    expect(result.batches).toHaveLength(3);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════

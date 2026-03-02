@@ -29,6 +29,17 @@ function makeFileDataDoc(name) {
   };
 }
 
+function makeHybridDoc(name, contentLength = 2000) {
+  return {
+    type: 'fileData',
+    fileName: name,
+    mimeType: 'application/pdf',
+    fileUri: 'gs://bucket/file.pdf',
+    geminiFileName: 'files/abc123',
+    content: 'y'.repeat(contentLength),
+  };
+}
+
 /** Create a mock AI whose generateContent resolves with a JSON summary */
 function makeMockAi(responseFn) {
   return {
@@ -132,11 +143,26 @@ describe('summarizeBatch', () => {
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('returns null when batch has no inlineText docs', async () => {
+  it('returns null when batch has no docs with content', async () => {
     const ai = makeMockAi();
     const result = await summarizeBatch(ai, [makeFileDataDoc('a.pdf')]);
     expect(result).toBeNull();
     expect(ai.models.generateContent).not.toHaveBeenCalled();
+  });
+
+  it('summarizes hybrid fileData docs that have content', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: { 'report.pdf': 'PDF summary' },
+        metadata: { compressionRatio: 0.4 },
+      }),
+      usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 60, totalTokenCount: 360 },
+    }));
+
+    const result = await summarizeBatch(ai, [makeHybridDoc('report.pdf', 2000)]);
+    expect(result).not.toBeNull();
+    expect(result.summaries['report.pdf']).toBe('PDF summary');
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(1);
   });
 
   it('returns summaries and token usage from a successful call', async () => {
@@ -245,7 +271,7 @@ describe('deepSummarize', () => {
     expect(result.stats.summarized).toBe(1);
   });
 
-  it('keeps fileData docs as-is (not summarizable)', async () => {
+  it('keeps fileData docs without content as-is (binary only)', async () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({
         summaries: { 'normal.md': 'Condensed' },
@@ -264,6 +290,90 @@ describe('deepSummarize', () => {
     const pdfDoc = result.docs.find(d => d.fileName === 'report.pdf');
     expect(pdfDoc.type).toBe('fileData');
     expect(pdfDoc._deepSummarized).toBeUndefined();
+  });
+
+  it('summarizes hybrid fileData docs (PDF with extracted text)', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: { 'report.pdf': 'PDF summary content' },
+        metadata: {},
+      }),
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 },
+    }));
+
+    const docs = [makeHybridDoc('report.pdf', 3000)];
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    const pdfDoc = result.docs.find(d => d.fileName === 'report.pdf');
+    expect(pdfDoc._deepSummarized).toBe(true);
+    expect(pdfDoc.type).toBe('inlineText');
+    expect(pdfDoc.content).toContain('PDF summary content');
+    // fileData properties should be removed after summarization
+    expect(pdfDoc.fileUri).toBeUndefined();
+    expect(pdfDoc.mimeType).toBeUndefined();
+    expect(pdfDoc.geminiFileName).toBeUndefined();
+    expect(result.stats.summarized).toBe(1);
+  });
+
+  it('keeps hybrid fileData docs full when excluded', async () => {
+    const ai = makeMockAi();
+    const docs = [makeHybridDoc('report.pdf', 3000)];
+    const result = await deepSummarize(ai, docs, { excludeFileNames: ['report.pdf'] });
+
+    const pdfDoc = result.docs.find(d => d.fileName === 'report.pdf');
+    expect(pdfDoc.type).toBe('fileData');
+    expect(pdfDoc.content).toBe('y'.repeat(3000));
+    expect(pdfDoc._deepSummarized).toBeUndefined();
+    expect(result.stats.keptFull).toBe(1);
+  });
+
+  it('includes hybrid docs in summarization batch alongside inlineText', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: {
+          'report.pdf': 'PDF condensed',
+          'notes.md': 'MD condensed',
+        },
+        metadata: {},
+      }),
+      usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 80, totalTokenCount: 280 },
+    }));
+
+    const docs = [
+      makeHybridDoc('report.pdf', 2000),
+      makeDoc('notes.md', 2000),
+    ];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    expect(result.stats.summarized).toBe(2);
+    const pdfDoc = result.docs.find(d => d.fileName === 'report.pdf');
+    expect(pdfDoc._deepSummarized).toBe(true);
+    expect(pdfDoc.type).toBe('inlineText');
+
+    const mdDoc = result.docs.find(d => d.fileName === 'notes.md');
+    expect(mdDoc._deepSummarized).toBe(true);
+  });
+
+  it('uses excluded hybrid fileData docs as focus topics', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'other.md': 'Summary' }, metadata: {} }),
+      usageMetadata: {},
+    }));
+
+    const docs = [
+      makeHybridDoc('report.pdf', 3000),
+      makeDoc('other.md', 2000),
+    ];
+
+    await deepSummarize(ai, docs, {
+      excludeFileNames: ['report.pdf'],
+    });
+
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(1);
+    const prompt = ai.models.generateContent.mock.calls[0][0].contents[0].parts[0].text;
+    expect(prompt).toContain('report.pdf');
+    expect(prompt).toContain('FOCUS AREAS');
   });
 
   it('handles AI failure gracefully, returning original content', async () => {
