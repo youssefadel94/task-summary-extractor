@@ -116,8 +116,16 @@ async function phaseInit() {
         opts._modelTier = preset.modelTier; // used later for model auto-selection
       }
     } else if (mode === 'dynamic') {
-      // Dynamic document generation — set flag, request is prompted in pipeline
+      // Dynamic document generation — set flag + apply preset overrides
       opts.dynamic = true;
+      const { RUN_PRESETS } = require('../utils/cli');
+      const dPreset = RUN_PRESETS.dynamic?.overrides;
+      if (dPreset) {
+        opts.disableFocusedPass = dPreset.disableFocusedPass;
+        opts.format = dPreset.format;
+        opts.formats = dPreset.formats;
+        opts._modelTier = dPreset.modelTier;
+      }
     } else {
       // Custom mode: show interactive pickers for format & confidence
       const chosenFormats = await selectFormats();
@@ -130,9 +138,13 @@ async function phaseInit() {
       }
     }
 
-    // --- Feature flag toggle (all interactive modes) ---
-    const flagOverrides = await selectFeatureFlags(opts);
-    Object.assign(opts, flagOverrides);
+    // --- Feature flag toggle (Custom & Dynamic modes only) ---
+    // For preset modes (fast/balanced/detailed), the preset defines all quality/output flags
+    // so showing the picker would be confusing and allow contradictory overrides.
+    if (mode === 'custom' || mode === 'dynamic') {
+      const flagOverrides = await selectFeatureFlags(opts, mode);
+      Object.assign(opts, flagOverrides);
+    }
   }
 
   // --- Validate video processing flags ---

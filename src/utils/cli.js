@@ -469,7 +469,12 @@ const RUN_PRESETS = {
     label: 'Dynamic',
     icon: '📄',
     description: 'Generate custom documents from your files — enter a request prompt',
-    overrides: {},
+    overrides: {
+      disableFocusedPass: true, // no segments to re-analyze for dynamic
+      format: 'md,json',
+      formats: new Set(['md', 'json']),
+      modelTier: 'balanced',
+    },
   },
 };
 
@@ -667,6 +672,7 @@ const FEATURE_FLAGS = [
     desc: 'Pre-summarize context docs to save tokens per segment',
     category: 'enhance',
     default: false,
+    applicableModes: ['custom', 'dynamic'],
   },
   {
     key: 'deepDive',
@@ -676,24 +682,7 @@ const FEATURE_FLAGS = [
     desc: 'Generate explanatory documents from compiled results',
     category: 'enhance',
     default: false,
-  },
-  {
-    key: 'dynamic',
-    flag: '--dynamic',
-    icon: '📄',
-    label: 'Dynamic Mode',
-    desc: 'AI-generated custom documents from your request prompt',
-    category: 'enhance',
-    default: false,
-  },
-  {
-    key: 'updateProgress',
-    flag: '--update-progress',
-    icon: '📊',
-    label: 'Progress Tracker',
-    desc: 'Track action item completion via git changes',
-    category: 'enhance',
-    default: false,
+    applicableModes: ['custom'], // dynamic generates its own docs
   },
   {
     key: 'disableFocusedPass',
@@ -704,6 +693,7 @@ const FEATURE_FLAGS = [
     category: 'quality',
     default: true, // enabled by default — toggle OFF to disable
     inverted: true,  // UI shows "enabled" when opts value is false
+    applicableModes: ['custom'], // dynamic has no segments to re-analyze
   },
   {
     key: 'disableLearning',
@@ -714,6 +704,7 @@ const FEATURE_FLAGS = [
     category: 'quality',
     default: true,
     inverted: true,
+    applicableModes: ['custom', 'dynamic'],
   },
   {
     key: 'disableDiff',
@@ -724,6 +715,7 @@ const FEATURE_FLAGS = [
     category: 'quality',
     default: true,
     inverted: true,
+    applicableModes: ['custom', 'dynamic'],
   },
   {
     key: 'noBatch',
@@ -734,43 +726,40 @@ const FEATURE_FLAGS = [
     category: 'processing',
     default: true,
     inverted: true,
-  },
-  {
-    key: 'noHtml',
-    flag: '--no-html',
-    icon: '🌐',
-    label: 'HTML Output',
-    desc: 'Generate styled HTML report alongside other formats',
-    category: 'output',
-    default: true,
-    inverted: true,
+    applicableModes: ['custom'], // dynamic has no video segments to batch
   },
 ];
 
 /**
  * Interactive feature flags selector — multi-select toggle for optional features.
- * Shows all feature flags with their current state and lets user toggle on/off.
+ * Filters flags to only show options applicable to the current run mode.
  *
  * @param {object} currentOpts - Current options (to show existing state)
+ * @param {string} runMode - The selected run mode ('custom' | 'dynamic')
  * @returns {Promise<object>} Object with flag keys and their boolean values
  */
-async function selectFeatureFlags(currentOpts = {}) {
+async function selectFeatureFlags(currentOpts = {}, runMode = 'custom') {
+  // Filter to flags applicable for this run mode
+  const applicableFlags = FEATURE_FLAGS.filter(
+    f => f.applicableModes.includes(runMode)
+  );
+
+  if (applicableFlags.length === 0) return {};
+
   console.log('');
   console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
   console.log(c.heading('  │                     ⚙️   Feature Flags                                       │'));
   console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
 
   // Group flags by category for visual separation
-  const enhanceFlags = FEATURE_FLAGS.filter(f => f.category === 'enhance');
-  const qualityFlags = FEATURE_FLAGS.filter(f => f.category === 'quality');
-  const processingFlags = FEATURE_FLAGS.filter(f => f.category === 'processing');
-  const outputFlags = FEATURE_FLAGS.filter(f => f.category === 'output');
+  const enhanceFlags = applicableFlags.filter(f => f.category === 'enhance');
+  const qualityFlags = applicableFlags.filter(f => f.category === 'quality');
+  const processingFlags = applicableFlags.filter(f => f.category === 'processing');
 
   const orderedFlags = [
     ...enhanceFlags,
     ...qualityFlags,
     ...processingFlags,
-    ...outputFlags,
   ];
 
   const items = orderedFlags.map(f => ({

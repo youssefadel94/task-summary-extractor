@@ -46,11 +46,11 @@ async function planTopics(ai, userRequest, docSnippets, options = {}) {
 
   // Build video context section
   const videoSection = videoSummaries.length > 0
-    ? `\n\nVIDEO CONTENT ANALYZED (${videoSummaries.length} segment${videoSummaries.length > 1 ? 's' : ''}):\n` +
+    ? `\n\nSOURCE CONTENT ANALYZED (${videoSummaries.length} segment${videoSummaries.length > 1 ? 's' : ''}):\n` +
       videoSummaries.map((vs, i) => {
         const label = vs.totalSegments > 1
-          ? `--- Video: ${vs.videoFile} — Segment ${vs.segmentIndex + 1}/${vs.totalSegments} ---`
-          : `--- Video: ${vs.videoFile} ---`;
+          ? `--- Source: ${vs.videoFile} — Segment ${vs.segmentIndex + 1}/${vs.totalSegments} ---`
+          : `--- Source: ${vs.videoFile} ---`;
         return `${label}\n${vs.summary}`;
       }).join('\n\n')
     : '';
@@ -356,21 +356,6 @@ function writeDynamicOutput(outputDir, documents, meta = {}) {
     doc._fileName = fileName;
   }
 
-  // Build index
-  const indexLines = [
-    `# ${meta.projectSummary || meta.userRequest || 'Generated Documents'}`,
-    '',
-    `> Generated from: **${meta.folderName || 'project'}**`,
-    `> Request: *"${meta.userRequest || ''}"*`,
-    `> Date: ${meta.timestamp || new Date().toISOString()}`,
-    `> Documents: ${successful.length}`,
-    '',
-    '---',
-    '',
-    '## Document Index',
-    '',
-  ];
-
   // Group by category
   const categories = {};
   for (const doc of successful) {
@@ -392,6 +377,25 @@ function writeDynamicOutput(outputDir, documents, meta = {}) {
     'report': 'Reports & Findings',
   };
 
+  // Stats
+  const totalTokens = documents.reduce((s, d) => s + (d.tokenUsage?.totalTokens || 0), 0);
+  const totalDuration = documents.reduce((s, d) => s + (d.durationMs || 0), 0);
+
+  // Build index
+  const indexLines = [
+    `# ${meta.projectSummary || meta.userRequest || 'Generated Documents'}`,
+    '',
+    `> Generated from: **${meta.folderName || 'project'}**`,
+    `> Request: *"${meta.userRequest || ''}"*`,
+    `> Date: ${meta.timestamp || new Date().toISOString()}`,
+    `> Documents: ${successful.length}`,
+    '',
+    '---',
+    '',
+    '## Document Index',
+    '',
+  ];
+
   for (const [cat, docs] of Object.entries(categories)) {
     indexLines.push(`### ${categoryLabels[cat] || cat}`);
     indexLines.push('');
@@ -402,10 +406,6 @@ function writeDynamicOutput(outputDir, documents, meta = {}) {
     }
     indexLines.push('');
   }
-
-  // Stats
-  const totalTokens = documents.reduce((s, d) => s + (d.tokenUsage?.totalTokens || 0), 0);
-  const totalDuration = documents.reduce((s, d) => s + (d.durationMs || 0), 0);
 
   indexLines.push('---');
   indexLines.push('');
@@ -687,7 +687,7 @@ function compiledToVideoSummaries(compiled) {
   const text = compiledToContext(compiled);
   if (!text) return [];
   return [{
-    videoFile: 'Compiled Analysis',
+    videoFile: 'Source Analysis',
     segment: 'all',
     segmentIndex: 0,
     totalSegments: 1,

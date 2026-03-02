@@ -81,6 +81,14 @@ async function run() {
   // --- Dynamic mode: collect user request + name early, before pipeline ---
   if (initCtx.opts.dynamic) {
     if (!initCtx.opts.request) {
+      if (!process.stdin.isTTY) {
+        console.error(`\n  ${c.error('A request is required for dynamic mode in non-interactive mode.')}`);
+        console.error(`    ${c.dim('Use --request "your request" on the command line.')}`);
+        bar.finish();
+        initCtx.progress.cleanup();
+        log.close();
+        return;
+      }
       initCtx.opts.request = await promptUserText(
         '  What do you want to generate?\n' +
         '  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n\n  → '
@@ -649,7 +657,12 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
   const userRequest = opts.request;
-  if (!userRequest || !userRequest.trim()) return; // No request → skip
+  if (!userRequest || !userRequest.trim()) {
+    console.log(`\n  ${c.warn('⚠  Dynamic mode skipped — no request text provided.')}`);
+    console.log(`    ${c.dim('Use --request "your request" or select Dynamic mode interactively.')}`);
+    log.warn('Dynamic mode skipped: empty request');
+    return;
+  }
 
   console.log('');
   console.log(c.cyan('══════════════════════════════════════════════'));
