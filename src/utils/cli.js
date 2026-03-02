@@ -672,7 +672,6 @@ const FEATURE_FLAGS = [
     desc: 'Pre-summarize context docs to save tokens per segment',
     category: 'enhance',
     default: false,
-    applicableModes: ['custom', 'dynamic'],
   },
   {
     key: 'deepDive',
@@ -682,7 +681,6 @@ const FEATURE_FLAGS = [
     desc: 'Generate explanatory documents from compiled results',
     category: 'enhance',
     default: false,
-    applicableModes: ['custom'], // dynamic generates its own docs
   },
   {
     key: 'disableFocusedPass',
@@ -693,7 +691,6 @@ const FEATURE_FLAGS = [
     category: 'quality',
     default: true, // enabled by default — toggle OFF to disable
     inverted: true,  // UI shows "enabled" when opts value is false
-    applicableModes: ['custom'], // dynamic has no segments to re-analyze
   },
   {
     key: 'disableLearning',
@@ -704,7 +701,6 @@ const FEATURE_FLAGS = [
     category: 'quality',
     default: true,
     inverted: true,
-    applicableModes: ['custom', 'dynamic'],
   },
   {
     key: 'disableDiff',
@@ -715,7 +711,6 @@ const FEATURE_FLAGS = [
     category: 'quality',
     default: true,
     inverted: true,
-    applicableModes: ['custom', 'dynamic'],
   },
   {
     key: 'noBatch',
@@ -726,25 +721,17 @@ const FEATURE_FLAGS = [
     category: 'processing',
     default: true,
     inverted: true,
-    applicableModes: ['custom'], // dynamic has no video segments to batch
   },
 ];
 
 /**
  * Interactive feature flags selector — multi-select toggle for optional features.
- * Filters flags to only show options applicable to the current run mode.
+ * Shows the same flags for both Custom and Dynamic modes.
  *
  * @param {object} currentOpts - Current options (to show existing state)
- * @param {string} runMode - The selected run mode ('custom' | 'dynamic')
  * @returns {Promise<object>} Object with flag keys and their boolean values
  */
-async function selectFeatureFlags(currentOpts = {}, runMode = 'custom') {
-  // Filter to flags applicable for this run mode
-  const applicableFlags = FEATURE_FLAGS.filter(
-    f => f.applicableModes.includes(runMode)
-  );
-
-  if (applicableFlags.length === 0) return {};
+async function selectFeatureFlags(currentOpts = {}) {
 
   console.log('');
   console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
@@ -752,9 +739,9 @@ async function selectFeatureFlags(currentOpts = {}, runMode = 'custom') {
   console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
 
   // Group flags by category for visual separation
-  const enhanceFlags = applicableFlags.filter(f => f.category === 'enhance');
-  const qualityFlags = applicableFlags.filter(f => f.category === 'quality');
-  const processingFlags = applicableFlags.filter(f => f.category === 'processing');
+  const enhanceFlags = FEATURE_FLAGS.filter(f => f.category === 'enhance');
+  const qualityFlags = FEATURE_FLAGS.filter(f => f.category === 'quality');
+  const processingFlags = FEATURE_FLAGS.filter(f => f.category === 'processing');
 
   const orderedFlags = [
     ...enhanceFlags,

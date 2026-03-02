@@ -142,7 +142,7 @@ async function phaseInit() {
     // For preset modes (fast/balanced/detailed), the preset defines all quality/output flags
     // so showing the picker would be confusing and allow contradictory overrides.
     if (mode === 'custom' || mode === 'dynamic') {
-      const flagOverrides = await selectFeatureFlags(opts, mode);
+      const flagOverrides = await selectFeatureFlags(opts);
       Object.assign(opts, flagOverrides);
     }
   }
