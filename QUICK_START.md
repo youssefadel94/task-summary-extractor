@@ -248,7 +248,7 @@ my-project/runs/{timestamp}/
 | **Deep Dive** | `--deep-dive` | Generates explanatory docs for each discussion topic |
 | **Multi-Segment Batching** | enabled by default | When context window has headroom, groups consecutive segments into single API calls — fewer requests, better cross-segment awareness. Use `--no-batch` to disable |
 | **Raw Video Mode** | `--no-compress` | Skip re-encoding — pass video directly to Gemini |
-| **Interactive Feature Flags** | (interactive) | Checkbox UI to toggle deep-summary, deep-dive, progress tracker, learning loop, diff engine, batching |
+| **Interactive Feature Flags** | (interactive) | Checkbox UI to toggle deep-summary, deep-dive, focused pass, learning loop, diff engine, batching |
 | **Run Mode Presets** | (interactive) | Fast, Balanced, Detailed, Custom, or Dynamic — preconfigured flag combinations |
 | **Multi-Format Output** | `--format` | Output all formats by default: MD, HTML, JSON, PDF, DOCX — or pick specific ones with `--format md,html` |
 

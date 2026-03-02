@@ -786,19 +786,18 @@ When compilation fails in dynamic mode (where segments are document-based rather
 
 ### Interactive Feature Flags
 
-When running in interactive mode, after selecting a run mode preset (Fast/Balanced/Detailed/Custom/Dynamic), a checkbox UI lets users toggle:
+When running in interactive mode with Custom or Dynamic run modes, a checkbox UI lets users toggle:
 
 | Flag | CLI Equivalent | Default |
 |------|---------------|---------|
 | Deep Summary | `--deep-summary` | Off (On in Detailed) |
 | Deep Dive | `--deep-dive` | Off |
-| Dynamic Mode | `--dynamic` | Off |
-| Progress Tracker | `--update-progress` | Off |
 | Disable Focused Pass | `--no-focused-pass` | Off |
 | Disable Learning | `--no-learning` | Off |
 | Disable Diff | `--no-diff` | Off |
 | Disable Batching | `--no-batch` | Off |
-| Disable HTML | `--no-html` | Off |
+
+Preset modes (Fast/Balanced/Detailed) skip the feature flag picker entirely — their flags are preconfigured.
 
 ---
 

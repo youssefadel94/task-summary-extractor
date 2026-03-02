@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v10.2.1** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.2.3** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-10.2.1-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-10.2.3-brightgreen" alt="Version" />
   <img src="https://img.shields.io/badge/tests-423%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
@@ -474,7 +474,7 @@ GEMINI_API_KEY=your-key-here
 | **Deep Summary Batch Recovery** | When a batch returns 0 output (model exhausts thinking budget), splits in half and retries each sub-batch |
 | **Compilation Auto-Retry** | Phase 5 auto-retries with 1.5× thinking budget on parse failure or quality FAIL |
 | **Dynamic Mode Fallback** | If compilation fails in dynamic mode, merges segment analyses directly — prevents silent 0-output |
-| **Interactive Feature Flags** | Run `taskex` → select run mode → checkbox UI to toggle deep-summary, deep-dive, progress tracker, learning loop, diff engine, batch processing |
+| **Interactive Feature Flags** | Run `taskex` → select Custom or Dynamic mode → checkbox UI to toggle deep-summary, deep-dive, focused pass, learning loop, diff engine, batch processing |
 | **Run Mode Presets** | Fast, Balanced, Detailed, Custom, or Dynamic — preconfigured flag combinations for common workflows |
 | **File Integrity Probing** | Pre-flight ffprobe check detects corrupt, truncated, or suspicious media files before processing |
 | **Context Window Safety** | Auto-truncation, pre-flight token checks, RESOURCE_EXHAUSTED recovery |
@@ -606,6 +606,8 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.2.3** | **Unified feature flags** — Custom and Dynamic modes show the same 6 feature flags, removed mode-specific filtering |
+| **v10.2.2** | **CLI flow fixes** — removed Dynamic Mode, Progress Tracker, HTML Output from feature flags (they are mode/format choices), dynamic preset defaults, non-TTY guard, source label fix |
 | **v10.2.1** | **Docs & release polish** — README/ARCHITECTURE/QUICK_START fully updated with all v10.x features, test counts, and corrected constants |
 | **v10.2.0** | **Deep summary batch-split retry** — failed batches auto-split in half and retry sub-batches (fixes 0-output on large batches), compilation auto-retry with 1.5× budget, dynamic mode fallback via segment merge, interactive feature flags (checkbox UI for deep-summary/deep-dive/etc.), prompt enum sync (blocker types + ticket types match schemas), 423 tests |
 | **v10.1.0** | **Batch quality-gate retry** — auto-retry failing segment batches, deep summary caching, compact doc UX |
