@@ -300,9 +300,9 @@ describe('normalizeAnalysis', () => {
   });
 
   it('does not overwrite existing arrays', () => {
-    const data = { tickets: [{ id: '1' }], summary: 'Test' };
+    const data = { tickets: [{ id: '1', confidence: 'HIGH', discussed_state: { summary: 'ok' } }], summary: 'Test' };
     const result = normalizeAnalysis(data);
-    expect(result.tickets).toEqual([{ id: '1' }]);
+    expect(result.tickets).toEqual([{ id: '1', confidence: 'HIGH', discussed_state: { summary: 'ok' } }]);
     expect(result.action_items).toEqual([]);
   });
 
@@ -323,5 +323,60 @@ describe('normalizeAnalysis', () => {
     const result = normalizeAnalysis(data);
     expect(result).toBe(data);
     expect(data.tickets).toEqual([]);
+  });
+
+  it('fills missing summary from segment_summary or overview', () => {
+    const data1 = { segment_summary: 'From segment' };
+    normalizeAnalysis(data1);
+    expect(data1.summary).toBe('From segment');
+
+    const data2 = { overview: 'From overview' };
+    normalizeAnalysis(data2);
+    expect(data2.summary).toBe('From overview');
+
+    const data3 = {};
+    normalizeAnalysis(data3);
+    expect(data3.summary).toBe('');
+  });
+
+  it('does not overwrite existing summary', () => {
+    const data = { summary: 'Existing' };
+    normalizeAnalysis(data);
+    expect(data.summary).toBe('Existing');
+  });
+
+  it('patches ticket items missing confidence with MEDIUM', () => {
+    const data = {
+      summary: 'Test',
+      tickets: [
+        { ticket_id: 'T-1', title: 'A', status: 'open', discussed_state: { summary: 'x' } },
+        { ticket_id: 'T-2', title: 'B', status: 'open', discussed_state: { summary: 'y' }, confidence: 'HIGH' },
+      ],
+    };
+    normalizeAnalysis(data);
+    expect(data.tickets[0].confidence).toBe('MEDIUM');
+    expect(data.tickets[1].confidence).toBe('HIGH'); // not overwritten
+  });
+
+  it('patches ticket items missing discussed_state', () => {
+    const data = {
+      summary: 'Test',
+      tickets: [{ ticket_id: 'T-1', title: 'A', status: 'open', confidence: 'LOW' }],
+    };
+    normalizeAnalysis(data);
+    expect(data.tickets[0].discussed_state).toEqual({ summary: '' });
+  });
+
+  it('patches action_items missing confidence', () => {
+    const data = {
+      summary: 'Test',
+      action_items: [
+        { id: 'AI-1', description: 'Do X' },
+        { id: 'AI-2', description: 'Do Y', confidence: 'HIGH' },
+      ],
+    };
+    normalizeAnalysis(data);
+    expect(data.action_items[0].confidence).toBe('MEDIUM');
+    expect(data.action_items[1].confidence).toBe('HIGH');
   });
 });

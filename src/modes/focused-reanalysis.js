@@ -136,9 +136,24 @@ function identifyWeaknesses(qualityReport, analysis) {
     );
   }
 
+  // ── Skip focused pass for simple / sparse segments ──────────────────────
+  // When the analysis has very few extracted items AND the density dimension
+  // is low, the segment is likely simple (chit-chat, small-talk, intro) or
+  // the AI legitimately had nothing to extract. A focused pass won't help.
+  const totalItems = [
+    ...(analysis.tickets || []),
+    ...(analysis.action_items || []),
+    ...(analysis.change_requests || []),
+    ...(analysis.blockers || []),
+    ...(analysis.scope_changes || []),
+  ].length;
+
+  const isSparseSegment = totalItems <= 2 && dims.density && dims.density.score < 30;
+
   const shouldReanalyze = focusInstructions.length > 0 &&
     qualityReport.score < 60 &&       // Only re-analyze if quality is truly lacking
-    weakAreas.length >= 2;            // At least 2 weak areas to justify the cost
+    weakAreas.length >= 2 &&          // At least 2 weak areas to justify the cost
+    !isSparseSegment;                 // Don't waste tokens on sparse / simple segments
 
   const focusPrompt = focusInstructions.length > 0
     ? focusInstructions.join('\n\n')

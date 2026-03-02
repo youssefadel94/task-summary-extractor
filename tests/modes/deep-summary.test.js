@@ -2,6 +2,8 @@ const {
   buildBatches,
   deepSummarize,
   summarizeBatch,
+  isTranscriptFile,
+  TRANSCRIPT_EXTENSIONS,
   BATCH_MAX_CHARS,
   MIN_SUMMARIZE_LENGTH,
 } = require('../../src/modes/deep-summary');
@@ -375,5 +377,101 @@ describe('deepSummarize', () => {
     // Last call should have done === total
     const last = progressCalls[progressCalls.length - 1];
     expect(last.done).toBe(last.total);
+  });
+
+  it('auto-excludes VTT transcript files from summarization', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'docs.md': 'Condensed' }, metadata: {} }),
+      usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, totalTokenCount: 70 },
+    }));
+
+    const docs = [
+      makeDoc('transcript.vtt', 5000),
+      makeDoc('docs.md', 2000),
+    ];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    // VTT file should be kept full (not summarized)
+    const vttDoc = result.docs.find(d => d.fileName === 'transcript.vtt');
+    expect(vttDoc.content).toBe('x'.repeat(5000));
+    expect(vttDoc._deepSummarized).toBeUndefined();
+
+    // MD file should have been summarized
+    const mdDoc = result.docs.find(d => d.fileName === 'docs.md');
+    expect(mdDoc._deepSummarized).toBe(true);
+  });
+
+  it('auto-excludes SRT subtitle files from summarization', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'notes.md': 'Condensed' }, metadata: {} }),
+      usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, totalTokenCount: 70 },
+    }));
+
+    const docs = [
+      makeDoc('subtitles.srt', 3000),
+      makeDoc('notes.md', 2000),
+    ];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    // SRT file should be kept full
+    const srtDoc = result.docs.find(d => d.fileName === 'subtitles.srt');
+    expect(srtDoc.content).toBe('x'.repeat(3000));
+    expect(srtDoc._deepSummarized).toBeUndefined();
+  });
+
+  it('does NOT include VTT/SRT files in focus topics', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'other.md': 'Summary' }, metadata: {} }),
+      usageMetadata: {},
+    }));
+
+    const docs = [
+      makeDoc('call.vtt', 5000),
+      makeDoc('other.md', 2000),
+    ];
+
+    await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    // AI was called — prompt should NOT contain the VTT as a focus topic
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(1);
+    const prompt = ai.models.generateContent.mock.calls[0][0].contents[0].parts[0].text;
+    expect(prompt).not.toContain('call.vtt');
+    expect(prompt).not.toContain('FOCUS AREAS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isTranscriptFile utility tests
+// ---------------------------------------------------------------------------
+
+describe('isTranscriptFile', () => {
+  it('recognises .vtt files', () => {
+    expect(isTranscriptFile('meeting.vtt')).toBe(true);
+    expect(isTranscriptFile('Call with Team.VTT')).toBe(true);
+  });
+
+  it('recognises .srt files', () => {
+    expect(isTranscriptFile('subtitles.srt')).toBe(true);
+    expect(isTranscriptFile('RECORDING.SRT')).toBe(true);
+  });
+
+  it('rejects non-transcript files', () => {
+    expect(isTranscriptFile('readme.md')).toBe(false);
+    expect(isTranscriptFile('report.pdf')).toBe(false);
+    expect(isTranscriptFile('data.csv')).toBe(false);
+    expect(isTranscriptFile('notes.txt')).toBe(false);
+  });
+
+  it('handles edge cases', () => {
+    expect(isTranscriptFile('')).toBe(false);
+    expect(isTranscriptFile(null)).toBe(false);
+    expect(isTranscriptFile(undefined)).toBe(false);
+  });
+
+  it('exports TRANSCRIPT_EXTENSIONS array', () => {
+    expect(TRANSCRIPT_EXTENSIONS).toContain('.vtt');
+    expect(TRANSCRIPT_EXTENSIONS).toContain('.srt');
   });
 });

@@ -316,8 +316,12 @@ const ARRAY_DEFAULTS = [
 
 /**
  * Normalize a parsed analysis object by filling in missing array fields
- * with empty arrays. This prevents downstream code from crashing when
- * a segment legitimately has no tickets/action_items/etc.
+ * with empty arrays, ensuring required string fields exist, and patching
+ * item-level required fields (e.g. confidence) with sensible defaults.
+ *
+ * This prevents downstream code from crashing when a segment legitimately
+ * has no tickets/action_items/etc., and avoids schema-validation failures
+ * on truncated AI outputs.
  *
  * Mutates `data` in-place and returns it for convenience.
  *
@@ -326,11 +330,38 @@ const ARRAY_DEFAULTS = [
  */
 function normalizeAnalysis(data) {
   if (!data || typeof data !== 'object') return data;
+
+  // Fill missing array fields
   for (const field of ARRAY_DEFAULTS) {
     if (data[field] === undefined || data[field] === null) {
       data[field] = [];
     }
   }
+
+  // Ensure top-level required string fields
+  if (!data.summary && data.summary !== '') {
+    data.summary = data.segment_summary || data.overview || '';
+  }
+
+  // Patch ticket items — fill missing required fields with defaults
+  if (Array.isArray(data.tickets)) {
+    for (const ticket of data.tickets) {
+      if (!ticket || typeof ticket !== 'object') continue;
+      if (!ticket.confidence) ticket.confidence = 'MEDIUM';
+      if (!ticket.discussed_state && ticket.discussed_state !== null) {
+        ticket.discussed_state = { summary: '' };
+      }
+    }
+  }
+
+  // Patch action_items — fill missing confidence
+  if (Array.isArray(data.action_items)) {
+    for (const item of data.action_items) {
+      if (!item || typeof item !== 'object') continue;
+      if (!item.confidence) item.confidence = 'MEDIUM';
+    }
+  }
+
   return data;
 }
 

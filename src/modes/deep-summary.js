@@ -27,6 +27,20 @@ const config = require('../config');
 
 // ======================== CONSTANTS ========================
 
+/**
+ * Transcript file extensions that should NEVER be summarized.
+ * VTT/SRT files are time-sliced per segment during analysis — summarising
+ * them would destroy the timestamp-indexed structure that `sliceVttForSegment`
+ * relies on. They are automatically kept at full fidelity.
+ */
+const TRANSCRIPT_EXTENSIONS = ['.vtt', '.srt'];
+
+/** Check whether a filename is a transcript file (VTT/SRT). */
+function isTranscriptFile(fileName) {
+  const lower = (fileName || '').toLowerCase();
+  return TRANSCRIPT_EXTENSIONS.some(ext => lower.endsWith(ext));
+}
+
 /** Max tokens for a single summarization call output */
 const SUMMARY_MAX_OUTPUT = 16384;
 
@@ -262,6 +276,13 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
       continue;
     }
 
+    // Auto-exclude transcript files (VTT/SRT) — they are time-sliced per
+    // segment during analysis and must retain their timestamp structure.
+    if (isTranscriptFile(doc.fileName)) {
+      keepFull.push(doc);
+      continue;
+    }
+
     // Keep excluded docs at full fidelity
     if (excludeSet.has(doc.fileName.toLowerCase())) {
       keepFull.push(doc);
@@ -294,14 +315,22 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   }
 
   // Build focus topics from excluded docs (tell summarizer what to prioritize)
+  // NOTE: transcript files (VTT/SRT) are auto-excluded but NOT used as focus
+  // topics — they are time-sliced per segment and don't represent "topics".
   const focusTopics = keepFull
     .filter(d => d.type === 'inlineText' && excludeSet.has(d.fileName.toLowerCase()))
     .map(d => d.fileName);
+
+  // Count auto-excluded transcript files for logging
+  const autoExcludedTranscripts = keepFull.filter(d => isTranscriptFile(d.fileName));
 
   // Batch documents
   const batches = buildBatches(toSummarize);
 
   console.log(`    Batched ${c.highlight(toSummarize.length)} doc(s) into ${c.highlight(batches.length)} summarization batch(es)`);
+  if (autoExcludedTranscripts.length > 0) {
+    console.log(`    Auto-excluded ${c.highlight(autoExcludedTranscripts.length)} transcript file(s) (VTT/SRT — time-sliced per segment)`);
+  }
   if (focusTopics.length > 0) {
     console.log(`    Focus topics from ${c.highlight(focusTopics.length)} excluded doc(s):`);
     focusTopics.forEach(t => console.log(`      ${c.dim('•')} ${c.cyan(t)}`));
@@ -346,6 +375,12 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
 
     // Check if this doc was excluded (kept full)
     if (excludeSet.has(doc.fileName.toLowerCase())) {
+      resultDocs.push(doc);
+      continue;
+    }
+
+    // Auto-exclude transcript files (VTT/SRT)
+    if (isTranscriptFile(doc.fileName)) {
       resultDocs.push(doc);
       continue;
     }
@@ -399,6 +434,8 @@ module.exports = {
   deepSummarize,
   summarizeBatch,
   buildBatches,
+  isTranscriptFile,
+  TRANSCRIPT_EXTENSIONS,
   SUMMARY_MAX_OUTPUT,
   BATCH_MAX_CHARS,
   MIN_SUMMARIZE_LENGTH,

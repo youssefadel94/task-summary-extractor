@@ -587,9 +587,12 @@ async function selectConfidence() {
  * @returns {Promise<string[]>} Array of excluded fileName strings
  */
 async function selectDocsToExclude(contextDocs) {
-  // Only show inlineText docs with actual content
+  const { isTranscriptFile } = require('../modes/deep-summary');
+
+  // Only show inlineText docs with actual content, excluding transcript files
+  // (VTT/SRT are auto-excluded from summarization — no need to show them)
   const eligible = contextDocs
-    .filter(d => d.type === 'inlineText' && d.content && d.content.length > 0)
+    .filter(d => d.type === 'inlineText' && d.content && d.content.length > 0 && !isTranscriptFile(d.fileName))
     .map(d => ({
       fileName: d.fileName,
       chars: d.content.length,

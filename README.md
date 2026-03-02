@@ -1,6 +1,6 @@
 # Task Summary Extractor
 
-> **v9.7.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v9.8.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
@@ -598,6 +598,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v9.8.0** | **Schema hardening & transcript handling** — VTT/SRT auto-excluded from deep-summary (transcripts routed to workflow, not summarizer), `normalizeAnalysis()` fills missing `summary`/`confidence`/`discussed_state` defaults before validation, batch Storage URL→File API auto-retry on `INVALID_ARGUMENT`, focused re-analysis skips sparse segments (≤2 items + low density), 367 tests |
 | **v9.7.0** | **Multi-segment batching** — groups consecutive video segments into single Gemini API calls when context window has headroom, greedy bin-packing by token budget (`planSegmentBatches`), `processSegmentBatch()` multi-video API calls, automatic fallback to single-segment on failure, `--no-batch` to disable, codebase audit fixes (unused imports, variable shadowing) |
 | **v9.6.0** | **Interactive CLI UX** — arrow-key navigation for all selectors (folder, model, run mode, formats, confidence, doc exclusion), zero-dependency prompt engine (`interactive.js`), `selectOne()` with ↑↓+Enter, `selectMany()` with Space toggle + A all/none, non-TTY fallback to number input |
 | **v9.5.0** | **Video processing flags** — `--no-compress`, `--speed`, `--segment-time` CLI flags, hardcoded 1200s for raw mode, deprecated `--skip-compression` |

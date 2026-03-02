@@ -352,18 +352,43 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         }
 
         try {
-          const batchRun = await processSegmentBatch(
-            ai, batchSegs,
-            `${callName}_${baseName}_batch${bIdx}`,
-            contextDocs, previousAnalyses, userName, PKG_ROOT,
-            {
-              segmentIndices: batchIndices,
-              totalSegments: segments.length,
-              segmentTimes: batchTimes,
-              thinkingBudget: opts.thinkingBudget || 24576,
-              noStorageUrl: !!opts.noStorageUrl,
+          let batchRun;
+          try {
+            batchRun = await processSegmentBatch(
+              ai, batchSegs,
+              `${callName}_${baseName}_batch${bIdx}`,
+              contextDocs, previousAnalyses, userName, PKG_ROOT,
+              {
+                segmentIndices: batchIndices,
+                totalSegments: segments.length,
+                segmentTimes: batchTimes,
+                thinkingBudget: opts.thinkingBudget || 24576,
+                noStorageUrl: !!opts.noStorageUrl,
+              }
+            );
+          } catch (batchErr) {
+            const msg = batchErr.message || '';
+            // If Storage URL was rejected, retry batch with forced File API uploads
+            if (!opts.noStorageUrl && msg.includes('INVALID_ARGUMENT') && batchSegs.some(s => s.storageUrl)) {
+              console.log(`    ${c.warn('Storage URL rejected — retrying batch with File API uploads...')}`);
+              log.warn(`Batch ${bIdx} Storage URL rejected — retrying with noStorageUrl=true`);
+              batchRun = await processSegmentBatch(
+                ai, batchSegs,
+                `${callName}_${baseName}_batch${bIdx}`,
+                contextDocs, previousAnalyses, userName, PKG_ROOT,
+                {
+                  segmentIndices: batchIndices,
+                  totalSegments: segments.length,
+                  segmentTimes: batchTimes,
+                  thinkingBudget: opts.thinkingBudget || 24576,
+                  noStorageUrl: true,
+                }
+              );
+              console.log(`    ${c.success('File API batch retry succeeded')}`);
+            } else {
+              throw batchErr;
             }
-          );
+          }
 
           // Save batch run file
           const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
