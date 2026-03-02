@@ -1,6 +1,6 @@
 # Task Summary Extractor
 
-> **v9.8.1** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v9.8.2** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
@@ -598,6 +598,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v9.8.2** | **Windowed interactive picker** — `selectOne()` and `selectMany()` now use viewport scrolling with ↑↓ indicators, prevents garbled display when doc list exceeds terminal height, stable redraw with fixed slot count, 378 tests |
 | **v9.8.1** | `--name` is now optional — warns instead of fatal error, personalized task attribution skipped gracefully when no name provided, all prompts guard empty userName |
 | **v9.8.0** | **Schema hardening & transcript handling** — VTT/SRT auto-excluded from deep-summary (transcripts routed to workflow, not summarizer), `normalizeAnalysis()` fills missing `summary`/`confidence`/`discussed_state` defaults before validation, batch Storage URL→File API auto-retry on `INVALID_ARGUMENT`, focused re-analysis skips sparse segments (≤2 items + low density), 367 tests |
 | **v9.7.0** | **Multi-segment batching** — groups consecutive video segments into single Gemini API calls when context window has headroom, greedy bin-packing by token budget (`planSegmentBatches`), `processSegmentBatch()` multi-video API calls, automatic fallback to single-segment on failure, `--no-batch` to disable, codebase audit fixes (unused imports, variable shadowing) |

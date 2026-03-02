@@ -8,11 +8,11 @@
  * Falls back to number input when stdin is not a TTY.
  *
  * Rendering strategy:
- *   After every draw(), the terminal cursor sits on the LAST rendered line
- *   (bottom of the block).  Before each subsequent redraw we move UP by
- *   (totalRenderedLines − 1) to reach the first item line, then overwrite
- *   every line top-to-bottom.  This keeps positioning deterministic and
- *   avoids the overlap / garble bugs of relative-to-highlight approaches.
+ *   Uses a **windowed viewport** so the list never exceeds the terminal height.
+ *   The viewport slides to keep the cursor visible.  After every draw(), the
+ *   terminal cursor sits on the LAST rendered viewport line.  Before each
+ *   subsequent redraw we move UP by (viewportHeight − 1) to reach the first
+ *   viewport line, then overwrite every line top-to-bottom.
  */
 
 'use strict';
@@ -33,6 +33,44 @@ const DOWN = (n) => n > 0 ? `\x1b[${n}B` : '';
 const CR   = '\r';
 
 // ── Render helpers ────────────────────────────────────────────────────────────
+
+/** Maximum visible item rows — leave room for title, separator, footer, etc. */
+function getMaxVisibleRows() {
+  const termRows = process.stdout.rows || 24;
+  // Reserve 6 lines: title, separator, footer, prompt, plus margin
+  return Math.max(5, termRows - 6);
+}
+
+/**
+ * Compute the window [start, end) to show, keeping cursor visible.
+ * @param {number} cursor  Current highlighted index
+ * @param {number} total   Total items
+ * @param {number} maxRows Maximum visible rows
+ * @param {number} prevOffset  Previous scroll offset
+ * @returns {{ start: number, end: number }}
+ */
+function computeWindow(cursor, total, maxRows, prevOffset) {
+  if (total <= maxRows) return { start: 0, end: total };
+
+  let start = prevOffset;
+  let end = start + maxRows;
+
+  // Scroll down if cursor is below viewport
+  if (cursor >= end) {
+    end = cursor + 1;
+    start = end - maxRows;
+  }
+  // Scroll up if cursor is above viewport
+  if (cursor < start) {
+    start = cursor;
+    end = start + maxRows;
+  }
+  // Clamp
+  if (start < 0) { start = 0; end = maxRows; }
+  if (end > total) { end = total; start = Math.max(0, end - maxRows); }
+
+  return { start, end };
+}
 
 /**
  * Truncate a string that may contain ANSI escape codes to fit within
@@ -60,16 +98,27 @@ function fitToWidth(str, maxCols) {
 }
 
 /**
- * Build display strings for each item.
+ * Build display strings for visible items within a window.
  *
- * @param {Array<{label: string, hint?: string}>} items
- * @param {number}      cursor   Currently highlighted index
- * @param {Set<number>} [selected]  For multi-select: selected indices
+ * @param {Array<{label: string, hint?: string}>} items  All items
+ * @param {number}      cursor   Currently highlighted index (global)
+ * @param {Set<number>} [selected]  For multi-select: selected indices (global)
  * @param {boolean}     [multi=false]
+ * @param {number}      [windowStart=0]
+ * @param {number}      [windowEnd=items.length]
+ * @param {number}      [total=items.length]  Total items (for scroll indicator)
  * @returns {string[]}
  */
-function renderList(items, cursor, selected, multi = false) {
-  return items.map((item, i) => {
+function renderList(items, cursor, selected, multi = false, windowStart = 0, windowEnd = items.length, total = items.length) {
+  const lines = [];
+
+  // Scroll-up indicator
+  if (windowStart > 0) {
+    lines.push(c.dim(`    ↑ ${windowStart} more above`));
+  }
+
+  for (let i = windowStart; i < windowEnd; i++) {
+    const item = items[i];
     const isCursor = i === cursor;
     const prefix = isCursor ? c.cyan('❯') : ' ';
 
@@ -84,8 +133,15 @@ function renderList(items, cursor, selected, multi = false) {
       ? (isCursor ? c.dim(` ${strip(item.hint)}`) : c.dim(` ${item.hint}`))
       : '';
 
-    return `  ${prefix}${checkbox} ${label}${hint}`;
-  });
+    lines.push(`  ${prefix}${checkbox} ${label}${hint}`);
+  }
+
+  // Scroll-down indicator
+  if (windowEnd < total) {
+    lines.push(c.dim(`    ↓ ${total - windowEnd} more below`));
+  }
+
+  return lines;
 }
 
 /**
@@ -93,12 +149,19 @@ function renderList(items, cursor, selected, multi = false) {
  * Each line is preceded by CR + CLEAR_LINE so the entire row is wiped first.
  * Lines are truncated to terminal width to prevent wrapping (which breaks
  * cursor-UP repositioning on redraw).
+ *
+ * @param {string[]} lines  Lines to write
+ * @param {number} [totalSlots=0]  If > lines.length, blank-clear the remaining lines
  */
-function writeLines(lines) {
+function writeLines(lines, totalSlots = 0) {
   const cols = process.stdout.columns || 80;
-  for (let i = 0; i < lines.length; i++) {
+  const count = Math.max(lines.length, totalSlots);
+  for (let i = 0; i < count; i++) {
     if (i > 0) process.stdout.write('\n');
-    process.stdout.write(`${CR}${CLEAR_LINE}${fitToWidth(lines[i], cols - 1)}`);
+    process.stdout.write(CR + CLEAR_LINE);
+    if (i < lines.length) {
+      process.stdout.write(fitToWidth(lines[i], cols - 1));
+    }
   }
 }
 
@@ -147,7 +210,14 @@ function selectOne({ title, items, default: defaultIdx = 0, footer }) {
     let cursor = defaultIdx;
     const total = items.length;
     const hasFooter = !!footer;
-    const renderedLines = total + (hasFooter ? 1 : 0); // lines we overwrite
+    const maxRows = getMaxVisibleRows();
+    let scrollOffset = 0;
+    // Fixed slot count: viewport items + up/down indicators + footer
+    // This keeps redraw height stable regardless of scroll position.
+    const visibleItems = Math.min(total, maxRows);
+    const hasScrollIndicators = total > maxRows;
+    const itemSlots = visibleItems + (hasScrollIndicators ? 2 : 0);
+    const fixedLineCount = itemSlots + (hasFooter ? 1 : 0);
     let firstDraw = true;
 
     // ── Title (printed once, never overwritten) ────────
@@ -163,10 +233,12 @@ function selectOne({ title, items, default: defaultIdx = 0, footer }) {
     const draw = () => {
       if (!firstDraw) {
         // Terminal cursor is on the last rendered line — go back to first
-        process.stdout.write(UP(renderedLines - 1) + CR);
+        process.stdout.write(UP(fixedLineCount - 1) + CR);
       }
-      const lines = renderList(items, cursor);
-      writeLines(lines);
+      const { start, end } = computeWindow(cursor, total, maxRows, scrollOffset);
+      scrollOffset = start;
+      const lines = renderList(items, cursor, null, false, start, end, total);
+      writeLines(lines, itemSlots);
       if (hasFooter) {
         const cols = process.stdout.columns || 80;
         process.stdout.write('\n');
@@ -242,9 +314,15 @@ function selectMany({ title, items, defaultSelected, footer }) {
     let cursor = 0;
     const selected = new Set(defaultSelected || []);
     const total = items.length;
+    const maxRows = getMaxVisibleRows();
+    let scrollOffset = 0;
 
     const footerText = footer || '↑↓ navigate · Space toggle · A all/none · Enter confirm';
-    const renderedLines = total + 1; // items + footer (always shown)
+    // Fixed slot count: viewport items + up/down indicators + footer
+    const visibleItems = Math.min(total, maxRows);
+    const hasScrollIndicators = total > maxRows;
+    const itemSlots = visibleItems + (hasScrollIndicators ? 2 : 0);
+    const fixedLineCount = itemSlots + 1; // +1 for footer (always shown)
     let firstDraw = true;
 
     if (title) {
@@ -257,10 +335,12 @@ function selectMany({ title, items, defaultSelected, footer }) {
 
     const draw = () => {
       if (!firstDraw) {
-        process.stdout.write(UP(renderedLines - 1) + CR);
+        process.stdout.write(UP(fixedLineCount - 1) + CR);
       }
-      const lines = renderList(items, cursor, selected, true);
-      writeLines(lines);
+      const { start, end } = computeWindow(cursor, total, maxRows, scrollOffset);
+      scrollOffset = start;
+      const lines = renderList(items, cursor, selected, true, start, end, total);
+      writeLines(lines, itemSlots);
       const cols = process.stdout.columns || 80;
       process.stdout.write('\n');
       process.stdout.write(`${CR}${CLEAR_LINE}${fitToWidth(c.dim(`  ${footerText}`), cols - 1)}`);
@@ -399,4 +479,4 @@ async function _fallbackSelectMany({ title, items, defaultSelected }) {
   });
 }
 
-module.exports = { selectOne, selectMany };
+module.exports = { selectOne, selectMany, computeWindow, getMaxVisibleRows };
