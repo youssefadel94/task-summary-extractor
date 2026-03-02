@@ -24,6 +24,7 @@ const config = require('../config');
 // Access config.GEMINI_MODEL at call time (not destructured) for runtime model changes.
 const { extractJson } = require('../utils/json-parser');
 const { withRetry } = require('../utils/retry');
+const { isShuttingDown } = require('../phases/_shared');
 
 // ======================== TOPIC PLANNING ========================
 
@@ -293,6 +294,7 @@ async function generateAllDynamicDocuments(ai, topics, userRequest, docSnippets,
   let completed = 0;
 
   while (queue.length > 0) {
+    if (isShuttingDown()) break;
     const batch = queue.splice(0, concurrency);
     const batchResults = await Promise.allSettled(
       batch.map(topic =>
@@ -559,9 +561,145 @@ function slugify(text) {
     .slice(0, 60);
 }
 
+// ======================== CONTEXT BRIDGE ========================
+
+/**
+ * Convert a compiled analysis (from the standard pipeline) into a context string
+ * suitable for dynamic topic planning. This replaces the old per-segment
+ * analyzeVideoForContext() approach — producing richer, deduplicated context.
+ *
+ * @param {object} compiled - Compiled analysis from pipelines phaseCompile
+ * @returns {string} Markdown-formatted context for planTopics / generateDynamicDocument
+ */
+function compiledToContext(compiled) {
+  if (!compiled) return '';
+  const s = [];
+
+  if (compiled.summary || compiled.executive_summary) {
+    s.push(`## Executive Summary\n${compiled.summary || compiled.executive_summary}`);
+  }
+
+  // Your tasks section
+  const yt = compiled.your_tasks;
+  if (yt) {
+    s.push('## Your Tasks');
+    if (yt.summary) s.push(yt.summary);
+    if (yt.tasks_todo?.length) {
+      s.push('### To Do');
+      yt.tasks_todo.forEach(t => s.push(`- ${t.description}${t.priority ? ` (priority: ${t.priority})` : ''}`));
+    }
+    if (yt.tasks_waiting_on_others?.length) {
+      s.push('### Waiting On Others');
+      yt.tasks_waiting_on_others.forEach(w => s.push(`- ${w.description} → waiting on ${w.waiting_on || '?'}`));
+    }
+    if (yt.decisions_needed?.length) {
+      s.push('### Decisions Needed');
+      yt.decisions_needed.forEach(d => s.push(`- ${d.description} → from ${d.from_whom || '?'}`));
+    }
+    if (yt.completed_in_call?.length) {
+      s.push('### Completed In Call');
+      yt.completed_in_call.forEach(c => s.push(`- ✅ ${c}`));
+    }
+  }
+
+  // Tickets
+  if (compiled.tickets?.length) {
+    s.push('## Tickets');
+    for (const t of compiled.tickets) {
+      s.push(`### ${t.ticket_id}: ${t.title || 'Untitled'}`);
+      s.push(`Status: ${t.status || '?'} | Assignee: ${t.assignee || 'unassigned'}${t.reviewer ? ` | Reviewer: ${t.reviewer}` : ''}`);
+      if (t.discussed_state?.summary) s.push(t.discussed_state.summary);
+      if (t.discussed_state?.discrepancies?.length) {
+        s.push('Discrepancies:');
+        t.discussed_state.discrepancies.forEach(d => s.push(`- ⚡ ${d}`));
+      }
+      if (t.code_changes?.length) {
+        s.push('Code Changes:');
+        t.code_changes.forEach(cc => s.push(`- [${cc.type || '?'}] ${cc.file_path || '?'}: ${cc.description}`));
+      }
+      if (t.comments?.length) {
+        s.push('Key Quotes:');
+        t.comments.forEach(c => s.push(`- "${c.text}" — ${c.speaker || 'Unknown'}${c.timestamp ? ` @ ${c.timestamp}` : ''}`));
+      }
+    }
+  }
+
+  // Change Requests
+  if (compiled.change_requests?.length) {
+    s.push('## Change Requests');
+    for (const cr of compiled.change_requests) {
+      s.push(`- **${cr.id}**: ${cr.title || cr.what || '?'} (${cr.status || '?'}) → ${cr.assigned_to || 'unassigned'}`);
+      if (cr.how) s.push(`  How: ${cr.how}`);
+      if (cr.why) s.push(`  Why: ${cr.why}`);
+      if (cr.where?.file_path) s.push(`  File: ${cr.where.file_path}`);
+    }
+  }
+
+  // Action Items
+  if (compiled.action_items?.length) {
+    s.push('## Action Items');
+    for (const ai of compiled.action_items) {
+      const refs = [...(ai.related_tickets || []), ...(ai.related_changes || [])];
+      s.push(`- **${ai.id}**: ${ai.description} → ${ai.assigned_to || 'unassigned'} (${ai.status || '?'})${refs.length ? ` [${refs.join(', ')}]` : ''}`);
+    }
+  }
+
+  // Blockers
+  if (compiled.blockers?.length) {
+    s.push('## Blockers');
+    for (const b of compiled.blockers) {
+      const env = (b.environments || []).length ? ` [${b.environments.join(', ')}]` : '';
+      s.push(`- **${b.id}**: ${b.description} (${b.status || '?'}) — ${b.owner || 'unassigned'}${env}`);
+    }
+  }
+
+  // Scope Changes
+  if (compiled.scope_changes?.length) {
+    s.push('## Scope Changes');
+    for (const sc of compiled.scope_changes) {
+      s.push(`- **${sc.id}** [${sc.type || '?'}]: ${sc.new_scope}`);
+      if (sc.original_scope && sc.original_scope !== 'not documented') s.push(`  Was: ${sc.original_scope}`);
+      if (sc.reason) s.push(`  Reason: ${sc.reason}`);
+      if (sc.decided_by) s.push(`  Decided by: ${sc.decided_by}`);
+    }
+  }
+
+  // File References
+  if (compiled.file_references?.length) {
+    s.push('## File References');
+    for (const f of compiled.file_references) {
+      s.push(`- ${f.file_name}${f.role ? ` (${f.role})` : ''}${f.notes ? ` — ${f.notes}` : ''}`);
+    }
+  }
+
+  return s.join('\n\n');
+}
+
+/**
+ * Convert compiled analysis into the videoSummaries format expected by
+ * planTopics() and generateDynamicDocument(). Returns it as a single
+ * "Compiled Analysis" entry so the topic planner sees the full picture.
+ *
+ * @param {object} compiled - Compiled analysis from standard pipeline
+ * @returns {Array<{videoFile: string, segment: string, segmentIndex: number, totalSegments: number, summary: string}>}
+ */
+function compiledToVideoSummaries(compiled) {
+  const text = compiledToContext(compiled);
+  if (!text) return [];
+  return [{
+    videoFile: 'Compiled Analysis',
+    segment: 'all',
+    segmentIndex: 0,
+    totalSegments: 1,
+    summary: text,
+  }];
+}
+
 module.exports = {
   planTopics,
   generateDynamicDocument,
   generateAllDynamicDocuments,
   writeDynamicOutput,
+  compiledToContext,
+  compiledToVideoSummaries,
 };

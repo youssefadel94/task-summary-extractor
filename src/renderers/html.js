@@ -116,10 +116,24 @@ function priBadgeHtml(p) {
   return ` <span class="badge ${cls}">${e(p)}</span>`;
 }
 
-function tsHtml(ts, seg) {
+function tsHtml(ts, seg, video) {
   if (!ts) return '';
-  const s = seg ? ` <small>(Seg ${seg})</small>` : '';
-  return `<code>${e(ts)}</code>${s}`;
+  let label = '';
+  if (seg && video) {
+    const short = shortVideoHtml(video);
+    label = ` <small>(${short} · Seg ${seg})</small>`;
+  } else if (seg) {
+    label = ` <small>(Seg ${seg})</small>`;
+  }
+  return `<code>${e(ts)}</code>${label}`;
+}
+
+/** Shorten a video filename for HTML display. */
+function shortVideoHtml(name) {
+  if (!name) return '';
+  let s = name.replace(/\.[^.]+$/, '');
+  if (s.length > 35) s = s.substring(0, 30) + '…';
+  return e(s);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -227,16 +241,56 @@ function renderResultsHtml({ compiled, meta }) {
     ln('</div>');
   }
 
-  // Segment details (collapsible)
+  // File integrity warnings
+  const intWarnings = meta.integrityWarnings;
+  if (intWarnings && intWarnings.length > 0) {
+    const bgColor = intWarnings.some(w => w.severity === 'error') ? '#fdd' : '#fff3cd';
+    const borderColor = intWarnings.some(w => w.severity === 'error') ? '#dc3545' : '#ffc107';
+    ln(`<div class="notice" style="background:${bgColor};border:1px solid ${borderColor};border-radius:6px;padding:10px 14px;margin:12px 0;">`);
+    ln('<strong>⚠️ File Integrity Issues Detected</strong><br>');
+    for (const w of intWarnings) {
+      const icon = w.severity === 'error' ? '🔴' : w.severity === 'warning' ? '🟡' : 'ℹ️';
+      ln(`${icon} <strong>${e(w.file)}</strong> (${e(w.type)}) — ${e(w.message)}<br>`);
+      if (w.detail) ln(`<em style="margin-left:1.5em;color:#666;">${e(w.detail)}</em><br>`);
+    }
+    const hasErrors = intWarnings.some(w => w.severity === 'error');
+    if (hasErrors) {
+      ln('<br><strong>Some files may be broken.</strong> Results may be incomplete — re-download or replace broken files.');
+    } else {
+      ln('<br>Results may be affected — review flagged files for completeness.');
+    }
+    ln('</div>');
+  }
+
+  // Segment details grouped by video (collapsible)
   const segs = meta.segments || [];
   if (segs.length > 0) {
+    // Group by video
+    const videoGroups = [];
+    const videoOrder = [];
+    const videoMap = {};
+    for (const s of segs) {
+      const key = s.video || 'Unknown';
+      if (!videoMap[key]) { videoMap[key] = []; videoOrder.push(key); }
+      videoMap[key].push(s);
+    }
+    for (const v of videoOrder) videoGroups.push({ video: v, segs: videoMap[v] });
+    const multiVideo = videoGroups.length > 1;
+
     ln('<details>');
-    ln(`<summary>📼 Segment Details (${segs.length})</summary>`);
-    ln('<table><tr><th>#</th><th>File</th><th>Duration</th><th>Size</th></tr>');
-    segs.forEach((s, i) => {
-      ln(`<tr><td>${i + 1}</td><td>${e(s.file)}</td><td>${e(s.duration || '?')}</td><td>${e(s.sizeMB || '?')} MB</td></tr>`);
-    });
-    ln('</table></details>');
+    ln(`<summary>📼 Segment Details (${segs.length}${multiVideo ? ` from ${videoGroups.length} videos` : ''})</summary>`);
+
+    let globalIdx = 0;
+    for (const group of videoGroups) {
+      if (multiVideo) ln(`<h4>🎬 ${e(group.video)} (${group.segs.length} segments)</h4>`);
+      ln('<table><tr><th>#</th><th>File</th><th>Duration</th><th>Size</th></tr>');
+      for (const s of group.segs) {
+        globalIdx++;
+        ln(`<tr><td>${globalIdx}</td><td>${e(s.file)}</td><td>${e(s.duration || '?')}</td><td>${e(s.sizeMB || '?')} MB</td></tr>`);
+      }
+      ln('</table>');
+    }
+    ln('</details>');
   }
 
   ln('<hr>');
@@ -321,7 +375,7 @@ function renderResultsHtml({ compiled, meta }) {
         const pri = priBadgeHtml(item.priority);
         const conf = confBadgeHtml(item.confidence);
         const source = item.source ? ` <em>(${e(item.source)})</em>` : '';
-        const ts = item.referenced_at ? ` @ ${tsHtml(item.referenced_at, item.source_segment)}` : '';
+        const ts = item.referenced_at ? ` @ ${tsHtml(item.referenced_at, item.source_segment, item.source_video)}` : '';
         const blocker = item.blocked_by ? `<br>&nbsp;&nbsp;⛔ <strong>Blocked by</strong>: ${e(item.blocked_by)}` : '';
         ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${conf}${source}${ts}${blocker}</li>`);
       }
@@ -339,7 +393,8 @@ function renderResultsHtml({ compiled, meta }) {
         const status = cr.status ? ` <code>${e(cr.status)}</code>` : '';
         const pri = priBadgeHtml(cr.priority);
         const where = cr.where?.file_path ? ` → <code>${e(cr.where.file_path)}</code>` : '';
-        ln(`<li><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status}${pri}${where}`);
+        const ts = cr.referenced_at ? ` @ ${tsHtml(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
+        ln(`<li><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status}${pri}${where}${ts}`);
         if (cr.what && cr.what !== cr.title) ln(`<br>&nbsp;&nbsp;What: ${e(cr.what)}`);
         if (cr.how) ln(`<br>&nbsp;&nbsp;How: ${e(cr.how)}`);
         if (cr.why) ln(`<br>&nbsp;&nbsp;Why: ${e(cr.why)}`);
@@ -353,8 +408,9 @@ function renderResultsHtml({ compiled, meta }) {
     if (waitingItems.length > 0) {
       ln('<h3>⏳ Waiting On Others</h3><ul>');
       for (const w of waitingItems) {
-        const resolvedWho = resolve(w.waiting_on, clusterMap);
-        ln(`<li>⏳ ${e(w.description)} → waiting on <strong>${e(resolvedWho)}</strong></li>`);
+        const resolvedWho = w.waiting_on ? resolve(w.waiting_on, clusterMap) : 'someone';
+        const ts = w.referenced_at ? ` @ ${tsHtml(w.referenced_at, w.source_segment, w.source_video)}` : '';
+        ln(`<li>⏳ ${e(w.description)} → waiting on <strong>${e(resolvedWho)}</strong>${ts}</li>`);
       }
       ln('</ul>');
     }
@@ -364,8 +420,9 @@ function renderResultsHtml({ compiled, meta }) {
     if (decisionItems.length > 0) {
       ln('<h3>❓ Decisions Needed</h3><ul>');
       for (const d of decisionItems) {
-        const resolvedWho = resolve(d.from_whom, clusterMap);
-        ln(`<li>${e(d.description)} → from <strong>${e(resolvedWho)}</strong></li>`);
+        const resolvedWho = d.from_whom ? resolve(d.from_whom, clusterMap) : 'someone';
+        const ts = d.referenced_at ? ` @ ${tsHtml(d.referenced_at, d.source_segment, d.source_video)}` : '';
+        ln(`<li>${e(d.description)} → from <strong>${e(resolvedWho)}</strong>${ts}</li>`);
       }
       ln('</ul>');
     }
@@ -381,7 +438,8 @@ function renderResultsHtml({ compiled, meta }) {
         const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
         const status = b.status ? ` (${e(b.status)})` : '';
         const bConf = confBadgeHtml(b.confidence);
-        ln(`<li><strong>${e(b.id)}</strong>: ${e(b.description)}${e(env)}${status}${bConf}</li>`);
+        const ts = b.referenced_at ? ` @ ${tsHtml(b.referenced_at, b.source_segment, b.source_video)}` : '';
+        ln(`<li><strong>${e(b.id)}</strong>: ${e(b.description)}${e(env)}${status}${bConf}${ts}</li>`);
       }
       ln('</ul>');
     }
@@ -444,7 +502,7 @@ function renderResultsHtml({ compiled, meta }) {
         for (const seg of vs) {
           const start = seg.start_time || '?';
           const end = seg.end_time || '?';
-          const segLabel = seg.source_segment ? ` <small>(Seg ${seg.source_segment})</small>` : '';
+          const segLabel = seg.source_segment ? ` <small>(${seg.source_video ? shortVideoHtml(seg.source_video) + ' \u00b7 ' : ''}Seg ${seg.source_segment})</small>` : '';
           ln(`<li><code>${e(start)}</code> → <code>${e(end)}</code>${segLabel}: ${e(seg.description)}</li>`);
         }
         ln('</ul>');
@@ -457,7 +515,8 @@ function renderResultsHtml({ compiled, meta }) {
         for (const cmt of comments) {
           const speaker = cmt.speaker ? resolve(cmt.speaker, clusterMap) : 'Unknown';
           const ts = cmt.timestamp ? `<code>${e(cmt.timestamp)}</code> ` : '';
-          ln(`<li>${ts}<strong>${e(speaker)}</strong>: "${e(cmt.text)}"</li>`);
+          const segLabel = cmt.source_segment ? `<small>(${cmt.source_video ? shortVideoHtml(cmt.source_video) + ' · ' : ''}Seg ${cmt.source_segment})</small> ` : '';
+          ln(`<li>${ts}${segLabel}<strong>${e(speaker)}</strong>: "${e(cmt.text)}"</li>`);
         }
         ln('</ul>');
       }
@@ -469,7 +528,41 @@ function renderResultsHtml({ compiled, meta }) {
         for (const cc of codeChanges) {
           const type = cc.type ? `[${e(cc.type)}] ` : '';
           const pri = priBadgeHtml(cc.priority);
-          ln(`<li>${type}<code>${e(cc.file_path || '?')}</code>${pri}<br>${e(cc.description)}</li>`);
+          const ts = cc.referenced_at ? ` @ ${tsHtml(cc.referenced_at, cc.source_segment, cc.source_video)}` : '';
+          ln(`<li>${type}<code>${e(cc.file_path || '?')}</code>${pri}${ts}<br>${e(cc.description)}</li>`);
+        }
+        ln('</ul>');
+      }
+
+      // Related CRs for this ticket
+      const ticketCRs = allCRs.filter(cr => (cr.related_tickets || []).includes(t.ticket_id));
+      if (ticketCRs.length > 0) {
+        ln(`<h4>🔗 Change Requests for ${e(t.ticket_id)}</h4><ul>`);
+        for (const cr of ticketCRs) {
+          const status = cr.status ? ` <code>${e(cr.status)}</code>` : '';
+          const assignee = cr.assigned_to ? resolve(cr.assigned_to, clusterMap) : '?';
+          const pri = priBadgeHtml(cr.priority);
+          const ts = cr.referenced_at ? ` @ ${tsHtml(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
+          ln(`<li><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status}${pri} → ${e(assignee)}${ts}`);
+          if (cr.what && cr.what !== cr.title) ln(`<br><em>What:</em> ${e(cr.what)}`);
+          if (cr.how) ln(`<br><em>How:</em> ${e(cr.how)}`);
+          if (cr.why) ln(`<br><em>Why:</em> ${e(cr.why)}`);
+          if (cr.where?.file_path) ln(`<br><em>File:</em> <code>${e(cr.where.file_path)}</code>`);
+          ln('</li>');
+        }
+        ln('</ul>');
+      }
+
+      // Related blockers for this ticket
+      const ticketBlockers = allBlockers.filter(b => (b.blocks || []).includes(t.ticket_id));
+      if (ticketBlockers.length > 0) {
+        ln(`<h4>🚫 Blockers for ${e(t.ticket_id)}</h4><ul>`);
+        for (const b of ticketBlockers) {
+          const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
+          const status = b.status ? ` (${e(b.status)})` : '';
+          const owner = b.owner ? ` → ${e(resolve(b.owner, clusterMap))}` : '';
+          const ts = b.referenced_at ? ` @ ${tsHtml(b.referenced_at, b.source_segment, b.source_video)}` : '';
+          ln(`<li><strong>${e(b.id)}</strong>${owner}: ${e(b.description)}${e(env)}${status}${ts}</li>`);
         }
         ln('</ul>');
       }
@@ -483,14 +576,15 @@ function renderResultsHtml({ compiled, meta }) {
   // ══════════════════════════════════════════════════════
   if (allActions.length > 0) {
     ln('<h2>📋 All Action Items</h2>');
-    ln('<table><tr><th>ID</th><th>Description</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Conf</th><th>Ref</th></tr>');
+    ln('<table><tr><th>ID</th><th>Description</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Conf</th><th>Ref</th><th>Timestamp</th></tr>');
     for (const ai of allActions) {
       const assignee = ai.assigned_to ? resolve(ai.assigned_to, clusterMap) : '-';
       const status = (ai.status || '?').replace(/_/g, ' ');
       const pri = priBadgeHtml(ai.priority);
       const conf = confBadgeHtml(ai.confidence);
       const ref = [...(ai.related_tickets || []), ...(ai.related_changes || [])].join(', ') || '-';
-      ln(`<tr><td>${e(ai.id)}</td><td>${e(ai.description)}</td><td>${e(assignee)}</td><td>${e(status)}</td><td>${pri || '-'}</td><td>${conf || '-'}</td><td>${e(ref)}</td></tr>`);
+      const ts = ai.referenced_at ? tsHtml(ai.referenced_at, ai.source_segment, ai.source_video) : '-';
+      ln(`<tr><td>${e(ai.id)}</td><td>${e(ai.description)}</td><td>${e(assignee)}</td><td>${e(status)}</td><td>${pri || '-'}</td><td>${conf || '-'}</td><td>${e(ref)}</td><td>${ts}</td></tr>`);
     }
     ln('</table>');
   }
@@ -522,7 +616,8 @@ function renderResultsHtml({ compiled, meta }) {
         for (const item of actionableTodos) {
           const pri = priBadgeHtml(item.priority);
           const ref = (item.related_tickets || []).length > 0 ? ` <em>(${item.related_tickets.join(', ')})</em>` : '';
-          ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${ref}</li>`);
+          const ts = item.referenced_at ? ` @ ${tsHtml(item.referenced_at, item.source_segment, item.source_video)}` : '';
+          ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${ref}${ts}</li>`);
         }
         ln('</ul>');
       }
@@ -532,7 +627,8 @@ function renderResultsHtml({ compiled, meta }) {
         for (const cr of personCRs) {
           const status = cr.status ? ` <code>${e(cr.status)}</code>` : '';
           const pri = priBadgeHtml(cr.priority);
-          ln(`<li><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status}${pri}</li>`);
+          const ts = cr.referenced_at ? ` @ ${tsHtml(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
+          ln(`<li><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status}${pri}${ts}</li>`);
         }
         ln('</ul>');
       }
@@ -542,7 +638,8 @@ function renderResultsHtml({ compiled, meta }) {
         for (const b of personBlockersOwned) {
           const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
           const status = b.status ? ` (${e(b.status)})` : '';
-          ln(`<li><strong>${e(b.id)}</strong>: ${e(b.description)}${e(env)}${status}</li>`);
+          const ts = b.referenced_at ? ` @ ${tsHtml(b.referenced_at, b.source_segment, b.source_video)}` : '';
+          ln(`<li><strong>${e(b.id)}</strong>: ${e(b.description)}${e(env)}${status}${ts}</li>`);
         }
         ln('</ul>');
       }
@@ -562,7 +659,8 @@ function renderResultsHtml({ compiled, meta }) {
       const status = b.status ? ` (${e(b.status)})` : '';
       const type = b.type ? ` <em>[${e(b.type.replace(/_/g, ' '))}]</em>` : '';
       const owner = b.owner ? ` — ${e(b.owner)}` : '';
-      ln(`<li><strong>${e(b.id)}</strong>${owner}: ${e(b.description)}${e(env)}${status}${type}</li>`);
+      const ts = b.referenced_at ? ` @ ${tsHtml(b.referenced_at, b.source_segment, b.source_video)}` : '';
+      ln(`<li><strong>${e(b.id)}</strong>${owner}: ${e(b.description)}${e(env)}${status}${type}${ts}</li>`);
     }
     ln('</ul><hr>');
   }
@@ -576,7 +674,8 @@ function renderResultsHtml({ compiled, meta }) {
       const icon = { added: '➕', removed: '➖', deferred: '⏸️', approach_changed: '🔄', ownership_changed: '👤', requirements_changed: '📋' }[sc.type] || '🔀';
       const decidedBy = sc.decided_by ? resolve(sc.decided_by, clusterMap) : null;
       const scConf = confBadgeHtml(sc.confidence);
-      ln(`<li>${icon} <strong>${e(sc.id)}</strong> (${e((sc.type || '').replace(/_/g, ' '))}): ${e(sc.new_scope)}${scConf}`);
+      const ts = sc.referenced_at ? ` @ ${tsHtml(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
+      ln(`<li>${icon} <strong>${e(sc.id)}</strong> (${e((sc.type || '').replace(/_/g, ' '))}): ${e(sc.new_scope)}${scConf}${ts}`);
       if (sc.original_scope && sc.original_scope !== 'not documented') ln(`<br>&nbsp;&nbsp;Was: ${e(sc.original_scope)}`);
       if (sc.reason) ln(`<br>&nbsp;&nbsp;Reason: ${e(sc.reason)}`);
       if (decidedBy) ln(`<br>&nbsp;&nbsp;Decided by: ${e(decidedBy)}`);
@@ -590,7 +689,7 @@ function renderResultsHtml({ compiled, meta }) {
   // ══════════════════════════════════════════════════════
   if (allCRs.length > 0) {
     ln('<h2>🔧 All Change Requests</h2>');
-    ln('<table><tr><th>ID</th><th>Title</th><th>Type</th><th>Status</th><th>Priority</th><th>Conf</th><th>Assignee</th><th>File</th></tr>');
+    ln('<table><tr><th>ID</th><th>Title</th><th>Type</th><th>Status</th><th>Priority</th><th>Conf</th><th>Assignee</th><th>File</th><th>Timestamp</th></tr>');
     for (const cr of allCRs) {
       const assignee = cr.assigned_to ? resolve(cr.assigned_to, clusterMap) : '-';
       const status = cr.status || '-';
@@ -598,7 +697,8 @@ function renderResultsHtml({ compiled, meta }) {
       const type = cr.type || '-';
       const file = cr.where?.file_path ? `<code>${e(cr.where.file_path)}</code>` : '-';
       const pri = priBadgeHtml(cr.priority);
-      ln(`<tr><td>${e(cr.id)}</td><td>${e(cr.title || cr.what || '-')}</td><td>${e(type)}</td><td>${e(status)}</td><td>${pri || '-'}</td><td>${conf || '-'}</td><td>${e(assignee)}</td><td>${file}</td></tr>`);
+      const ts = cr.referenced_at ? tsHtml(cr.referenced_at, cr.source_segment, cr.source_video) : '-';
+      ln(`<tr><td>${e(cr.id)}</td><td>${e(cr.title || cr.what || '-')}</td><td>${e(type)}</td><td>${e(status)}</td><td>${pri || '-'}</td><td>${conf || '-'}</td><td>${e(assignee)}</td><td>${file}</td><td>${ts}</td></tr>`);
     }
     ln('</table>');
 
@@ -607,7 +707,8 @@ function renderResultsHtml({ compiled, meta }) {
     for (const cr of allCRs) {
       const assignee = cr.assigned_to ? resolve(cr.assigned_to, clusterMap) : '?';
       const status = cr.status ? ` <code>${e(cr.status)}</code>` : '';
-      ln(`<div class="card"><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status} → ${e(assignee)}`);
+      const crTs = cr.referenced_at ? ` @ ${tsHtml(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
+      ln(`<div class="card"><strong>${e(cr.id)}</strong>: ${e(cr.title || cr.what)}${status} → ${e(assignee)}${crTs}`);
       if (cr.what && cr.what !== cr.title) ln(`<br>What: ${e(cr.what)}`);
       if (cr.how) ln(`<br>How: ${e(cr.how)}`);
       if (cr.why) ln(`<br>Why: ${e(cr.why)}`);

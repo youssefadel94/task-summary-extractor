@@ -71,6 +71,7 @@ function isTransientError(err) {
  * @returns {Promise<any>} Result of fn()
  */
 async function withRetry(fn, opts = {}) {
+  const { isShuttingDown } = require('../phases/_shared');
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
   const baseDelay = opts.baseDelay ?? DEFAULT_BASE_DELAY_MS;
   const label = opts.label || 'operation';
@@ -79,12 +80,15 @@ async function withRetry(fn, opts = {}) {
 
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0 && isShuttingDown()) {
+      throw lastError || new Error('Aborted: process shutting down');
+    }
     try {
       return await fn();
     } catch (err) {
       lastError = err;
 
-      if (attempt >= maxRetries || !shouldRetry(err)) {
+      if (attempt >= maxRetries || !shouldRetry(err) || isShuttingDown()) {
         throw err;
       }
 
@@ -116,11 +120,12 @@ async function withRetry(fn, opts = {}) {
  * @returns {Promise<Array>} Results in original order
  */
 async function parallelMap(items, fn, concurrency = 3) {
+  const { isShuttingDown } = require('../phases/_shared');
   const results = new Array(items.length);
   let nextIndex = 0;
 
   async function worker() {
-    while (nextIndex < items.length) {
+    while (nextIndex < items.length && !isShuttingDown()) {
       const idx = nextIndex++;
       results[idx] = await fn(items[idx], idx);
     }

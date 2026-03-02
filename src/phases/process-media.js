@@ -100,7 +100,16 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
   progress.markCompressed(baseName, segments.length);
   const origSize = fs.statSync(videoPath).size;
+  const compressedSize = segments.reduce((s, p) => s + fs.statSync(p).size, 0);
   log.step(`original=${(origSize / 1048576).toFixed(2)}MB (${fmtBytes(origSize)}) | ${segments.length} segment(s)`);
+  log.metric('compression', {
+    file: baseName,
+    originalBytes: origSize,
+    compressedBytes: compressedSize,
+    ratio: origSize > 0 ? ((1 - compressedSize / origSize) * 100).toFixed(1) + '%' : 'N/A',
+    segments: segments.length,
+    isAudio,
+  });
 
   // Duration-aware warnings for raw segments
   if (opts.noCompress && segments.length > 0) {
@@ -435,8 +444,12 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             });
           }
 
-          // Source-segment tagging
-          const tagSeg = (arr, segNum) => (arr || []).forEach(item => { if (!item.source_segment) item.source_segment = segNum; });
+          // Source-segment + source-video tagging
+          const videoName = path.basename(videoPath);
+          const tagSeg = (arr, segNum) => (arr || []).forEach(item => {
+            if (!item.source_segment) item.source_segment = segNum;
+            if (!item.source_video) item.source_video = videoName;
+          });
           for (const i of batchIndices) {
             tagSeg(analysis.action_items, i + 1);
             tagSeg(analysis.change_requests, i + 1);
@@ -830,6 +843,17 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
         const tok = geminiRun.run.tokenUsage || {};
         const sourceLabel = usedExternalUrl ? 'via Storage URL' : (geminiFileName ? 'via File API' : 'direct');
         log.step(`Gemini OK: ${segName} (${sourceLabel}) — ${ticketCount} ticket(s) | ${geminiRun.run.durationMs}ms | tokens: ${tok.inputTokens || 0}in/${tok.outputTokens || 0}out/${tok.thoughtTokens || 0}think/${tok.totalTokens || 0}total`);
+        log.metric('segment_analysis', {
+          segment: segName,
+          source: sourceLabel,
+          tickets: ticketCount,
+          durationMs: geminiRun.run.durationMs,
+          tokens: { input: tok.inputTokens || 0, output: tok.outputTokens || 0, thinking: tok.thoughtTokens || 0, total: tok.totalTokens || 0 },
+          quality: qualityReport ? qualityReport.score : null,
+          schemaValid: schemaReport ? schemaReport.valid : null,
+          retried,
+          retryImproved,
+        });
         log.debug(`Gemini parsed: ${JSON.stringify(analysis).substring(0, 500)}`);
         console.log(`    ${c.success(`AI analysis complete (${(geminiRun.run.durationMs / 1000).toFixed(1)}s)`)}${retried ? (retryImproved ? ' [retry improved]' : ' [retried]') : ''}`);
         progress.markAnalyzed(`${baseName}_seg${j}`, geminiRunFile);
@@ -856,7 +880,11 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
     // Collect for final compilation (skip errored)
     if (analysis && !analysis.error) {
       const segNum = j + 1;
-      const tagSeg = (arr) => (arr || []).forEach(item => { item.source_segment = segNum; });
+      const videoName = path.basename(videoPath);
+      const tagSeg = (arr) => (arr || []).forEach(item => {
+        item.source_segment = segNum;
+        if (!item.source_video) item.source_video = videoName;
+      });
       tagSeg(analysis.action_items);
       tagSeg(analysis.change_requests);
       tagSeg(analysis.blockers);
@@ -865,6 +893,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       if (analysis.tickets) {
         analysis.tickets.forEach(t => {
           t.source_segment = segNum;
+          t.source_video = videoName;
           tagSeg(t.comments);
           tagSeg(t.code_changes);
           tagSeg(t.video_segments);

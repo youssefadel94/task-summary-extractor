@@ -73,10 +73,30 @@ async function run() {
     return await runProgressUpdate(initCtx);
   }
 
-  // --- Dynamic document-only mode ---
+  // --- Dynamic mode: collect user request + name early, before pipeline ---
   if (initCtx.opts.dynamic) {
-    bar.finish();
-    return await runDynamic(initCtx);
+    if (!initCtx.opts.request) {
+      initCtx.opts.request = await promptUserText(
+        '  What do you want to generate?\n' +
+        '  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n\n  → '
+      );
+    }
+    if (!initCtx.opts.request || !initCtx.opts.request.trim()) {
+      console.error(`\n  ${c.error('A request is required for dynamic mode.')}`);
+      console.error(`    ${c.dim('Use --request "your request" or enter it when prompted.')}`);
+      bar.finish();
+      initCtx.progress.cleanup();
+      log.close();
+      return;
+    }
+    console.log(`\n  Request: ${c.highlight(`"${initCtx.opts.request}"`)}`);
+    log.step(`Dynamic mode request: "${initCtx.opts.request}"`);
+
+    if (!initCtx.opts.userName) {
+      const name = await promptUserText('\n  Your name (optional, press Enter to skip): ');
+      if (name && name.trim()) initCtx.opts.userName = name.trim();
+    }
+    if (initCtx.opts.userName) log.step(`User: ${initCtx.opts.userName}`);
   }
 
   // Phase 2: Discover
@@ -135,6 +155,8 @@ async function run() {
     callName: fullCtx.callName,
     userName: fullCtx.userName,
     inputMode: ctx.inputMode,
+    integrityWarnings: (fullCtx.integrityAudit && fullCtx.integrityAudit.warnings.length > 0)
+      ? fullCtx.integrityAudit.warnings : null,
     settings: {
       speed: fullCtx.opts.noCompress ? 1.0 : (fullCtx.opts.speed || SPEED),
       segmentTimeSec: fullCtx.opts.noCompress ? 1200 : (fullCtx.opts.segmentTime || SEG_TIME),
@@ -205,6 +227,7 @@ async function run() {
     costSummary: fullCtx.costTracker.getSummary(),
     compilationQuality,
     totalDurationMs: Date.now() - pipelineStartMs,
+    integrityWarnings: results.integrityWarnings,
   });
   printHealthDashboard(healthReport);
   bar.tick('Health dashboard generated');
@@ -243,6 +266,11 @@ async function run() {
     bar.setPhase('deep-dive', 1);
     await phaseDeepDive(fullCtx, compiledAnalysis, outputResult.runDir);
     bar.tick('Deep dive complete');
+  }
+
+  // Phase 10 (optional): Dynamic Topic Documents — generate topic-based docs from compiled results
+  if (fullCtx.opts.dynamic && compiledAnalysis && !fullCtx.opts.skipGemini && !fullCtx.opts.dryRun && !isShuttingDown()) {
+    await runDynamicTopics(fullCtx, compiledAnalysis, outputResult.runDir);
   }
 
   // Cleanup
@@ -307,6 +335,12 @@ async function runDocOnly(ctx) {
 
   // Build a single analysis from all documents (send as one "segment")
   bar.setPhase('compile', 1);
+
+  if (isShuttingDown()) {
+    bar.finish(); progress.cleanup(); log.close();
+    return;
+  }
+
   console.log(`  Analyzing ${c.highlight(contextDocs.length)} document(s) with ${c.cyan(config.GEMINI_MODEL)}...`);
 
   let compiledAnalysis = null;
@@ -372,6 +406,8 @@ async function runDocOnly(ctx) {
     callName,
     userName,
     inputMode: 'document',
+    integrityWarnings: (ctx.integrityAudit && ctx.integrityAudit.warnings.length > 0)
+      ? ctx.integrityAudit.warnings : null,
     settings: {
       geminiModel: config.GEMINI_MODEL,
       thinkingBudget: opts.thinkingBudget,
@@ -412,6 +448,7 @@ async function runDocOnly(ctx) {
       segmentCount: 0,
       compilation: compilationRun || null,
       costSummary: results.costSummary,
+      integrityWarnings: results.integrityWarnings || null,
       segments: [],
       settings: results.settings,
     };
@@ -484,6 +521,12 @@ async function runDocOnly(ctx) {
   console.log(`  Elapsed:   ${c.yellow(log.elapsed())}`);
   console.log('');
 
+  // Dynamic topic documents (uses compiled results from doc-only analysis)
+  if (opts.dynamic && compiledAnalysis && ai && !isShuttingDown()) {
+    const dynamicCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
+    await runDynamicTopics(dynamicCtx, compiledAnalysis, runDir);
+  }
+
   log.step('Doc-only mode complete');
   log.step('DONE');
   bar.finish();
@@ -491,230 +534,103 @@ async function runDocOnly(ctx) {
   log.close();
 }
 
-// ======================== DYNAMIC DOCUMENT-ONLY MODE ========================
+// ======================== DYNAMIC TOPIC DOCUMENTS ========================
 
 /**
- * Alternative pipeline mode: generate documents from context docs + user request.
- * No video required — works purely from documents and the user's request.
+ * Generate topic-based documents from already-compiled analysis results.
  *
- * Triggered by --dynamic flag.
+ * This is called AFTER the standard pipeline (or doc-only pipeline) has
+ * completed compilation. It uses the compiled result as rich context for
+ * AI-powered topic planning and document generation.
+ *
+ * Key advantages over the old standalone runDynamic():
+ *  - Reuses the standard pipeline's caching, Firebase Storage URLs, and
+ *    existing Gemini run results — no redundant re-uploads or re-analysis.
+ *  - The compiled analysis is a unified, deduplicated summary, providing
+ *    better context than raw per-segment summaries.
+ *  - Offers the same "reuse or reanalyze" prompt as all other modes.
+ *
+ * @param {object} fullCtx - Pipeline context (ai, opts, targetDir, costTracker, etc.)
+ * @param {object} compiledAnalysis - Compiled analysis from phaseCompile or doc-only
+ * @param {string} parentRunDir - The run directory from the standard pipeline output
  */
-async function runDynamic(initCtx) {
-  // Lazy imports for dynamic mode
-  const { initGemini, analyzeVideoForContext } = require('./services/gemini');
+async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
+  const { planTopics, generateAllDynamicDocuments, writeDynamicOutput, compiledToVideoSummaries } = require('./modes/dynamic-mode');
   const { initFirebase, uploadToStorage } = require('./services/firebase');
-  const { compressAndSegment, verifySegment } = require('./services/video');
-  const { planTopics, generateAllDynamicDocuments, writeDynamicOutput } = require('./modes/dynamic-mode');
 
-  const { opts, targetDir } = initCtx;
+  const { opts, targetDir, ai, costTracker } = fullCtx;
+  const userName = fullCtx.userName || opts.userName;
   const log = getLog();
-  const folderName = path.basename(targetDir);
+  const folderName = fullCtx.callName || path.basename(targetDir);
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const bar = createProgressBar({ costTracker: initCtx.costTracker, callName: folderName });
+
+  const userRequest = opts.request;
+  if (!userRequest || !userRequest.trim()) return; // No request → skip
 
   console.log('');
   console.log(c.cyan('══════════════════════════════════════════════'));
   console.log(c.heading('  DYNAMIC MODE — AI Document Generation'));
   console.log(c.cyan('══════════════════════════════════════════════'));
-  console.log(`  Folder: ${c.cyan(folderName)}`);
-  console.log(`  Source: ${c.dim(targetDir)}`);
-  console.log(`  Mode:   ${c.yellow('Video + Documents (auto-detect)')}`);
+  console.log(`  Folder:  ${c.cyan(folderName)}`);
+  console.log(`  Request: ${c.highlight(`"${userRequest}"`)}`);
+  console.log(`  Source:  ${c.dim('Compiled analysis from standard pipeline')}`);
   console.log('');
 
-  // 1. Get user request (from --request flag or interactive prompt)
-  let userRequest = opts.request;
-  if (!userRequest) {
-    userRequest = await promptUserText('  What do you want to generate?\n  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n\n  → ');
-  }
-  if (!userRequest || !userRequest.trim()) {
-    console.error(`\n  ${c.error('A request is required for dynamic mode.')}`);
-    console.error(`    ${c.dim('Use --request "your request" or enter it when prompted.')}`);
-    bar.finish();    initCtx.progress.cleanup();
-    log.close();
-    return;
-  }
-  console.log(`\n  Request: ${c.highlight(`"${userRequest}"`)}`);
-  log.step(`Dynamic mode: "${userRequest}"`);
+  // Build context from compiled analysis (replaces the old video-by-video File API approach)
+  const videoSummaries = compiledToVideoSummaries(compiledAnalysis);
 
-  // 2. Ask for user name (for attribution)
-  let userName = opts.userName;
-  if (!userName) {
-    userName = await promptUserText('\n  Your name (optional, press Enter to skip): ');
-  }
-  if (userName) log.step(`User: ${userName}`);
-
-  // 3. Discover documents AND video files
-  console.log('');
-  console.log(`  ${c.dim('Discovering content...')}`);
-  const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
-  const videoFiles = fs.readdirSync(targetDir)
-    .filter(f => {
-      const stat = fs.statSync(path.join(targetDir, f));
-      return stat.isFile() && VIDEO_EXTS.includes(path.extname(f).toLowerCase());
-    })
-    .map(f => path.join(targetDir, f));
-
-  console.log(`  Found ${c.highlight(allDocFiles.length)} document(s)`);
-  if (allDocFiles.length > 0) {
-    allDocFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(f.relPath)}`));
-  }
-  console.log(`  Found ${c.highlight(videoFiles.length)} video file(s)`);
-  if (videoFiles.length > 0) {
-    videoFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(path.basename(f))}`));
-  }
-  log.step(`Discovered ${allDocFiles.length} document(s), ${videoFiles.length} video(s)`);
-
-  // 4. Initialize Gemini
-  console.log('');
-  console.log(`  ${c.dim('Initializing AI...')}`);
-  if (opts.skipGemini || opts.dryRun) {
-    console.error(`  ${c.error('Dynamic mode requires Gemini AI. Remove --skip-gemini / --dry-run.')}`);
-    bar.finish();
-    initCtx.progress.cleanup();
-    log.close();
-    return;
-  }
-
-  // Validate config for Gemini
-  const configCheck = validateConfig({ skipFirebase: true, skipGemini: false });
-  if (!configCheck.valid) {
-    console.error(`\n  ${c.error('Configuration errors:')}`);
-    configCheck.errors.forEach(e => console.error(`    ${c.error(e)}`));
-    bar.finish();
-    initCtx.progress.cleanup();
-    log.close();
-    return;
-  }
-
-  const ai = await initGemini();
-  console.log(`  ${c.success('Gemini AI ready')}`);
-  const costTracker = initCtx.costTracker;
-
-  // 5. Process video files (compress → segment → analyze for context)
-  const videoSummaries = [];
-  if (videoFiles.length > 0) {
-    console.log('');
-    console.log(`  ── Video Processing (${videoFiles.length} file${videoFiles.length > 1 ? 's' : ''}) ──`);
-    const compressedDir = path.join(targetDir, 'compressed');
-
-    for (let vi = 0; vi < videoFiles.length; vi++) {
-      const videoPath = videoFiles[vi];
-      const baseName = path.basename(videoPath, path.extname(videoPath));
-      const segmentDir = path.join(compressedDir, baseName);
-
-      console.log(`\n  ${c.dim(`[${vi + 1}/${videoFiles.length}]`)} ${c.cyan(path.basename(videoPath))}`);
-
-      // Compress & segment (reuse existing if available)
-      let segments;
-      const existingSegments = fs.existsSync(segmentDir)
-        ? fs.readdirSync(segmentDir).filter(f => f.startsWith('segment_') && f.endsWith('.mp4')).sort()
-        : [];
-
-      if (existingSegments.length > 0) {
-        segments = existingSegments.map(f => path.join(segmentDir, f));
-        console.log(`  ${c.success(`Using ${c.highlight(segments.length)} existing segment(s)`)}`);
-        log.step(`SKIP compression — ${segments.length} segment(s) already on disk for "${baseName}"`);
-      } else {
-        console.log('  Compressing & segmenting...');
-        segments = compressAndSegment(videoPath, segmentDir);
-        console.log(`  → ${c.highlight(segments.length)} segment(s) created`);
-        log.step(`Compressed "${baseName}" → ${segments.length} segment(s)`);
-      }
-
-      // Validate segments
-      const validSegments = segments.filter(s => verifySegment(s));
-      if (validSegments.length < segments.length) {
-        console.warn(`  ${c.warn(`${segments.length - validSegments.length} corrupt segment(s) skipped`)}`);
-      }
-
-      // Analyze each segment with Gemini to extract context
-      console.log(`  Analyzing ${c.highlight(validSegments.length)} segment(s) for content...`);
-      for (let si = 0; si < validSegments.length; si++) {
-        const segPath = validSegments[si];
-        const segName = path.basename(segPath);
-        const displayName = `${baseName}/${segName}`;
-
-        try {
-          const result = await analyzeVideoForContext(ai, segPath, displayName, {
-            thinkingBudget: 8192,
-            segmentIndex: si,
-            totalSegments: validSegments.length,
-          });
-
-          videoSummaries.push({
-            videoFile: path.basename(videoPath),
-            segment: segName,
-            segmentIndex: si,
-            totalSegments: validSegments.length,
-            summary: result.summary,
-          });
-
-          if (result.tokenUsage) {
-            costTracker.addSegment(`dynamic-video-${baseName}-${segName}`, result.tokenUsage, result.durationMs, false);
-          }
-        } catch (err) {
-          console.error(`    ${c.error(`Failed to analyze ${segName}: ${err.message}`)}`);
-          log.error(`Dynamic video analysis failed for ${displayName}: ${err.message}`);
-        }
-      }
-    }
-
-    console.log('');
-    console.log(`  ${c.success(`Video analysis complete: ${c.highlight(videoSummaries.length)} segment summary(ies)`)}`);
-    log.step(`Dynamic video analysis: ${videoSummaries.length} segment summaries extracted`);
-  }
-
-  // 6. Load document contents as snippets for AI (text files + parsed binary docs)
+  // Build doc snippets from context docs (if available in fullCtx)
+  const contextDocs = fullCtx.contextDocs || [];
   const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml'];
-  const { parseDocument, canParse } = require('./services/doc-parser');
   const docSnippets = [];
-  for (const { absPath, relPath } of allDocFiles) {
-    const ext = path.extname(absPath).toLowerCase();
-    try {
-      if (INLINE_EXTS.includes(ext)) {
-        let content = fs.readFileSync(absPath, 'utf8').replace(/^\uFEFF/, '');
-        if (content.length > 8000) {
-          content = content.slice(0, 8000) + '\n... (truncated)';
-        }
-        docSnippets.push(`[${relPath}]\n${content}`);
-      } else if (canParse(ext)) {
-        const result = await parseDocument(absPath, { maxLength: 8000, silent: true });
-        if (result.success && result.text) {
-          docSnippets.push(`[${relPath}]\n${result.text}`);
-        }
-      }
-    } catch { /* skip unreadable */ }
+  for (const d of contextDocs) {
+    if (d.type === 'inlineText' && d.content) {
+      const snippet = d.content.length > 8000 ? d.content.slice(0, 8000) + '\n... (truncated)' : d.content;
+      docSnippets.push(`[${d.fileName}]\n${snippet}`);
+    }
   }
-  console.log(`  Loaded ${c.highlight(docSnippets.length)} document(s) as context for AI`);
-  if (videoSummaries.length > 0) {
-    console.log(`  Plus ${c.highlight(videoSummaries.length)} video segment summary(ies) as context`);
+  // If contextDocs is empty, try loading docs from disk (for doc-only mode compat)
+  if (docSnippets.length === 0) {
+    const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
+    for (const { absPath, relPath } of allDocFiles) {
+      const ext = path.extname(absPath).toLowerCase();
+      try {
+        if (INLINE_EXTS.includes(ext)) {
+          let content = fs.readFileSync(absPath, 'utf8').replace(/^\uFEFF/, '');
+          if (content.length > 8000) content = content.slice(0, 8000) + '\n... (truncated)';
+          docSnippets.push(`[${relPath}]\n${content}`);
+        }
+      } catch { /* skip unreadable */ }
+    }
   }
+
+  console.log(`  Context: ${c.highlight(videoSummaries.length ? 'compiled analysis' : 'documents only')} + ${c.highlight(docSnippets.length)} doc snippet(s)`);
   console.log('');
 
   const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
 
-  // 7. Phase 1: Plan topics
+  // Phase 1: Plan topics
+  if (isShuttingDown()) return;
   console.log(`  ${c.dim('Phase 1:')} Planning documents...`);
   let planResult;
   try {
     planResult = await planTopics(ai, userRequest, docSnippets, {
-      folderName, userName, thinkingBudget, videoSummaries,
+      folderName,
+      userName: userName || opts.userName,
+      thinkingBudget,
+      videoSummaries,
     });
   } catch (err) {
     console.error(`  ${c.error(`Topic planning failed: ${err.message}`)}`);
     console.error(`    ${c.dim('Tip: check your Gemini API key, or try a simpler --request.')}`);
-    log.error(`Dynamic topic planning failed: ${err.message}`);    bar.finish();    initCtx.progress.cleanup();
-    log.close();
+    log.error(`Dynamic topic planning failed: ${err.message}`);
     return;
   }
 
   const topics = planResult.topics;
   if (!topics || topics.length === 0) {
-    console.log(`  ${c.info('No documents planned \u2014 request may be too vague.')}`);
+    console.log(`  ${c.info('No documents planned — request may be too vague.')}`);
     console.log(`    ${c.dim('Try a more specific request or add context documents to the folder.')}`);
-    bar.finish();
-    initCtx.progress.cleanup();
-    log.close();
     return;
   }
 
@@ -730,11 +646,12 @@ async function runDynamic(initCtx) {
   console.log('');
   log.step(`Dynamic mode: ${topics.length} topics planned in ${(planResult.durationMs / 1000).toFixed(1)}s`);
 
-  // 8. Phase 2: Generate all documents
+  // Phase 2: Generate all documents
+  if (isShuttingDown()) return;
   console.log(`  ${c.dim('Phase 2:')} Generating ${c.highlight(topics.length)} document(s)...`);
   const documents = await generateAllDynamicDocuments(ai, topics, userRequest, docSnippets, {
     folderName,
-    userName,
+    userName: userName || opts.userName,
     thinkingBudget,
     videoSummaries,
     concurrency: Math.min(opts.parallelAnalysis || 2, 3),
@@ -750,11 +667,11 @@ async function runDynamic(initCtx) {
     }
   }
 
-  // 9. Write output
-  const runDir = opts.outputDir
-    ? path.resolve(opts.outputDir)
-    : path.join(targetDir, 'runs', ts);
-  const { indexPath, stats } = writeDynamicOutput(runDir, documents, {
+  // Write output — dynamic docs go into a 'dynamic/' subdirectory of the run
+  const dynamicDir = parentRunDir
+    ? path.join(parentRunDir, 'dynamic')
+    : path.join(targetDir, 'runs', ts, 'dynamic');
+  const { indexPath, stats } = writeDynamicOutput(dynamicDir, documents, {
     folderName,
     userRequest,
     projectSummary: planResult.projectSummary,
@@ -763,33 +680,22 @@ async function runDynamic(initCtx) {
 
   console.log('');
   console.log(`  ${c.success(`Dynamic generation complete: ${c.highlight(stats.successful + '/' + stats.total)} documents`)}`);
-  console.log(`    Output:  ${c.cyan(path.relative(PROJECT_ROOT, runDir) + '/')}`);
+  console.log(`    Output:  ${c.cyan(path.relative(PROJECT_ROOT, dynamicDir) + '/')}`);
   console.log(`    Index:   ${c.cyan(path.relative(PROJECT_ROOT, indexPath))}`);
   if (stats.failed > 0) {
     console.log(`    ${c.warn(`${stats.failed} document(s) failed`)}`);
   }
   console.log(`    Tokens:  ${c.yellow(stats.totalTokens.toLocaleString())} | Time: ${c.yellow((stats.totalDurationMs / 1000).toFixed(1) + 's')}`);
 
-  // 10. Cost summary
-  const cost = costTracker.getSummary();
-  if (cost.totalTokens > 0) {
-    console.log('');
-    console.log(`  ${c.heading(`Cost estimate (${config.GEMINI_MODEL}):`)}`); 
-    console.log(`    Input:    ${c.yellow(cost.inputTokens.toLocaleString())} ${c.dim(`($${cost.inputCost.toFixed(4)})`)}`); 
-    console.log(`    Output:   ${c.yellow(cost.outputTokens.toLocaleString())} ${c.dim(`($${cost.outputCost.toFixed(4)})`)}`); 
-    console.log(`    Thinking: ${c.yellow(cost.thinkingTokens.toLocaleString())} ${c.dim(`($${cost.thinkingCost.toFixed(4)})`)}`); 
-    console.log(`    Total:    ${c.highlight(cost.totalTokens.toLocaleString())} tokens | ${c.highlight(`$${cost.totalCost.toFixed(4)}`)}`);
-  }
-
-  // 11. Firebase upload (optional)
-  if (!opts.skipUpload) {
+  // Firebase upload (optional)
+  if (!opts.skipUpload && !isShuttingDown()) {
     try {
       const { storage, authenticated } = await initFirebase();
       if (authenticated && storage) {
         const storagePath = `calls/${folderName}/dynamic/${ts}`;
         const indexStoragePath = `${storagePath}/INDEX.md`;
         await uploadToStorage(storage, indexPath, indexStoragePath);
-        console.log(`  ${c.success(`Uploaded to Firebase: ${c.cyan(storagePath + '/')}`)}`); 
+        console.log(`  ${c.success(`Uploaded to Firebase: ${c.cyan(storagePath + '/')}`)}`);
         log.step(`Firebase upload complete: ${storagePath}`);
       }
     } catch (fbErr) {
@@ -802,19 +708,11 @@ async function runDynamic(initCtx) {
   console.log(c.cyan('  ══════════════════════════════════════'));
   console.log(c.heading('  Dynamic Mode Complete'));
   console.log(c.cyan('  ══════════════════════════════════════'));
-  if (videoSummaries.length > 0) {
-    console.log(`  Videos:    ${c.highlight(videoFiles.length)} (${c.yellow(videoSummaries.length)} segments analyzed)`);
-  }
   console.log(`  Documents: ${c.highlight(stats.successful)}`);
-  console.log(`  Output:    ${c.cyan(path.relative(PROJECT_ROOT, runDir) + '/')}`);
-  console.log(`  Elapsed:   ${c.yellow(log.elapsed())}`);
+  console.log(`  Output:    ${c.cyan(path.relative(PROJECT_ROOT, dynamicDir) + '/')}`);
   console.log('');
 
   log.step(`Dynamic mode complete: ${stats.successful} docs, ${stats.totalTokens} tokens`);
-  log.step('DONE');
-  bar.finish();
-  initCtx.progress.cleanup();
-  log.close();
 }
 
 // ======================== SMART CHANGE DETECTION ========================
@@ -899,7 +797,7 @@ async function runProgressUpdate(initCtx) {
   let recommendations = [];
   let aiMode = 'local';
 
-  if (!opts.skipGemini) {
+  if (!opts.skipGemini && !isShuttingDown()) {
     try {
       console.log(`  ${c.dim('Running AI-enhanced assessment...')}`);
       const ai = await initGemini();

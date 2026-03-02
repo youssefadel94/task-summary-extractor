@@ -35,6 +35,7 @@ function buildHealthReport(params) {
     costSummary = {},
     compilationQuality = null,
     totalDurationMs = 0,
+    integrityWarnings = null,
   } = params;
 
   // Parse success rate
@@ -126,6 +127,7 @@ function buildHealthReport(params) {
       grade: compilationQuality.grade,
       issues: compilationQuality.issues,
     } : null,
+    integrityWarnings: integrityWarnings || null,
     issues: allIssues,
   };
 }
@@ -207,6 +209,18 @@ function printHealthDashboard(report) {
     console.log('');
     console.log(`  ${c.warn('Critical Issues:')}`);
     criticalIssues.slice(0, 5).forEach(i => console.log(`    ${i.segment}: ${i.issue}`));
+  }
+
+  // File integrity warnings
+  if (report.integrityWarnings && report.integrityWarnings.length > 0) {
+    console.log('');
+    console.log(`  ${c.warn('⚠ File Integrity Warnings')} (${report.integrityWarnings.length}):`);
+    for (const w of report.integrityWarnings) {
+      const icon = w.severity === 'error' ? c.error('✗')
+        : w.severity === 'warning' ? c.warn('⚠')
+        : c.dim('ℹ');
+      console.log(`    ${icon} ${w.file}: ${w.message}`);
+    }
   }
 
   console.log('');

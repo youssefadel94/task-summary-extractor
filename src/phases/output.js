@@ -92,6 +92,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
     segmentCount: totalSegs,
     compilation: compilationRun || null,
     costSummary: results.costSummary,
+    integrityWarnings: results.integrityWarnings || null,
     segments: results.files.flatMap(f => {
       const speed = results.settings?.speed || 1;
       let cum = 0;

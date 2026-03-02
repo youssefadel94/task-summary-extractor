@@ -90,7 +90,7 @@
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "design_revision", "content_update"]
+                  "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "design_revision", "content_update", "documentation"]
                 },
                 "file_path": { "type": ["string", "null"] },
                 "description": { "type": "string" },
@@ -143,7 +143,7 @@
           },
           "status": {
             "type": "string",
-            "enum": ["actionable", "pending_decision", "blocked", "completed"]
+            "enum": ["actionable", "pending_decision", "blocked", "completed", "open"]
           },
           "dependencies": {
             "type": "array",
@@ -178,7 +178,8 @@
               "source_code", "configuration", "documentation", "database", "enum", "dto",
               "api_endpoint", "ui_component", "script", "diagram", "translation", "stylesheet",
               "contract", "report", "spreadsheet", "presentation", "mockup", "design_asset",
-              "policy", "form", "email", "crm_entry", "dashboard", "transcript"
+              "policy", "form", "email", "crm_entry", "dashboard", "transcript",
+              "command_line_tool", "document", "simulator", "tool"
             ]
           },
           "role": {
@@ -213,7 +214,7 @@
           "assigned_to": { "type": "string" },
           "status": {
             "type": "string",
-            "enum": ["todo", "in_progress", "done", "blocked", "deferred", "ongoing"]
+            "enum": ["todo", "in_progress", "done", "blocked", "deferred", "ongoing", "pending_decision", "long_term", "medium_term"]
           },
           "checklist_match": { "type": ["string", "null"] },
           "deadline": { "type": ["string", "null"] },
@@ -345,7 +346,8 @@
             "enum": [
               "database_prerequisite", "pending_decision", "dba_work", "external_dependency",
               "testing", "deployment", "legal_review", "budget_approval", "vendor_dependency",
-              "regulatory", "access_permission", "resource_constraint", "backend_work"
+              "regulatory", "access_permission", "resource_constraint", "backend_work",
+              "configuration", "data_issue", "data_prerequisite"
             ]
           },
           "description": { "type": "string" },

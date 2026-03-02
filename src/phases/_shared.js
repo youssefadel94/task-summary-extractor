@@ -7,6 +7,7 @@ const path = require('path');
 
 let _log = null;
 let _shuttingDown = false;
+let _abortController = new AbortController();
 
 // PKG_ROOT = where the package is installed (for reading prompt.json, package.json)
 // PROJECT_ROOT = where the user runs from (CWD) — logs, history, gemini_runs go here
@@ -16,7 +17,13 @@ const PROJECT_ROOT = process.cwd();
 function getLog() { return _log; }
 function setLog(l) { _log = l; }
 function isShuttingDown() { return _shuttingDown; }
-function setShuttingDown(val) { _shuttingDown = !!val; }
+function setShuttingDown(val) {
+  _shuttingDown = !!val;
+  if (_shuttingDown && !_abortController.signal.aborted) {
+    _abortController.abort(new Error('Process shutting down'));
+  }
+}
+function getAbortSignal() { return _abortController.signal; }
 
 /** Create a timing wrapper for phase profiling — also writes structured log spans */
 function phaseTimer(phaseName) {
@@ -39,5 +46,6 @@ module.exports = {
   setLog,
   isShuttingDown,
   setShuttingDown,
+  getAbortSignal,
   phaseTimer,
 };

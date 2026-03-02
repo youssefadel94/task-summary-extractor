@@ -279,12 +279,23 @@ async function phaseInit() {
   }
 
   // --- Graceful shutdown handler ---
+  let _shutdownAttempts = 0;
   const shutdown = (signal) => {
-    if (isShuttingDown()) return;
+    _shutdownAttempts++;
+    if (_shutdownAttempts > 1) {
+      // Second signal → force-kill immediately
+      console.warn(`\n  ${c.error('Force-killing process…')}`);
+      process.exit(130);
+    }
     setShuttingDown(true);
-    console.warn(`\n  ${c.warn(`Received ${signal} \u2014 shutting down gracefully...`)}`);
+    console.warn(`\n  ${c.warn(`Received ${signal} \u2014 shutting down gracefully (press again to force-kill)…`)}`);
     log.step(`SHUTDOWN requested (${signal})`);
     log.close();
+    // Safety net: if graceful shutdown doesn't complete in 15s, force-kill
+    setTimeout(() => {
+      console.warn(`  ${c.error('Shutdown timed out — force-killing.')}`);
+      process.exit(130);
+    }, 15000).unref();
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));

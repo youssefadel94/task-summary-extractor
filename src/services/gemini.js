@@ -33,6 +33,7 @@ const {
 const { formatHMS } = require('../utils/format');
 const { withRetry, parallelMap } = require('../utils/retry');
 const { c } = require('../utils/colors');
+const { isShuttingDown } = require('../phases/_shared');
 
 // ======================== INIT ========================
 
@@ -306,6 +307,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
     let waited = 0;
     const pollStart = Date.now();
     while (uploaded.state === 'PROCESSING') {
+      if (isShuttingDown()) throw new Error('Upload polling aborted: process shutting down');
       if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
         throw new Error(`File "${displayName}" is still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s. Try again or increase the wait time by setting GEMINI_POLL_TIMEOUT_MS in your .env file.`);
       }
@@ -423,7 +425,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
 
   contentParts.push({ text: promptText });
 
-  // 5. Send request (model uses its default thinking budget)
+  // 5. Send request with thinking budget
   const requestPayload = {
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
@@ -431,6 +433,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       systemInstruction,
       maxOutputTokens: 65536,
       temperature: 0,
+      thinkingConfig: { thinkingBudget },
     },
   };
 
@@ -644,6 +647,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
     let waited = 0;
     const pollStart = Date.now();
     while (uploaded.state === 'PROCESSING') {
+      if (isShuttingDown()) throw new Error('Upload polling aborted: process shutting down');
       if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
         throw new Error(`File "${seg.segName}" still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s`);
       }
@@ -759,6 +763,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
       systemInstruction,
       maxOutputTokens: 65536,
       temperature: 0,
+      thinkingConfig: { thinkingBudget },
     },
   };
 
@@ -931,7 +936,7 @@ COMPILATION RULES:
 6. SEQUENTIAL IDs: Re-number action items (AI-1, AI-2, ...), scope changes (SC-1, SC-2, ...), blockers (BLK-1, ...) sequentially. Keep real CR/ticket numbers (e.g. CR31296872) unchanged.
 7. FILE REFERENCES: Merge and deduplicate — keep the most specific resolved_path. Each file appears ONCE.
 8. PRESERVE ALL DATA: Include every unique ticket, action item, blocker, etc. from the segments. Do NOT omit items for brevity. The goal is completeness with deduplication, not summarization.
-9. PRESERVE source_segment: Every item in the input has a "source_segment" field (1-based integer) indicating which video segment it originated from. You MUST preserve this field on EVERY output item (action_items, change_requests, blockers, scope_changes, file_references, and inside tickets: comments, code_changes, video_segments). For your_tasks sub-arrays (tasks_todo, tasks_waiting_on_others, decisions_needed), also preserve source_segment. If an item appears in multiple segments, keep the source_segment of the FIRST (earliest) occurrence.
+9. PRESERVE source_segment AND source_video: Every item in the input has a "source_segment" field (1-based integer per video) and a "source_video" field (video filename string) indicating which video segment it originated from. You MUST preserve BOTH fields on EVERY output item (action_items, change_requests, blockers, scope_changes, file_references, and inside tickets: comments, code_changes, video_segments). For your_tasks sub-arrays (tasks_todo, tasks_waiting_on_others, decisions_needed), also preserve both fields. If an item appears in multiple segments, keep the source_segment and source_video of the FIRST (earliest) occurrence.
 
 You MUST respond with ONLY valid JSON (no markdown fences, no extra text).
 Use the same output structure as the individual segment analyses.
@@ -959,19 +964,19 @@ ${segmentDumps}`;
         if (clean.tickets) {
           clean.tickets = clean.tickets.map(t => ({
             ticket_id: t.ticket_id, status: t.status, title: t.title,
-            assignee: t.assignee, source_segment: t.source_segment,
+            assignee: t.assignee, source_segment: t.source_segment, source_video: t.source_video,
           }));
         }
         if (clean.change_requests) {
           clean.change_requests = clean.change_requests.map(cr => ({
             id: cr.id, status: cr.status, title: cr.title,
-            assigned_to: cr.assigned_to, source_segment: cr.source_segment,
+            assigned_to: cr.assigned_to, source_segment: cr.source_segment, source_video: cr.source_video,
           }));
         }
         if (clean.action_items) {
           clean.action_items = clean.action_items.map(ai => ({
             id: ai.id, description: ai.description, assigned_to: ai.assigned_to,
-            status: ai.status, source_segment: ai.source_segment,
+            status: ai.status, source_segment: ai.source_segment, source_video: ai.source_video,
           }));
         }
         delete clean.file_references;
@@ -1002,6 +1007,7 @@ ${segmentDumps}`;
       systemInstruction: `${systemInstruction}\n\nYou are now in COMPILATION MODE — your job is to merge multiple segment analyses into one final unified output. Deduplicate, reconcile conflicts, and produce the definitive analysis. Output valid JSON only — no markdown fences.`,
       maxOutputTokens: 65536,
       temperature: 0,
+      thinkingConfig: { thinkingBudget: compilationThinking },
     },
   };
 
@@ -1176,6 +1182,7 @@ FORMAT:
       systemInstruction: 'You are a meticulous video analyst. Produce comprehensive, detailed summaries that capture everything in the video. Write in clear Markdown prose.',
       maxOutputTokens: 32768,
       temperature: 0.1,
+      thinkingConfig: { thinkingBudget },
     },
   };
 

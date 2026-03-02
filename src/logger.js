@@ -45,6 +45,11 @@ class Logger {
     // Prevent the interval from keeping the process alive
     if (this._flushInterval.unref) this._flushInterval.unref();
 
+    // Error tracking — count dropped log entries so we can report on close
+    this._writeErrors = 0;
+    this._serializationErrors = 0;
+    this._writeErrorReported = false; // one-time stderr warning flag
+
     // Original console methods (for unpatch)
     this._origLog = null;
     this._origWarn = null;
@@ -115,31 +120,49 @@ class Logger {
     };
     try {
       this._structuredBuffer.push(JSON.stringify(enriched) + '\n');
-    } catch { /* ignore serialization errors */ }
+    } catch (serErr) {
+      this._serializationErrors++;
+      // Fallback: write a minimal entry so we don't silently lose events
+      try {
+        const fallback = JSON.stringify({ event: entry.event || 'unknown', error: 'serialization_failed', elapsedMs: this._elapsedMs() });
+        this._structuredBuffer.push(fallback + '\n');
+      } catch { /* truly unserializable — counted above */ }
+    }
   }
 
   _flush(sync = false) {
     const writeFn = sync
       ? (p, d) => fs.appendFileSync(p, d, 'utf8')
-      : (p, d) => fs.appendFile(p, d, 'utf8', () => {});
+      : (p, d) => fs.appendFile(p, d, 'utf8', (err) => {
+        if (err) this._onWriteError(err);
+      });
 
     if (this._detailedBuffer.length > 0) {
       const data = this._detailedBuffer.join('');
       this._detailedBuffer.length = 0;
       try { writeFn(this.detailedPath, data); }
-      catch { /* ignore write errors */ }
+      catch (e) { this._onWriteError(e); }
     }
     if (this._minimalBuffer.length > 0) {
       const data = this._minimalBuffer.join('');
       this._minimalBuffer.length = 0;
       try { writeFn(this.minimalPath, data); }
-      catch { /* ignore write errors */ }
+      catch (e) { this._onWriteError(e); }
     }
     if (this._structuredBuffer.length > 0) {
       const data = this._structuredBuffer.join('');
       this._structuredBuffer.length = 0;
       try { writeFn(this.structuredPath, data); }
-      catch { /* ignore write errors */ }
+      catch (e) { this._onWriteError(e); }
+    }
+  }
+
+  /** Handle a write error: count it and warn once on stderr */
+  _onWriteError(err) {
+    this._writeErrors++;
+    if (!this._writeErrorReported) {
+      this._writeErrorReported = true;
+      process.stderr.write(`[Logger] Warning: log write failed (${err.code || err.message}). Some log entries may be lost.\n`);
     }
   }
 
@@ -318,6 +341,18 @@ class Logger {
     });
   }
 
+  /**
+   * Get count of log entries that were dropped due to write or serialization errors.
+   * @returns {{ writeErrors: number, serializationErrors: number, total: number }}
+   */
+  getDroppedCount() {
+    return {
+      writeErrors: this._writeErrors,
+      serializationErrors: this._serializationErrors,
+      total: this._writeErrors + this._serializationErrors,
+    };
+  }
+
   /** Flush buffers and close the logger. Safe to call multiple times. */
   close() {
     if (this.closed) return;
@@ -333,7 +368,8 @@ class Logger {
     // Write footer and session_end BEFORE setting closed flag
     // so _writeStructured is not blocked by the guard
     const elapsed = ((Date.now() - this.startTime) / 1000).toFixed(1);
-    const footer = `\n=== CLOSED | elapsed: ${elapsed}s | ${new Date().toISOString()} ===\n`;
+    const droppedTotal = this._writeErrors + this._serializationErrors;
+    const footer = `\n=== CLOSED | elapsed: ${elapsed}s | ${new Date().toISOString()}${droppedTotal > 0 ? ` | ${droppedTotal} log entries dropped` : ''} ===\n`;
     this._detailedBuffer.push(footer);
     this._minimalBuffer.push(footer);
     this._writeStructured({
@@ -342,6 +378,7 @@ class Logger {
       phases: this._phases,
       timestamp: new Date().toISOString(),
       level: 'info',
+      ...(droppedTotal > 0 ? { droppedEntries: droppedTotal, writeErrors: this._writeErrors, serializationErrors: this._serializationErrors } : {}),
     });
 
     this.closed = true;

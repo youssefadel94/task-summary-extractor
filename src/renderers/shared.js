@@ -154,11 +154,22 @@ function dedupByDesc(arr, descField = 'description') {
 //  Badge / Formatting Utilities
 // ════════════════════════════════════════════════════════════
 
-/** Format a timestamp string for display. */
-function fmtTs(ts, seg) {
+/** Format a timestamp string for display, optionally with segment number and video name. */
+function fmtTs(ts, seg, video) {
   if (!ts) return '';
+  if (seg && video) return `\`${ts}\` _(${shortVideo(video)} · Seg ${seg})_`;
   if (seg) return `\`${ts}\` _(Seg ${seg})_`;
   return `\`${ts}\``;
+}
+
+/** Shorten a video filename to a readable label. */
+function shortVideo(name) {
+  if (!name) return '';
+  // Strip extension
+  let s = name.replace(/\.[^.]+$/, '');
+  // Truncate long names; keep first 30 chars + ellipsis
+  if (s.length > 35) s = s.substring(0, 30) + '…';
+  return s;
 }
 
 /** Make a compact priority badge */
@@ -208,6 +219,7 @@ module.exports = {
   normalizeDesc,
   dedupByDesc,
   fmtTs,
+  shortVideo,
   priBadge,
   confBadge,
   confBadgeFull,

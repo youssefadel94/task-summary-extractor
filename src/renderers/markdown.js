@@ -17,7 +17,7 @@
 const {
   stripParens, normalizeKey, clusterNames, resolve,
   dedupBy, normalizeDesc, dedupByDesc,
-  fmtTs, priBadge, confBadge, confBadgeFull,
+  fmtTs, priBadge, confBadge, confBadgeFull, shortVideo,
 } = require('./shared');
 
 /**
@@ -122,21 +122,73 @@ function renderResultsMarkdown({ compiled, meta }) {
     ln('');
   }
 
-  // Segment breakdown
+  // ── File Integrity Warnings ──
+  const intWarnings = meta.integrityWarnings;
+  if (intWarnings && intWarnings.length > 0) {
+    ln('> ⚠️ **File Integrity Issues Detected**');
+    ln('>');
+    for (const w of intWarnings) {
+      const icon = w.severity === 'error' ? '🔴' : w.severity === 'warning' ? '🟡' : 'ℹ️';
+      ln(`> ${icon} **${w.file}** (${w.type}) — ${w.message}  `);
+      if (w.detail) ln(`>   _${w.detail}_  `);
+    }
+    ln('>');
+    const hasErrors = intWarnings.some(w => w.severity === 'error');
+    if (hasErrors) {
+      ln('> **Some files may be broken.** Results may be incomplete — re-download or replace broken files.  ');
+    } else {
+      ln('> Results may be affected — review flagged files for completeness.  ');
+    }
+    ln('');
+  }
+
+  // Segment breakdown (grouped by video)
   const segs = meta.segments || [];
   if (segs.length > 0) {
+    // Group segments by video name
+    const videoGroups = [];
+    const videoOrder = [];
+    const videoMap = {};
+    for (const s of segs) {
+      const key = s.video || 'Unknown';
+      if (!videoMap[key]) {
+        videoMap[key] = [];
+        videoOrder.push(key);
+      }
+      videoMap[key].push(s);
+    }
+    for (const v of videoOrder) videoGroups.push({ video: v, segs: videoMap[v] });
+
+    const multiVideo = videoGroups.length > 1;
     ln('<details>');
-    ln(`<summary>📼 Segment Details (${segs.length} segments)</summary>`);
+    ln(`<summary>📼 Segment Details (${segs.length} segments${multiVideo ? ` from ${videoGroups.length} videos` : ''})</summary>`);
     ln('');
-    ln('| # | File | Duration | Size |');
-    ln('| --- | --- | --- | --- |');
-    segs.forEach((s, i) => {
-      ln(`| ${i + 1} | ${s.file} | ${s.duration || '?'} | ${s.sizeMB || '?'} MB |`);
-    });
-    const totalDur = segs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
-    const totalSize = segs.reduce((sum, s) => sum + (parseFloat(s.sizeMB) || 0), 0);
-    ln(`| | **Total** | **${Math.floor(totalDur / 60)}:${String(Math.round(totalDur % 60)).padStart(2, '0')}** | **${totalSize.toFixed(2)} MB** |`);
-    ln('');
+
+    let globalIdx = 0;
+    for (const group of videoGroups) {
+      if (multiVideo) {
+        ln(`**🎬 ${group.video}** (${group.segs.length} segments)`);
+        ln('');
+      }
+      ln('| # | File | Duration | Size |');
+      ln('| --- | --- | --- | --- |');
+      for (const s of group.segs) {
+        globalIdx++;
+        ln(`| ${globalIdx} | ${s.file} | ${s.duration || '?'} | ${s.sizeMB || '?'} MB |`);
+      }
+      const groupDur = group.segs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
+      const groupSize = group.segs.reduce((sum, s) => sum + (parseFloat(s.sizeMB) || 0), 0);
+      ln(`| | **Subtotal** | **${Math.floor(groupDur / 60)}:${String(Math.round(groupDur % 60)).padStart(2, '0')}** | **${groupSize.toFixed(2)} MB** |`);
+      ln('');
+    }
+
+    if (multiVideo) {
+      const totalDur = segs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
+      const totalSize = segs.reduce((sum, s) => sum + (parseFloat(s.sizeMB) || 0), 0);
+      ln(`> **Overall Total**: ${segs.length} segments | **${Math.floor(totalDur / 60)}:${String(Math.round(totalDur % 60)).padStart(2, '0')}** | **${totalSize.toFixed(2)} MB**`);
+      ln('');
+    }
+
     if (meta.settings) {
       ln(`> Speed: ${meta.settings.speed}x | Preset: ${meta.settings.preset} | Segment time: ${meta.settings.segmentTimeSec}s`);
     }
@@ -247,7 +299,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         const pri = priBadge(item.priority);
         const conf = confBadge(item.confidence);
         const source = item.source ? ` _(${item.source})_` : '';
-        const ts = item.referenced_at ? ` @ ${fmtTs(item.referenced_at, item.source_segment)}` : '';
+        const ts = item.referenced_at ? ` @ ${fmtTs(item.referenced_at, item.source_segment, item.source_video)}` : '';
         const blocker = item.blocked_by ? `\n  - ⛔ **Blocked by**: ${item.blocked_by}` : '';
         const relTickets = (item.related_tickets || []).length > 0 ? `\n  - Tickets: ${item.related_tickets.join(', ')}` : '';
         const relChanges = (item.related_changes || []).length > 0 ? `\n  - Changes: ${item.related_changes.join(', ')}` : '';
@@ -268,7 +320,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         const status = cr.status ? ` \`${cr.status}\`` : '';
         const pri = priBadge(cr.priority);
         const where = cr.where?.file_path ? ` → \`${cr.where.file_path}\`` : '';
-        const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment)}` : '';
+        const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
         const type = cr.type ? ` _[${cr.type}]_` : '';
         ln(`- **${cr.id}**: ${cr.title || cr.what}${status}${pri}${type}${where}${ts}`);
         if (cr.what && cr.what !== cr.title) ln(`  - **What**: ${cr.what}`);
@@ -287,8 +339,8 @@ function renderResultsMarkdown({ compiled, meta }) {
       ln('### ⏳ Waiting On Others');
       ln('');
       for (const w of waitingItems) {
-        const resolvedWho = resolve(w.waiting_on, clusterMap);
-        const ts = w.referenced_at ? ` @ ${fmtTs(w.referenced_at, w.source_segment)}` : '';
+        const resolvedWho = w.waiting_on ? resolve(w.waiting_on, clusterMap) : 'someone';
+        const ts = w.referenced_at ? ` @ ${fmtTs(w.referenced_at, w.source_segment, w.source_video)}` : '';
         ln(`- ⏳ ${w.description} → waiting on **${resolvedWho}**${w.source ? ` _(${w.source})_` : ''}${ts}`);
       }
       ln('');
@@ -300,8 +352,8 @@ function renderResultsMarkdown({ compiled, meta }) {
       ln('### ❓ Decisions Needed');
       ln('');
       for (const d of decisionItems) {
-        const resolvedWho = resolve(d.from_whom, clusterMap);
-        const ts = d.referenced_at ? ` @ ${fmtTs(d.referenced_at, d.source_segment)}` : '';
+        const resolvedWho = d.from_whom ? resolve(d.from_whom, clusterMap) : 'someone';
+        const ts = d.referenced_at ? ` @ ${fmtTs(d.referenced_at, d.source_segment, d.source_video)}` : '';
         ln(`- ${d.description} → from **${resolvedWho}**${d.source ? ` _(${d.source})_` : ''}${ts}`);
       }
       ln('');
@@ -319,7 +371,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
         const status = b.status ? ` (${b.status})` : '';
         const type = b.type ? ` _[${b.type.replace(/_/g, ' ')}]_` : '';
-        const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment)}` : '';
+        const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment, b.source_video)}` : '';
         const bConf = confBadge(b.confidence);
         ln(`- **${b.id}**: ${b.description}${env}${status}${type}${bConf}${ts}`);
         if (b.blocks?.length > 0) ln(`  - Blocks: ${b.blocks.join(', ')}`);
@@ -433,7 +485,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         for (const cc of codeChanges) {
           const type = cc.type ? `[${cc.type}]` : '';
           const pri = priBadge(cc.priority);
-          const ts = cc.referenced_at ? ` @ ${fmtTs(cc.referenced_at, cc.source_segment)}` : '';
+          const ts = cc.referenced_at ? ` @ ${fmtTs(cc.referenced_at, cc.source_segment, cc.source_video)}` : '';
           ln(`- ${type} \`${cc.file_path || '?'}\`${pri}${ts}`);
           ln(`  - ${cc.description}`);
           if (cc.details && cc.details !== cc.description) {
@@ -451,7 +503,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         for (const cr of ticketCRs) {
           const status = cr.status ? ` \`${cr.status}\`` : '';
           const assignee = cr.assigned_to ? resolve(cr.assigned_to, clusterMap) : '?';
-          const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment)}` : '';
+          const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
           ln(`- **${cr.id}**: ${cr.title || cr.what}${status} → ${assignee}${ts}`);
           if (cr.what && cr.what !== cr.title) ln(`  - What: ${cr.what}`);
           if (cr.how) ln(`  - How: ${cr.how}`);
@@ -470,7 +522,7 @@ function renderResultsMarkdown({ compiled, meta }) {
           const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
           const status = b.status ? ` (${b.status})` : '';
           const owner = b.owner ? ` → ${resolve(b.owner, clusterMap)}` : '';
-          const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment)}` : '';
+          const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment, b.source_video)}` : '';
           ln(`- **${b.id}**: ${b.description}${env}${status}${owner}${ts}`);
         }
         ln('');
@@ -552,7 +604,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         ln('');
         for (const item of actionableTodos) {
           const pri = priBadge(item.priority);
-          const ts = item.referenced_at ? ` @ ${fmtTs(item.referenced_at, item.source_segment)}` : '';
+          const ts = item.referenced_at ? ` @ ${fmtTs(item.referenced_at, item.source_segment, item.source_video)}` : '';
           const ref = (item.related_tickets || []).length > 0 ? ` _(${item.related_tickets.join(', ')})_` : '';
           const dep = item.depends_on ? ` ⛔ blocked by: ${item.depends_on}` : '';
           ln(`- [ ] ${item.description}${pri}${ref}${ts}${dep}`);
@@ -568,7 +620,7 @@ function renderResultsMarkdown({ compiled, meta }) {
           const status = cr.status ? ` \`${cr.status}\`` : '';
           const pri = priBadge(cr.priority);
           const where = cr.where?.file_path ? ` → \`${cr.where.file_path}\`` : '';
-          const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment)}` : '';
+          const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
           ln(`- **${cr.id}**: ${cr.title || cr.what}${status}${pri}${where}${ts}`);
           if (cr.what && cr.what !== cr.title) ln(`  - What: ${cr.what}`);
           if (cr.how) ln(`  - How: ${cr.how}`);
@@ -585,8 +637,9 @@ function renderResultsMarkdown({ compiled, meta }) {
           const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
           const status = b.status ? ` (${b.status})` : '';
           const type = b.type ? ` _[${b.type.replace(/_/g, ' ')}]_` : '';
-          const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment)}` : '';
+          const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment, b.source_video)}` : '';
           ln(`- **${b.id}**: ${b.description}${env}${status}${type}${ts}`);
+
           if (b.blocks?.length > 0) ln(`  - Blocks: ${b.blocks.join(', ')}`);
         }
         ln('');
@@ -611,7 +664,7 @@ function renderResultsMarkdown({ compiled, meta }) {
       const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
       const status = b.status ? ` (${b.status})` : '';
       const type = b.type ? ` _[${b.type.replace(/_/g, ' ')}]_` : '';
-      const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment)}` : '';
+      const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment, b.source_video)}` : '';
       const check = b.checklist_match ? ` ✓${b.checklist_match}` : '';
       ln(`- **${b.id}** (${b.owner || 'unassigned'}): ${b.description}${env}${status}${type}${ts}${check}`);
       if (b.blocks?.length > 0) ln(`  - Blocks: ${b.blocks.join(', ')}`);
@@ -630,7 +683,7 @@ function renderResultsMarkdown({ compiled, meta }) {
     for (const sc of allScope) {
       const icon = { added: '➕', removed: '➖', deferred: '⏸️', approach_changed: '🔄', ownership_changed: '👤', requirements_changed: '📋' }[sc.type] || '🔀';
       const decidedBy = sc.decided_by ? resolve(sc.decided_by, clusterMap) : null;
-      const ts = sc.referenced_at ? ` @ ${fmtTs(sc.referenced_at, sc.source_segment)}` : '';
+      const ts = sc.referenced_at ? ` @ ${fmtTs(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
       const scConf = confBadge(sc.confidence);
       ln(`- ${icon} **${sc.id}** (${(sc.type || '').replace(/_/g, ' ')}): ${sc.new_scope}${scConf}${ts}`);
       if (sc.original_scope && sc.original_scope !== 'not documented') {
@@ -663,7 +716,7 @@ function renderResultsMarkdown({ compiled, meta }) {
       const type = cr.type || '-';
       const file = cr.where?.file_path ? `\`${cr.where.file_path}\`` : '-';
       const ts = cr.referenced_at || '-';
-      const seg = cr.source_segment ? `Seg ${cr.source_segment}` : '';
+      const seg = cr.source_segment ? (cr.source_video ? `${shortVideo(cr.source_video)} · Seg ${cr.source_segment}` : `Seg ${cr.source_segment}`) : '';
       ln(`| ${cr.id} | ${cr.title || cr.what || '-'} | ${type} | ${status} | ${pri} | ${confIcon}${conf} | ${assignee} | ${file} | ${ts} ${seg} |`);
     }
     ln('');
@@ -675,12 +728,13 @@ function renderResultsMarkdown({ compiled, meta }) {
     for (const cr of allCRs) {
       const assignee = cr.assigned_to ? resolve(cr.assigned_to, clusterMap) : '?';
       const status = cr.status ? ` \`${cr.status}\`` : '';
-      const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment)}` : '';
+      const ts = cr.referenced_at ? ` @ ${fmtTs(cr.referenced_at, cr.source_segment, cr.source_video)}` : '';
       ln(`**${cr.id}**: ${cr.title || cr.what}${status} → ${assignee}${ts}`);
       if (cr.what && cr.what !== cr.title) ln(`- What: ${cr.what}`);
       if (cr.how) ln(`- How: ${cr.how}`);
       if (cr.why) ln(`- Why: ${cr.why}`);
       if (cr.where?.file_path) ln(`- File: \`${cr.where.file_path}\` (${cr.where.module || '?'}/${cr.where.component || '?'})`);
+
       if (cr.code_map_match) ln(`- Code map: \`${cr.code_map_match}\``);
       if ((cr.related_tickets || []).length > 0) ln(`- Tickets: ${cr.related_tickets.join(', ')}`);
       ln('');

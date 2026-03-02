@@ -82,6 +82,13 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
       };
       fs.writeFileSync(compilationFile, JSON.stringify(compilationPayload, null, 2), 'utf8');
       log.step(`Compilation run saved → ${compilationFile}`);
+      log.metric('compilation', {
+        durationMs: compilationRun.durationMs,
+        tokens: compilationRun.tokenUsage || {},
+        schemaValid: compiledAnalysis && !compiledAnalysis._incomplete,
+        segmentsCompiled: allSegmentAnalyses.length,
+        thinkingBudget: compBudget.budget,
+      });
 
       progress.markCompilationDone();
 

@@ -11,6 +11,7 @@ const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, SPEED, SEG_TIME } = config;
 const { c } = require('../utils/colors');
 const { findDocsRecursive } = require('../utils/fs');
 const { promptUserText } = require('../utils/cli');
+const { auditFileIntegrity, printIntegrityReport } = require('../utils/file-integrity');
 
 // --- Shared state ---
 const { getLog, phaseTimer } = require('./_shared');
@@ -175,8 +176,20 @@ async function phaseDiscover(ctx) {
     console.log('');
   }
 
+  // --- File integrity audit (non-blocking) ---
+  const integrityAudit = auditFileIntegrity({ videoFiles, audioFiles, docFiles: allDocFiles });
+  if (integrityAudit.warnings.length > 0) {
+    printIntegrityReport(integrityAudit, log);
+    log.step(`File integrity: ${integrityAudit.warnings.length} issue(s) flagged`);
+    log.metric('file_integrity', {
+      totalFiles: integrityAudit.totalFiles,
+      warnings: integrityAudit.warnings.length,
+      issues: integrityAudit.warnings.map(w => ({ file: w.file, severity: w.severity, reason: w.reason })),
+    });
+  }
+
   timer.end();
-  return { ...ctx, videoFiles, audioFiles, allDocFiles, userName, inputMode };
+  return { ...ctx, videoFiles, audioFiles, allDocFiles, userName, inputMode, integrityAudit };
 }
 
 module.exports = phaseDiscover;
