@@ -245,7 +245,8 @@ function buildProgressiveContext(previousAnalyses, userName) {
   const parts = [];
   parts.push('PREVIOUS SEGMENT ANALYSES — maintain continuity, reuse REAL ticket IDs, continue numbering.');
   parts.push('Rules: DO NOT repeat already-extracted items. Only add NEW information or STATE CHANGES.');
-  parts.push(`Track tasks for "${userName}" consistently across segments.\n`);
+  if (userName) parts.push(`Track tasks for "${userName}" consistently across segments.\n`);
+  else parts.push('');
 
   for (let idx = 0; idx < previousAnalyses.length; idx++) {
     const prev = previousAnalyses[idx];
@@ -398,7 +399,7 @@ function buildSegmentFocus(segmentIndex, totalSegments, previousAnalyses, userNa
   if (segmentIndex === 0) {
     lines.push('FOCUS: Identify ALL tickets, participants, and initial task assignments.');
     lines.push('Establish the baseline state for each ticket. Cross-reference everything against task documents.');
-    lines.push(`Pay special attention to tasks assigned to "${userName}".`);
+    if (userName) lines.push(`Pay special attention to tasks assigned to "${userName}".`);
   } else {
     // Build awareness of what's been found
     const allTicketIds = new Set();
@@ -426,7 +427,7 @@ function buildSegmentFocus(segmentIndex, totalSegments, previousAnalyses, userNa
     lines.push('1. DETECT NEW tickets, CRs, action items, blockers not yet found');
     lines.push('2. TRACK STATE CHANGES to already-known items (status updates, new decisions, scope changes)');
     lines.push('3. CAPTURE any tasks assigned, re-assigned, or completed during this segment');
-    lines.push(`4. UPDATE ${userName}'s task list — any new assignments, completions, or blockers`);
+    if (userName) lines.push(`4. UPDATE ${userName}'s task list — any new assignments, completions, or blockers`);
     lines.push('5. NOTE discussion depth — conversations with detailed decisions have HIGH task relevance');
 
     if (segmentIndex === totalSegments - 1) {
@@ -619,7 +620,7 @@ function buildBatchSegmentFocus(segmentIndices, totalSegments, previousAnalyses,
   if (first === 0) {
     lines.push('FOCUS: Identify ALL tickets, participants, and initial task assignments.');
     lines.push('Establish the baseline state for each ticket. Cross-reference everything against task documents.');
-    lines.push(`Pay special attention to tasks assigned to "${userName}".`);
+    if (userName) lines.push(`Pay special attention to tasks assigned to "${userName}".`);
   } else {
     // Build awareness of what's been found
     const allTicketIds = new Set();
@@ -645,7 +646,7 @@ function buildBatchSegmentFocus(segmentIndices, totalSegments, previousAnalyses,
     lines.push('1. DETECT NEW tickets, CRs, action items, blockers not yet found');
     lines.push('2. TRACK STATE CHANGES to already-known items within and across the segments');
     lines.push('3. CAPTURE any tasks assigned, re-assigned, or completed');
-    lines.push(`4. UPDATE ${userName}'s task list — any new assignments, completions, or blockers`);
+    if (userName) lines.push(`4. UPDATE ${userName}'s task list — any new assignments, completions, or blockers`);
 
     if (last === totalSegments - 1) {
       lines.push('');

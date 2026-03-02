@@ -109,12 +109,14 @@ async function phaseDiscover(ctx) {
     }
   }
   if (!userName) {
-    throw new Error('Name is required for personalized analysis. Use --name "Your Name" or enter it when prompted.');
+    console.log(`  ${c.yellow('⚠')} No name provided — personalized task detection will be skipped.`);
+    console.log(`    ${c.dim('Tip: use --name "Your Name" for task attribution next time.')}`);
+  } else {
+    log.step(`User identified as: ${userName}`);
   }
-  log.step(`User identified as: ${userName}`);
 
   console.log('');
-  console.log(`  User    : ${c.cyan(userName)}`);
+  console.log(`  User    : ${userName ? c.cyan(userName) : c.dim('(anonymous)')}`);
   console.log(`  Source  : ${c.dim(targetDir)}`);
   console.log(`  Input   : ${c.yellow(inputMode)}`);
   if (inputMode === 'video') console.log(`  Videos  : ${c.highlight(videoFiles.length)}`);

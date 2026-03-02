@@ -844,8 +844,7 @@ async function compileFinalResult(ai, allSegmentAnalyses, userName, callName, sc
   const compilationPrompt = `You are compiling the FINAL unified analysis from a multi-segment video call.
 
 CONTEXT:
-- Call name: "${callName}"
-- Current user: "${userName}"
+- Call name: "${callName}"${userName ? `\n- Current user: "${userName}"` : ''}
 - Total segments analyzed: ${allSegmentAnalyses.length}
 
 Below are the individual segment analyses. Each segment was analyzed independently but with cross-segment context. Your job is to produce ONE final, compiled, deduplicated result.
@@ -857,8 +856,7 @@ Your JSON output MUST include ALL of these top-level fields (use empty arrays []
   "action_items": [...],      // All unique action items (deduplicated, re-numbered AI-1, AI-2, ...)
   "blockers": [...],          // All unique blockers (deduplicated, re-numbered BLK-1, ...)
   "scope_changes": [...],     // All unique scope changes (deduplicated, re-numbered SC-1, ...)
-  "file_references": [...],   // All unique file references (deduplicated by resolved_path)
-  "your_tasks": { ... },      // Unified task summary for "${userName}"
+  "file_references": [...],   // All unique file references (deduplicated by resolved_path)${userName ? `\n  "your_tasks": { ... },      // Unified task summary for "${userName}"` : ''}
   "summary": "..."            // ONE coherent executive summary for the entire call (3-5 sentences)
 
 OUTPUT FORMAT RULES:
@@ -873,11 +871,11 @@ COMPILATION RULES:
 2. NAME NORMALIZATION: Merge variant names for the same person:
    - Case differences ("Youssef Adel" / "youssef adel") → use proper case
    - Role suffixes ("Mohamed Elhadi" / "Mohamed Elhadi (Service Desk)") → use the base name only, drop role qualifiers
-   - Nicknames or partial names referring to the same person → normalize to full proper name
-   Ensure your_tasks.user_name uses the properly-cased version of "${userName}".
+   - Nicknames or partial names referring to the same person → normalize to full proper name${userName ? `
+   Ensure your_tasks.user_name uses the properly-cased version of "${userName}".` : ''}
 3. RECONCILE CONFLICTS: If two segments give different status for the same item, use the LATEST/most-specific state.
-4. MERGE SUMMARIES: Write ONE coherent executive summary for the entire call (3-5 sentences max). Not per-segment.
-5. UNIFIED your_tasks: Produce ONE your_tasks section for "${userName}" — deduplicated, final states only.
+4. MERGE SUMMARIES: Write ONE coherent executive summary for the entire call (3-5 sentences max). Not per-segment.${userName ? `
+5. UNIFIED your_tasks: Produce ONE your_tasks section for "${userName}" — deduplicated, final states only.` : ''}
 6. SEQUENTIAL IDs: Re-number action items (AI-1, AI-2, ...), scope changes (SC-1, SC-2, ...), blockers (BLK-1, ...) sequentially. Keep real CR/ticket numbers (e.g. CR31296872) unchanged.
 7. FILE REFERENCES: Merge and deduplicate — keep the most specific resolved_path. Each file appears ONCE.
 8. PRESERVE ALL DATA: Include every unique ticket, action item, blocker, etc. from the segments. Do NOT omit items for brevity. The goal is completeness with deduplication, not summarization.
