@@ -269,8 +269,15 @@ async function run() {
   }
 
   // Phase 10 (optional): Dynamic Topic Documents — generate topic-based docs from compiled results
-  if (fullCtx.opts.dynamic && compiledAnalysis && !fullCtx.opts.skipGemini && !fullCtx.opts.dryRun && !isShuttingDown()) {
-    await runDynamicTopics(fullCtx, compiledAnalysis, outputResult.runDir);
+  if (fullCtx.opts.dynamic && !fullCtx.opts.skipGemini && !fullCtx.opts.dryRun && !isShuttingDown()) {
+    // Use compiled analysis if available; otherwise build a merged view from segments
+    const dynamicSource = compiledAnalysis || mergeSegmentAnalysesForDynamic(allSegmentAnalyses);
+    if (dynamicSource) {
+      if (!compiledAnalysis) {
+        console.log(`  ${c.warn('Compilation failed — dynamic mode will use merged segment data instead')}`);
+      }
+      await runDynamicTopics(fullCtx, dynamicSource, outputResult.runDir);
+    }
   }
 
   // Cleanup
@@ -522,9 +529,14 @@ async function runDocOnly(ctx) {
   console.log('');
 
   // Dynamic topic documents (uses compiled results from doc-only analysis)
-  if (opts.dynamic && compiledAnalysis && ai && !isShuttingDown()) {
-    const dynamicCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
-    await runDynamicTopics(dynamicCtx, compiledAnalysis, runDir);
+  if (opts.dynamic && ai && !isShuttingDown()) {
+    const dynamicSource = compiledAnalysis || null;
+    if (dynamicSource) {
+      const dynamicCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
+      await runDynamicTopics(dynamicCtx, dynamicSource, runDir);
+    } else {
+      console.log(`  ${c.warn('Compilation failed — skipping dynamic mode (no segment data in doc-only mode)')}`);
+    }
   }
 
   log.step('Doc-only mode complete');
@@ -532,6 +544,73 @@ async function runDocOnly(ctx) {
   bar.finish();
   progress.cleanup();
   log.close();
+}
+
+// ======================== SEGMENT MERGE FOR DYNAMIC FALLBACK ========================
+
+/**
+ * Build a pseudo-compiled analysis object from raw segment analyses.
+ * Used as a fallback when phaseCompile fails, so dynamic mode can still run.
+ * Performs simple concatenation (no AI dedup), which is good enough for
+ * dynamic topic planning context.
+ *
+ * @param {Array<object>} allSegmentAnalyses
+ * @returns {object|null}
+ */
+function mergeSegmentAnalysesForDynamic(allSegmentAnalyses) {
+  if (!allSegmentAnalyses || allSegmentAnalyses.length === 0) return null;
+
+  const merged = {
+    tickets: [],
+    change_requests: [],
+    action_items: [],
+    blockers: [],
+    scope_changes: [],
+    file_references: [],
+    your_tasks: null,
+    summary: '',
+    _segmentMergeFallback: true,
+  };
+
+  const seenTickets = new Set();
+  const seenCRs = new Set();
+  const summaries = [];
+
+  for (const seg of allSegmentAnalyses) {
+    // Merge tickets (dedup by ticket_id)
+    if (Array.isArray(seg.tickets)) {
+      for (const t of seg.tickets) {
+        if (t.ticket_id && !seenTickets.has(t.ticket_id)) {
+          seenTickets.add(t.ticket_id);
+          merged.tickets.push(t);
+        }
+      }
+    }
+    // Merge CRs (dedup by id)
+    if (Array.isArray(seg.change_requests)) {
+      for (const cr of seg.change_requests) {
+        if (cr.id && !seenCRs.has(cr.id)) {
+          seenCRs.add(cr.id);
+          merged.change_requests.push(cr);
+        }
+      }
+    }
+    // Append all action items, blockers, scope changes, file refs
+    if (Array.isArray(seg.action_items)) merged.action_items.push(...seg.action_items);
+    if (Array.isArray(seg.blockers)) merged.blockers.push(...seg.blockers);
+    if (Array.isArray(seg.scope_changes)) merged.scope_changes.push(...seg.scope_changes);
+    if (Array.isArray(seg.file_references)) merged.file_references.push(...seg.file_references);
+
+    // Use last your_tasks if present
+    if (seg.your_tasks) {
+      merged.your_tasks = seg.your_tasks;
+    }
+
+    if (seg.summary) summaries.push(seg.summary);
+  }
+
+  merged.summary = summaries.join(' ');
+  return merged;
 }
 
 // ======================== DYNAMIC TOPIC DOCUMENTS ========================

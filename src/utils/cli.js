@@ -383,7 +383,7 @@ ${f('--version, -v', 'Show version')}
 module.exports = {
   parseArgs, showHelp, discoverFolders, selectFolder, selectModel,
   promptUser, promptUserText, selectRunMode, selectFormats, selectConfidence,
-  selectDocsToExclude,
+  selectDocsToExclude, selectFeatureFlags,
 };
 
 // ======================== INTERACTIVE PROMPTS ========================
@@ -650,4 +650,169 @@ async function selectDocsToExclude(contextDocs) {
   });
 
   return result.values;
+}
+
+// ======================== FEATURE FLAGS SELECTOR ========================
+
+/**
+ * Feature flag definitions for the interactive toggle picker.
+ * Each item maps to its corresponding CLI flag and opts key.
+ */
+const FEATURE_FLAGS = [
+  {
+    key: 'deepSummary',
+    flag: '--deep-summary',
+    icon: '📦',
+    label: 'Deep Summary',
+    desc: 'Pre-summarize context docs to save tokens per segment',
+    category: 'enhance',
+    default: false,
+  },
+  {
+    key: 'deepDive',
+    flag: '--deep-dive',
+    icon: '🔬',
+    label: 'Deep Dive',
+    desc: 'Generate explanatory documents from compiled results',
+    category: 'enhance',
+    default: false,
+  },
+  {
+    key: 'dynamic',
+    flag: '--dynamic',
+    icon: '📄',
+    label: 'Dynamic Mode',
+    desc: 'AI-generated custom documents from your request prompt',
+    category: 'enhance',
+    default: false,
+  },
+  {
+    key: 'updateProgress',
+    flag: '--update-progress',
+    icon: '📊',
+    label: 'Progress Tracker',
+    desc: 'Track action item completion via git changes',
+    category: 'enhance',
+    default: false,
+  },
+  {
+    key: 'disableFocusedPass',
+    flag: '--no-focused-pass',
+    icon: '🎯',
+    label: 'Focused Pass',
+    desc: 'Second-pass analysis on weak segments for better quality',
+    category: 'quality',
+    default: true, // enabled by default — toggle OFF to disable
+    inverted: true,  // UI shows "enabled" when opts value is false
+  },
+  {
+    key: 'disableLearning',
+    flag: '--no-learning',
+    icon: '🧠',
+    label: 'Learning Loop',
+    desc: 'Learn from past runs to improve future budget & quality',
+    category: 'quality',
+    default: true,
+    inverted: true,
+  },
+  {
+    key: 'disableDiff',
+    flag: '--no-diff',
+    icon: '📝',
+    label: 'Diff Engine',
+    desc: 'Show changes between runs (new/removed/changed items)',
+    category: 'quality',
+    default: true,
+    inverted: true,
+  },
+  {
+    key: 'noBatch',
+    flag: '--no-batch',
+    icon: '📦',
+    label: 'Batch Processing',
+    desc: 'Group short segments into batches for efficiency',
+    category: 'processing',
+    default: true,
+    inverted: true,
+  },
+  {
+    key: 'noHtml',
+    flag: '--no-html',
+    icon: '🌐',
+    label: 'HTML Output',
+    desc: 'Generate styled HTML report alongside other formats',
+    category: 'output',
+    default: true,
+    inverted: true,
+  },
+];
+
+/**
+ * Interactive feature flags selector — multi-select toggle for optional features.
+ * Shows all feature flags with their current state and lets user toggle on/off.
+ *
+ * @param {object} currentOpts - Current options (to show existing state)
+ * @returns {Promise<object>} Object with flag keys and their boolean values
+ */
+async function selectFeatureFlags(currentOpts = {}) {
+  console.log('');
+  console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
+  console.log(c.heading('  │                     ⚙️   Feature Flags                                       │'));
+  console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
+
+  // Group flags by category for visual separation
+  const enhanceFlags = FEATURE_FLAGS.filter(f => f.category === 'enhance');
+  const qualityFlags = FEATURE_FLAGS.filter(f => f.category === 'quality');
+  const processingFlags = FEATURE_FLAGS.filter(f => f.category === 'processing');
+  const outputFlags = FEATURE_FLAGS.filter(f => f.category === 'output');
+
+  const orderedFlags = [
+    ...enhanceFlags,
+    ...qualityFlags,
+    ...processingFlags,
+    ...outputFlags,
+  ];
+
+  const items = orderedFlags.map(f => ({
+    label: `${f.icon} ${c.bold(f.label)}`,
+    hint: f.desc,
+    value: f.key,
+  }));
+
+  // Determine which flags are currently "on" (for pre-selection)
+  const preSelected = new Set();
+  orderedFlags.forEach((f, idx) => {
+    // Check current opts value
+    const currentValue = currentOpts[f.key];
+    if (f.inverted) {
+      // Inverted: feature is ON when opts value is false/undefined
+      if (currentValue === undefined || currentValue === false) {
+        preSelected.add(idx);
+      }
+    } else {
+      // Normal: feature is ON when opts value is true
+      if (currentValue === true) {
+        preSelected.add(idx);
+      } else if (currentValue === undefined && f.default) {
+        preSelected.add(idx);
+      }
+    }
+  });
+
+  const result = await selectMany({
+    title: null, // banner already printed
+    items,
+    defaultSelected: preSelected,
+    footer: '↑↓ navigate · Space toggle · A all/none · Enter confirm',
+  });
+
+  // Build result object
+  const selectedKeys = new Set(result.values);
+  const flagResults = {};
+  for (const f of orderedFlags) {
+    const isOn = selectedKeys.has(f.key);
+    flagResults[f.key] = f.inverted ? !isOn : isOn;
+  }
+
+  return flagResults;
 }

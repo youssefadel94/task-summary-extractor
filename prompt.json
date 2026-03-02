@@ -200,7 +200,7 @@
                 ],
                 "code_changes": [
                     {
-                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|design_revision|content_update)",
+                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|design_revision|content_update|documentation)",
                         "file_path": "string (exact path, URL, document name, or artifact identifier — null if unresolvable)",
                         "description": "string",
                         "details": "string",
@@ -316,7 +316,7 @@
         "blockers": [
             {
                 "id": "string (BLK-1, BLK-2, or matching ID from tracking docs like DB-1, LEGAL-1, INFRA-1)",
-                "type": "database_prerequisite|pending_decision|dba_work|external_dependency|testing|deployment|legal_review|budget_approval|vendor_dependency|regulatory|access_permission|resource_constraint|backend_work",
+                "type": "database_prerequisite|pending_decision|dba_work|external_dependency|testing|deployment|legal_review|budget_approval|vendor_dependency|regulatory|access_permission|resource_constraint|backend_work|configuration|data_issue|data_prerequisite",
                 "description": "string",
                 "owner": "string (who needs to resolve this — person, team, department, external party, etc.)",
                 "blocks": ["string (work-item IDs or action items blocked by this)"],

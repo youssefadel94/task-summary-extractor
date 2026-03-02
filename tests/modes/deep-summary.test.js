@@ -389,6 +389,50 @@ describe('deepSummarize', () => {
     expect(result.stats.summarized).toBe(0);
   });
 
+  it('splits a failed batch and retries sub-batches', async () => {
+    let callCount = 0;
+    const ai = makeMockAi(() => {
+      callCount++;
+      // First call (full batch) fails with unparseable response
+      if (callCount === 1) {
+        return { text: '', usageMetadata: { promptTokenCount: 9000, candidatesTokenCount: 0, thoughtsTokenCount: 6553 } };
+      }
+      // Sub-batch calls succeed
+      return {
+        text: JSON.stringify({
+          summaries: callCount === 2
+            ? { 'a.md': 'Summary A', 'b.md': 'Summary B' }
+            : { 'c.md': 'Summary C', 'd.md': 'Summary D' },
+          metadata: {},
+        }),
+        usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 50, totalTokenCount: 250 },
+      };
+    });
+
+    const docs = [makeDoc('a.md', 2000), makeDoc('b.md', 2000), makeDoc('c.md', 2000), makeDoc('d.md', 2000)];
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    // 1 original call + 2 sub-batch retries = 3
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(3);
+    // All 4 docs should be summarized via the sub-batches
+    expect(result.stats.summarized).toBe(4);
+    expect(result.docs.every(d => d._deepSummarized)).toBe(true);
+  });
+
+  it('does not split a single-doc batch that fails', async () => {
+    const ai = makeMockAi(() => ({ text: '', usageMetadata: {} }));
+    const docs = [makeDoc('lone.md', 2000)];
+
+    const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
+
+    // Only 1 call — no split because batch has only 1 doc
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(1);
+    expect(result.stats.summarized).toBe(0);
+    // Doc should be returned with original content
+    expect(result.docs[0]._deepSummarized).toBeUndefined();
+    expect(result.docs[0].content).toBe('x'.repeat(2000));
+  });
+
   it('returns correct token stats for successful summarization', async () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({

@@ -12,7 +12,7 @@ const {
 
 // --- Utils ---
 const { c } = require('../utils/colors');
-const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence } = require('../utils/cli');
+const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence, selectFeatureFlags } = require('../utils/cli');
 const { promptForKey } = require('../utils/global-config');
 const Logger = require('../logger');
 const Progress = require('../utils/checkpoint');
@@ -129,6 +129,10 @@ async function phaseInit() {
         opts.minConfidence = chosenConfidence;
       }
     }
+
+    // --- Feature flag toggle (all interactive modes) ---
+    const flagOverrides = await selectFeatureFlags(opts);
+    Object.assign(opts, flagOverrides);
   }
 
   // --- Validate video processing flags ---

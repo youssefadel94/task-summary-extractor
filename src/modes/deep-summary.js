@@ -371,6 +371,17 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   let totalOutput = 0;
   let batchesDone = 0;
 
+  /** Collect summaries + token usage from a successful result. */
+  function collectResult(result) {
+    if (result && result.summaries) {
+      for (const [fileName, summary] of Object.entries(result.summaries)) {
+        allSummaries.set(fileName.toLowerCase(), summary);
+      }
+      totalInput += result.tokenUsage.inputTokens;
+      totalOutput += result.tokenUsage.outputTokens;
+    }
+  }
+
   for (let i = 0; i < batches.length; i++) {
     const result = await summarizeBatch(ai, batches[i], {
       focusTopics,
@@ -383,11 +394,40 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
     if (onProgress) onProgress(batchesDone, batches.length);
 
     if (result && result.summaries) {
-      for (const [fileName, summary] of Object.entries(result.summaries)) {
-        allSummaries.set(fileName.toLowerCase(), summary);
+      collectResult(result);
+    } else if (batches[i].length > 1) {
+      // Batch failed — split in half and retry each sub-batch.
+      // This handles the case where a large batch (e.g. 13 docs, ~94K input
+      // tokens) overwhelms the model's thinking budget, producing 0 output.
+      const mid = Math.ceil(batches[i].length / 2);
+      const firstHalf = batches[i].slice(0, mid);
+      const secondHalf = batches[i].slice(mid);
+
+      console.log(`    ${c.warn(`Batch ${i + 1} failed — splitting ${batches[i].length} docs into 2 sub-batches (${firstHalf.length} + ${secondHalf.length}) and retrying...`)}`);
+
+      const subLabel = `${i + 1}a`;
+      const subLabel2 = `${i + 1}b`;
+      const subResult1 = await summarizeBatch(ai, firstHalf, {
+        focusTopics,
+        thinkingBudget,
+        batchIndex: 0,
+        totalBatches: 2,
+      });
+      collectResult(subResult1);
+      if (!subResult1) {
+        console.warn(`    ${c.warn(`Sub-batch ${subLabel} (${firstHalf.length} docs) also failed — those docs will use full content`)}`);
       }
-      totalInput += result.tokenUsage.inputTokens;
-      totalOutput += result.tokenUsage.outputTokens;
+
+      const subResult2 = await summarizeBatch(ai, secondHalf, {
+        focusTopics,
+        thinkingBudget,
+        batchIndex: 1,
+        totalBatches: 2,
+      });
+      collectResult(subResult2);
+      if (!subResult2) {
+        console.warn(`    ${c.warn(`Sub-batch ${subLabel2} (${secondHalf.length} docs) also failed — those docs will use full content`)}`);
+      }
     }
   }
 
