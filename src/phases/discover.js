@@ -105,7 +105,7 @@ async function phaseDiscover(ctx) {
     if (opts.resume && progress.state.userName) {
       userName = progress.state.userName;
       console.log(`  Using saved name: ${c.cyan(userName)}`);
-    } else {
+    } else if (!opts.dynamic) {
       userName = await promptUserText('  Your name (for task assignment detection): ');
     }
   }
