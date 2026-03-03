@@ -82,27 +82,19 @@ async function run() {
   if (initCtx.opts.dynamic) {
     if (!initCtx.opts.request) {
       if (!process.stdin.isTTY) {
-        console.error(`\n  ${c.error('A request is required for dynamic mode in non-interactive mode.')}`);
-        console.error(`    ${c.dim('Use --request "your request" on the command line.')}`);
-        bar.finish();
-        initCtx.progress.cleanup();
-        log.close();
-        process.exitCode = 1;
-        return;
+        initCtx.opts.request = 'Generate a comprehensive meeting summary with key decisions, action items, and follow-ups';
+        console.log(`\n  ${c.dim('No request provided — defaulting to meeting summary.')}`);
+      } else {
+        initCtx.opts.request = await promptUserText(
+          '  What do you want to generate?\n' +
+          '  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n' +
+          `  ${c.dim('Press Enter for a comprehensive meeting summary')}\n\n  → `
+        );
       }
-      initCtx.opts.request = await promptUserText(
-        '  What do you want to generate?\n' +
-        '  (e.g. "Plan migration from X to Y", "Explain this codebase", "Create learning guide for React")\n\n  → '
-      );
     }
     if (!initCtx.opts.request || !initCtx.opts.request.trim()) {
-      console.error(`\n  ${c.error('A request is required for dynamic mode.')}`);
-      console.error(`    ${c.dim('Use --request "your request" or enter it when prompted.')}`);
-      bar.finish();
-      initCtx.progress.cleanup();
-      log.close();
-      process.exitCode = 1;
-      return;
+      initCtx.opts.request = 'Generate a comprehensive meeting summary with key decisions, action items, and follow-ups';
+      console.log(`\n  ${c.dim('No request provided — defaulting to meeting summary.')}`);
     }
     console.log(`\n  Request: ${c.highlight(`"${initCtx.opts.request}"`)}`);
     log.step(`Dynamic mode request: "${initCtx.opts.request}"`);
