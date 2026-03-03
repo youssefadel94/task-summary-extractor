@@ -340,6 +340,12 @@ function validateConfig({ skipFirebase = false, skipGemini = false } = {}) {
     errors.push(`LOG_LEVEL="${LOG_LEVEL}" is invalid. Must be one of: ${validLogLevels.join(', ')}`);
   }
 
+  // Validate model name against registry
+  if (GEMINI_MODEL && !GEMINI_MODELS[GEMINI_MODEL]) {
+    const validModels = Object.keys(GEMINI_MODELS).join(', ');
+    errors.push(`GEMINI_MODEL="${GEMINI_MODEL}" is not in the model registry. Valid models: ${validModels}`);
+  }
+
   return { valid: errors.length === 0, errors };
 }
 

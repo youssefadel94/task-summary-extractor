@@ -252,7 +252,7 @@ function probeDocIntegrity(docFile) {
 
       // DOCX/XLSX/PPTX/ODT/EPUB are ZIP archives — should start with PK (0x504B)
       const zipExts = new Set(['.docx', '.xlsx', '.pptx', '.odt', '.odp', '.ods', '.epub']);
-      if (zipExts.has(ext) && header[0] !== 0x50 && header[1] !== 0x4B) {
+      if (zipExts.has(ext) && (header[0] !== 0x50 || header[1] !== 0x4B)) {
         issues.push({ severity: SEVERITY.WARNING, message: 'File does not have ZIP header — may not be a valid Office/ODF document' });
       }
 

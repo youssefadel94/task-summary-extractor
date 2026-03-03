@@ -190,7 +190,7 @@ function correlateItemsWithChanges(items, gitData) {
 
   // Build searchable indexes
   const allChangedPaths = new Set(changedFiles.map(f => f.path));
-  const workingPaths = new Set((workingChanges || []).map(f => f.path));
+  const workingPaths = new Set((workingChanges || []).map(f => f.path.toLowerCase()));
   const allCommitMessages = commits.map(c => c.message.toLowerCase());
   const allCommitText = commits.map(c => `${c.message} ${(c.files || []).join(' ')}`).join(' ').toLowerCase();
 

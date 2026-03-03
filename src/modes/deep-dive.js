@@ -418,7 +418,7 @@ function extractRelevantItems(analysis, sourceItems = []) {
   if (analysis.change_requests) {
     const matched = analysis.change_requests.filter(cr =>
       ids.has((cr.id || '').toLowerCase()) ||
-      sourceItems.some(si => (cr.WHAT || '').toLowerCase().includes(si.toLowerCase()))
+      sourceItems.some(si => (cr.what || cr.WHAT || '').toLowerCase().includes(si.toLowerCase())))
     );
     if (matched.length > 0) relevant.change_requests = matched;
   }

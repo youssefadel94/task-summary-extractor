@@ -20,6 +20,9 @@ const {
   fmtTs, priBadge, confBadge, confBadgeFull, shortVideo,
 } = require('./shared');
 
+/** Escape pipe characters in Markdown table cells to prevent column corruption. */
+const esc = s => (s == null ? '' : String(s).replace(/\|/g, '\\|'));
+
 /**
  * Render the final compiled analysis into a comprehensive Markdown report.
  *
@@ -174,7 +177,7 @@ function renderResultsMarkdown({ compiled, meta }) {
       ln('| --- | --- | --- | --- |');
       for (const s of group.segs) {
         globalIdx++;
-        ln(`| ${globalIdx} | ${s.file} | ${s.duration || '?'} | ${s.sizeMB || '?'} MB |`);
+        ln(`| ${globalIdx} | ${esc(s.file)} | ${s.duration || '?'} | ${s.sizeMB || '?'} MB |`);
       }
       const groupDur = group.segs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
       const groupSize = group.segs.reduce((sum, s) => sum + (parseFloat(s.sizeMB) || 0), 0);
@@ -552,7 +555,7 @@ function renderResultsMarkdown({ compiled, meta }) {
       const seg = ai.source_segment ? `Seg ${ai.source_segment}` : '';
       const dep = ai.depends_on ? ` ⛔ ${ai.depends_on}` : '';
       const check = ai.checklist_match ? ` ✓${ai.checklist_match}` : '';
-      ln(`| ${ai.id} | ${ai.description}${dep}${check} | ${assignee} | ${status} | ${pri} | ${confIcon}${conf} | ${ref} | ${ts} ${seg} |`);
+      ln(`| ${esc(ai.id)} | ${esc(ai.description)}${esc(dep)}${esc(check)} | ${esc(assignee)} | ${status} | ${pri} | ${confIcon}${conf} | ${esc(ref)} | ${ts} ${seg} |`);
     }
     ln('');
   }
@@ -717,7 +720,7 @@ function renderResultsMarkdown({ compiled, meta }) {
       const file = cr.where?.file_path ? `\`${cr.where.file_path}\`` : '-';
       const ts = cr.referenced_at || '-';
       const seg = cr.source_segment ? (cr.source_video ? `${shortVideo(cr.source_video)} · Seg ${cr.source_segment}` : `Seg ${cr.source_segment}`) : '';
-      ln(`| ${cr.id} | ${cr.title || cr.what || '-'} | ${type} | ${status} | ${pri} | ${confIcon}${conf} | ${assignee} | ${file} | ${ts} ${seg} |`);
+      ln(`| ${esc(cr.id)} | ${esc(cr.title || cr.what || '-')} | ${type} | ${status} | ${pri} | ${confIcon}${conf} | ${esc(assignee)} | ${file} | ${ts} ${seg} |`);
     }
     ln('');
 
@@ -764,7 +767,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         const tickets = (f.mentioned_in_tickets || []).join(', ') || '-';
         const changes = (f.mentioned_in_changes || []).join(', ') || '-';
         const fpath = f.resolved_path || '-';
-        ln(`| ${f.file_name} | ${role} | ${type} | ${tickets} | ${changes} | \`${fpath}\` |`);
+        ln(`| ${esc(f.file_name)} | ${role} | ${type} | ${esc(tickets)} | ${esc(changes)} | \`${fpath}\` |`);
       }
       ln('');
     }
@@ -780,7 +783,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         const tickets = (f.mentioned_in_tickets || []).join(', ') || '-';
         const ctxDoc = f.context_doc_match || '-';
         const notes = f.notes ? f.notes.slice(0, 80) + (f.notes.length > 80 ? '...' : '') : '-';
-        ln(`| ${f.file_name} | ${type} | ${tickets} | ${ctxDoc} | ${notes} |`);
+        ln(`| ${esc(f.file_name)} | ${type} | ${esc(tickets)} | ${esc(ctxDoc)} | ${esc(notes)} |`);
       }
       ln('');
       ln('</details>');

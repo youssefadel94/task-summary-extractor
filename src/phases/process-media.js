@@ -431,10 +431,10 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           // Save batch run file
           const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
           const batchRunFileName = `batch_${bIdx}_segs_${batchIndices[0]}-${batchIndices[batchIndices.length - 1]}_${ts}.json`;
-          const batchRunPath = path.join(geminiRunsDir, batchRunFileName);
+          let batchRunPath = path.join(geminiRunsDir, batchRunFileName);
           fs.writeFileSync(batchRunPath, JSON.stringify(batchRun, null, 2), 'utf8');
 
-          const analysis = normalizeAnalysis(batchRun.output.parsed || { rawResponse: batchRun.output.raw });
+          let analysis = normalizeAnalysis(batchRun.output.parsed || { rawResponse: batchRun.output.raw });
           analysis._geminiMeta = {
             model: batchRun.run.model,
             processedAt: batchRun.run.timestamp,

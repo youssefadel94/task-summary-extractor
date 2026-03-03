@@ -178,6 +178,7 @@ function decodeKey(buf) {
     if (buf[2] === 0x42) return 'down';
     return null;
   }
+  if (buf[0] === 0x1b && buf.length === 1) return 'escape';
   if (buf[0] === 0x0d || buf[0] === 0x0a) return 'enter';
   if (buf[0] === 0x20) return 'space';
   if (buf[0] === 0x03) return 'ctrl-c';

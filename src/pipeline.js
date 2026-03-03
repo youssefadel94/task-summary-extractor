@@ -87,6 +87,7 @@ async function run() {
         bar.finish();
         initCtx.progress.cleanup();
         log.close();
+        process.exitCode = 1;
         return;
       }
       initCtx.opts.request = await promptUserText(
@@ -100,6 +101,7 @@ async function run() {
       bar.finish();
       initCtx.progress.cleanup();
       log.close();
+      process.exitCode = 1;
       return;
     }
     console.log(`\n  Request: ${c.highlight(`"${initCtx.opts.request}"`)}`);

@@ -362,6 +362,30 @@ function normalizeAnalysis(data) {
     }
   }
 
+  // Patch change_requests — fill missing confidence
+  if (Array.isArray(data.change_requests)) {
+    for (const item of data.change_requests) {
+      if (!item || typeof item !== 'object') continue;
+      if (!item.confidence) item.confidence = 'MEDIUM';
+    }
+  }
+
+  // Patch blockers — fill missing confidence
+  if (Array.isArray(data.blockers)) {
+    for (const item of data.blockers) {
+      if (!item || typeof item !== 'object') continue;
+      if (!item.confidence) item.confidence = 'MEDIUM';
+    }
+  }
+
+  // Patch scope_changes — fill missing confidence
+  if (Array.isArray(data.scope_changes)) {
+    for (const item of data.scope_changes) {
+      if (!item || typeof item !== 'object') continue;
+      if (!item.confidence) item.confidence = 'MEDIUM';
+    }
+  }
+
   return data;
 }
 

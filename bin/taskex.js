@@ -41,7 +41,12 @@ if (rawArgs[0] === 'config') {
 } else if (rawArgs[0] === 'setup') {
   // Delegate to setup.js — supports --check and --silent
   const setupPath = require('path').join(__dirname, '..', 'setup.js');
-  require('child_process').execFileSync(process.execPath, [setupPath, ...rawArgs.slice(1)], { stdio: 'inherit' });
+  try {
+    require('child_process').execFileSync(process.execPath, [setupPath, ...rawArgs.slice(1)], { stdio: 'inherit' });
+  } catch (err) {
+    process.stderr.write(`\nSetup failed (exit code ${err.status || 1}). Check the output above for details.\n`);
+    process.exit(err.status || 1);
+  }
 } else {
   // ── Inject CLI config flags into process.env ────────────────────────────
   // Must run BEFORE any require() that touches config.js / dotenv

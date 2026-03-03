@@ -73,14 +73,12 @@ const NEWLY_SUPPORTED_EXTS = ['.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
  * @returns {Promise<{ text: string, warnings: string[] }>}
  */
 async function parsePdf(filePath) {
-  const { PDFParse } = require('pdf-parse');
+  const pdfParse = require('pdf-parse');
   const warnings = [];
 
   try {
     const buffer = await fs.promises.readFile(filePath);
-    const data = new Uint8Array(buffer);
-    const parser = new PDFParse(data);
-    const result = await parser.getText();
+    const result = await pdfParse(buffer);
 
     let text = (result.text || '').trim();
 

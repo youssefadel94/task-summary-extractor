@@ -1,12 +1,12 @@
 # Task Summary Extractor
 
-> **v10.2.3** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.3.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-2.5%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-10.2.3-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/version-10.3.0-brightgreen" alt="Version" />
   <img src="https://img.shields.io/badge/tests-423%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
@@ -606,6 +606,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.3.0** | **Codebase audit & hardening** — fixed batch retry crash (`const` reassignment), ZIP header validation bug, case-insensitive path matching, PDF parser API, Markdown table pipe escaping, missing Gemini retry in progress mode, ESC key handling, model name validation, confidence normalization for all item types, non-zero exit code on dynamic failures, setup error handling |
 | **v10.2.3** | **Unified feature flags** — Custom and Dynamic modes show the same 6 feature flags, removed mode-specific filtering |
 | **v10.2.2** | **CLI flow fixes** — removed Dynamic Mode, Progress Tracker, HTML Output from feature flags (they are mode/format choices), dynamic preset defaults, non-TTY guard, source label fix |
 | **v10.2.1** | **Docs & release polish** — README/ARCHITECTURE/QUICK_START fully updated with all v10.x features, test counts, and corrected constants |

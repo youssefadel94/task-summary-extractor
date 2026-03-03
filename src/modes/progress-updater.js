@@ -13,6 +13,7 @@
 'use strict';
 
 const { extractJson } = require('../utils/json-parser');
+const { withRetry } = require('../utils/retry');
 const config = require('../config');
 // Access config.GEMINI_MODEL at call time for runtime model changes.
 
@@ -205,14 +206,14 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
   const prompt = buildProgressPrompt(items, changeReport, localAssessments);
   const thinkingBudget = opts.thinkingBudget || 16384;
 
-  const result = await ai.models.generateContent({
+  const result = await withRetry(() => ai.models.generateContent({
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
       temperature: 0,
       thinkingConfig: { thinkingBudget },
     },
-  });
+  }));
 
   const rawText = result.text || '';
   const tokenUsage = result.usageMetadata || {};
