@@ -626,11 +626,34 @@ function mergeSegmentAnalysesForDynamic(allSegmentAnalyses) {
         }
       }
     }
-    // Append all action items, blockers, scope changes, file refs
-    if (Array.isArray(seg.action_items)) merged.action_items.push(...seg.action_items);
-    if (Array.isArray(seg.blockers)) merged.blockers.push(...seg.blockers);
-    if (Array.isArray(seg.scope_changes)) merged.scope_changes.push(...seg.scope_changes);
-    if (Array.isArray(seg.file_references)) merged.file_references.push(...seg.file_references);
+    // Append action items (dedup by id when available)
+    if (Array.isArray(seg.action_items)) {
+      for (const ai of seg.action_items) {
+        if (ai.id && merged.action_items.some(e => e.id === ai.id)) continue;
+        merged.action_items.push(ai);
+      }
+    }
+    // Append blockers (dedup by id when available)
+    if (Array.isArray(seg.blockers)) {
+      for (const b of seg.blockers) {
+        if (b.id && merged.blockers.some(e => e.id === b.id)) continue;
+        merged.blockers.push(b);
+      }
+    }
+    // Append scope changes (dedup by id when available)
+    if (Array.isArray(seg.scope_changes)) {
+      for (const sc of seg.scope_changes) {
+        if (sc.id && merged.scope_changes.some(e => e.id === sc.id)) continue;
+        merged.scope_changes.push(sc);
+      }
+    }
+    // Append file references (dedup by resolved_path)
+    if (Array.isArray(seg.file_references)) {
+      for (const fr of seg.file_references) {
+        if (fr.resolved_path && merged.file_references.some(e => e.resolved_path === fr.resolved_path)) continue;
+        merged.file_references.push(fr);
+      }
+    }
 
     // Merge your_tasks if present
     if (seg.your_tasks) {

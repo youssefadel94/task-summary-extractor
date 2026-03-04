@@ -38,6 +38,13 @@ const STOP_WORDS = new Set([
   'them', 'he', 'she', 'his', 'her', 'you', 'your', 'i', 'my', 'me',
   'string', 'null', 'true', 'false', 'new', 'each', 'all', 'any',
   'add', 'use', 'get', 'set', 'make', 'update', 'change', 'fix',
+  // Common technical terms that cause false positives
+  'config', 'server', 'route', 'model', 'error', 'data', 'file',
+  'test', 'code', 'type', 'name', 'list', 'item', 'user', 'page',
+  'value', 'state', 'event', 'class', 'style', 'index', 'path',
+  'node', 'link', 'text', 'form', 'view', 'task', 'work', 'call',
+  'load', 'save', 'send', 'read', 'move', 'copy', 'init', 'main',
+  'info', 'warn', 'help', 'open', 'close', 'show', 'hide', 'push',
 ]);
 
 // ======================== ITEM EXTRACTION ========================
@@ -253,16 +260,17 @@ function correlateItemsWithChanges(items, gitData) {
       }
     }
 
-    // Strategy 3: Keyword matching in commits
+    // Strategy 3: Keyword matching in commits (require 5+ char keywords to reduce false positives)
     const matchedKeywords = [];
     for (const kw of item.keywords) {
-      if (kw.length < 4) continue; // skip very short keywords
+      if (kw.length < 5) continue; // skip short/generic keywords — reduces false positives
       if (allCommitText.includes(kw)) {
         matchedKeywords.push(kw);
       }
     }
     if (matchedKeywords.length > 0) {
-      const kwScore = Math.min(0.3, matchedKeywords.length * 0.05);
+      // Require at least 2 keyword matches for a meaningful score
+      const kwScore = matchedKeywords.length >= 2 ? Math.min(0.3, matchedKeywords.length * 0.05) : 0.02;
       score += kwScore;
       evidence.push({
         type: 'keyword_match',

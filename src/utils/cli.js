@@ -740,6 +740,9 @@ const FEATURE_FLAGS = [
   },
 ];
 
+// Attach FEATURE_FLAGS to exports (defined after module.exports due to const ordering)
+module.exports.FEATURE_FLAGS = FEATURE_FLAGS;
+
 /**
  * Interactive feature flags selector — multi-select toggle for optional features.
  * Shows the same flags for both Custom and Dynamic modes.

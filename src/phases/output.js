@@ -70,7 +70,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
 
   // Generate Markdown
   const mdPath = path.join(runDir, 'results.md');
-  const totalSegs = results.files.reduce((s, f) => s + f.segmentCount, 0);
+  const totalSegs = results.files.reduce((s, f) => s + (f.segmentCount || 0), 0);
 
   // Apply confidence filter for rendered output (MD/HTML) — results.json keeps full data
   let renderData = compiledAnalysis;

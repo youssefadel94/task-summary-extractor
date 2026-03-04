@@ -230,8 +230,27 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
     throw new Error('Failed to parse AI progress assessment response as JSON. Try a different model (--model gemini-2.5-pro) or run again — transient API issues can cause this.');
   }
 
+  // Validate that AI-returned assessment IDs match actual items
+  const validIds = new Set(items.map(i => i.id));
+  const rawAssessments = parsed.assessments || [];
+  const validAssessments = rawAssessments.filter(a => {
+    if (!a.item_id || !validIds.has(a.item_id)) {
+      // Drop hallucinated or mismatched IDs — local assessment covers these
+      return false;
+    }
+    return true;
+  });
+
+  // For items the AI skipped or hallucinated, keep local assessment as fallback
+  const aiCoveredIds = new Set(validAssessments.map(a => a.item_id));
+  for (const local of localAssessments) {
+    if (!aiCoveredIds.has(local.item_id)) {
+      validAssessments.push(local);
+    }
+  }
+
   return {
-    assessments: parsed.assessments || [],
+    assessments: validAssessments,
     overall_summary: parsed.overall_summary || 'No summary provided',
     recommendations: parsed.recommendations || [],
     model: config.GEMINI_MODEL,

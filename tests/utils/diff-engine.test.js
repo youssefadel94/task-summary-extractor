@@ -1,4 +1,105 @@
-const { generateDiff, renderDiffMarkdown } = require('../../src/utils/diff-engine');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { generateDiff, renderDiffMarkdown, loadPreviousCompilation } = require('../../src/utils/diff-engine');
+
+// ─── loadPreviousCompilation ─────────────────────────────────────────────────
+
+function makeTempDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'diff-test-')); }
+function cleanup(dir) { fs.rmSync(dir, { recursive: true, force: true }); }
+
+describe('loadPreviousCompilation', () => {
+  it('returns null when runs directory does not exist', () => {
+    const dir = makeTempDir();
+    try {
+      expect(loadPreviousCompilation(dir)).toBeNull();
+    } finally { cleanup(dir); }
+  });
+
+  it('returns null when runs directory is empty', () => {
+    const dir = makeTempDir();
+    const runsDir = path.join(dir, 'runs');
+    fs.mkdirSync(runsDir, { recursive: true });
+    try {
+      expect(loadPreviousCompilation(dir)).toBeNull();
+    } finally { cleanup(dir); }
+  });
+
+  it('loads compiled analysis from compilation.json', () => {
+    const dir = makeTempDir();
+    const runTs = '2026-03-01T10-00-00';
+    const runDir = path.join(dir, 'runs', runTs);
+    fs.mkdirSync(runDir, { recursive: true });
+    const compiled = { tickets: [{ ticket_id: 'T1' }], summary: 'Test' };
+    fs.writeFileSync(path.join(runDir, 'compilation.json'), JSON.stringify({
+      output: { parsed: compiled },
+    }), 'utf8');
+    try {
+      const result = loadPreviousCompilation(dir);
+      expect(result).not.toBeNull();
+      expect(result.timestamp).toBe(runTs);
+      expect(result.compiled.tickets[0].ticket_id).toBe('T1');
+    } finally { cleanup(dir); }
+  });
+
+  it('excludes current run timestamp', () => {
+    const dir = makeTempDir();
+    const currentTs = '2026-03-02T10-00-00';
+    const runDir = path.join(dir, 'runs', currentTs);
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(path.join(runDir, 'compilation.json'), JSON.stringify({
+      output: { parsed: { summary: 'current' } },
+    }), 'utf8');
+    try {
+      // Should skip the only run since it matches currentRunTs
+      expect(loadPreviousCompilation(dir, currentTs)).toBeNull();
+    } finally { cleanup(dir); }
+  });
+
+  it('picks the most recent previous run', () => {
+    const dir = makeTempDir();
+    for (const ts of ['2026-03-01T08-00-00', '2026-03-01T12-00-00', '2026-03-02T10-00-00']) {
+      const runDir = path.join(dir, 'runs', ts);
+      fs.mkdirSync(runDir, { recursive: true });
+      fs.writeFileSync(path.join(runDir, 'compilation.json'), JSON.stringify({
+        output: { parsed: { summary: ts } },
+      }), 'utf8');
+    }
+    try {
+      const result = loadPreviousCompilation(dir, '2026-03-02T10-00-00');
+      expect(result.timestamp).toBe('2026-03-01T12-00-00');
+    } finally { cleanup(dir); }
+  });
+
+  it('skips non-timestamp directory names', () => {
+    const dir = makeTempDir();
+    const runsDir = path.join(dir, 'runs');
+    // Create a junk directory
+    fs.mkdirSync(path.join(runsDir, 'my-custom-notes'), { recursive: true });
+    fs.writeFileSync(path.join(runsDir, 'my-custom-notes', 'compilation.json'), JSON.stringify({
+      output: { parsed: { summary: 'junk' } },
+    }), 'utf8');
+    try {
+      // Should return null because the dir name doesn't match the timestamp pattern
+      expect(loadPreviousCompilation(dir)).toBeNull();
+    } finally { cleanup(dir); }
+  });
+
+  it('does not use results.json compilation metadata as compiled analysis', () => {
+    const dir = makeTempDir();
+    const ts = '2026-03-01T10-00-00';
+    const runDir = path.join(dir, 'runs', ts);
+    fs.mkdirSync(runDir, { recursive: true });
+    // results.json with compilation metadata (NOT the compiled analysis)
+    fs.writeFileSync(path.join(runDir, 'results.json'), JSON.stringify({
+      compilation: { parseSuccess: true, durationMs: 5000, tokenUsage: { total: 1000 } },
+    }), 'utf8');
+    try {
+      // Should return null — compilation metadata is not a valid compiled analysis
+      expect(loadPreviousCompilation(dir)).toBeNull();
+    } finally { cleanup(dir); }
+  });
+});
 
 // ─── generateDiff ────────────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@ const {
   extractKeywords,
   detectDocumentChanges,
   correlateItemsWithChanges,
+  serializeReport,
 } = require('../../src/modes/change-detector');
 
 function makeTempDir() {
@@ -276,5 +277,31 @@ describe('correlateItemsWithChanges', () => {
     };
     const corr = correlateItemsWithChanges(items, gitData);
     expect(corr.get('B1').localAssessment).toBe('NOT_STARTED');
+  });
+});
+
+// ─── serializeReport ──────────────────────────────────────────────────────────────────
+
+describe('serializeReport', () => {
+  it('converts Map correlations to a plain object', () => {
+    const report = {
+      items: [{ id: 'T1', type: 'ticket' }],
+      correlations: new Map([['T1', { score: 0.5, evidence: [] }]]),
+      totals: { commits: 1, filesChanged: 2, docsChanged: 0, itemsWithMatches: 1 },
+    };
+    const serialized = serializeReport(report);
+    expect(serialized.correlations).toEqual({ T1: { score: 0.5, evidence: [] } });
+    expect(serialized.items).toEqual(report.items);
+    expect(serialized.totals).toEqual(report.totals);
+  });
+
+  it('handles empty correlations Map', () => {
+    const report = {
+      items: [],
+      correlations: new Map(),
+      totals: { commits: 0 },
+    };
+    const serialized = serializeReport(report);
+    expect(serialized.correlations).toEqual({});
   });
 });

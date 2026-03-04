@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { parseArgs, showHelp, discoverFolders } = require('../../src/utils/cli');
+const { parseArgs, showHelp, discoverFolders, FEATURE_FLAGS } = require('../../src/utils/cli');
 
 // ─── Helper: create a temp directory with controlled structure ────────────────
 
@@ -295,5 +295,49 @@ describe('discoverFolders', () => {
     const result = discoverFolders(tmpDir);
     expect(result).toHaveLength(1);
     expect(result[0].absPath).toBe(sub);
+  });
+});
+
+// ─── FEATURE_FLAGS structure ───────────────────────────────────────────────────────────
+
+describe('FEATURE_FLAGS', () => {
+  it('is a non-empty array', () => {
+    expect(Array.isArray(FEATURE_FLAGS)).toBe(true);
+    expect(FEATURE_FLAGS.length).toBeGreaterThan(0);
+  });
+
+  it('every flag has required fields', () => {
+    for (const f of FEATURE_FLAGS) {
+      expect(f.key).toBeDefined();
+      expect(typeof f.key).toBe('string');
+      expect(f.flag).toBeDefined();
+      expect(f.flag.startsWith('--')).toBe(true);
+      expect(f.icon).toBeDefined();
+      expect(f.label).toBeDefined();
+      expect(f.desc).toBeDefined();
+      expect(['enhance', 'quality', 'processing']).toContain(f.category);
+      expect(typeof f.default).toBe('boolean');
+    }
+  });
+
+  it('has unique keys', () => {
+    const keys = FEATURE_FLAGS.map(f => f.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('inverted flags have default: true', () => {
+    for (const f of FEATURE_FLAGS) {
+      if (f.inverted) {
+        expect(f.default).toBe(true);
+      }
+    }
+  });
+
+  it('includes disableProgress flag', () => {
+    const progressFlag = FEATURE_FLAGS.find(f => f.key === 'disableProgress');
+    expect(progressFlag).toBeDefined();
+    expect(progressFlag.flag).toBe('--no-progress');
+    expect(progressFlag.inverted).toBe(true);
+    expect(progressFlag.default).toBe(true);
   });
 });

@@ -25,11 +25,16 @@ function loadPreviousCompilation(targetDir, currentRunTs = null) {
   const runsDir = path.join(targetDir, 'runs');
   if (!fs.existsSync(runsDir)) return null;
 
+  // Valid run directory names look like ISO timestamps: 2026-03-02T16-14-15
+  const RUN_DIR_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}$/;
+
   try {
     const runDirs = fs.readdirSync(runsDir)
       .filter(d => {
         const full = path.join(runsDir, d);
-        return fs.statSync(full).isDirectory() && d !== currentRunTs;
+        return fs.statSync(full).isDirectory()
+          && d !== currentRunTs
+          && RUN_DIR_PATTERN.test(d); // only consider well-formed run dirs
       })
       .sort()
       .reverse(); // Most recent first
@@ -48,12 +53,15 @@ function loadPreviousCompilation(targetDir, currentRunTs = null) {
         }
       }
 
-      // Fallback: try results.json
+      // Fallback: try results.json — look for compiled analysis, NOT run metadata
       const resultsPath = path.join(runsDir, dir, 'results.json');
       if (fs.existsSync(resultsPath)) {
         const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
-        const compiledData = results.compilation?.parsed || results.compilation || null;
-        if (compiledData && typeof compiledData === 'object') {
+        // results.compilation is run metadata (parseSuccess, durationMs, tokenUsage...)
+        // NOT the compiled analysis. The compiled analysis lives in compilation.json.
+        // Only use results.json if it has an embedded compiled analysis (legacy format).
+        const compiledData = results._compiledAnalysis || null;
+        if (compiledData && typeof compiledData === 'object' && (compiledData.tickets || compiledData.action_items || compiledData.summary)) {
           return {
             timestamp: dir,
             compiled: compiledData,
