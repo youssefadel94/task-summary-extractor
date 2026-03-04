@@ -78,6 +78,7 @@ async function phaseInit() {
       : [],  // populated by CLI flag, interactive picker, or kept empty
     dynamic: !!flags.dynamic,
     request: typeof flags.request === 'string' ? flags.request : null,
+    dynamicOutputMode: typeof flags['dynamic-output-mode'] === 'string' ? flags['dynamic-output-mode'].toLowerCase() : null,
     updateProgress: !!flags['update-progress'],
     disableProgress: !!flags['no-progress'] && !flags['update-progress'], // --update-progress overrides --no-progress
     repoPath: flags.repo || null,
@@ -88,7 +89,7 @@ async function phaseInit() {
   };
 
   // --- Determine if user provided enough flags to skip interactive mode ---
-  const hasExplicitMode = opts.model || flags['no-focused-pass'] || flags['no-learning'] || flags['no-diff'] || opts.format;
+  const hasExplicitMode = opts.model || opts.updateProgress || opts.dynamic || flags['no-focused-pass'] || flags['no-learning'] || flags['no-diff'] || opts.format;
   const isNonInteractive = !process.stdin.isTTY;
 
   // --- Interactive Run-Mode selector (only when TTY and no explicit flags) ---
@@ -147,6 +148,19 @@ async function phaseInit() {
     if (mode === 'custom' || mode === 'dynamic') {
       const flagOverrides = await selectFeatureFlags(opts);
       Object.assign(opts, flagOverrides);
+    }
+  }
+
+  // --- Apply dynamic preset overrides when --dynamic CLI flag is used without wizard ---
+  if (opts.dynamic && !opts.runMode) {
+    const { RUN_PRESETS } = require('../utils/cli');
+    const dPreset = RUN_PRESETS.dynamic?.overrides;
+    if (dPreset) {
+      opts.disableFocusedPass = dPreset.disableFocusedPass;
+      if (!opts.format || opts.format === 'all') {
+        opts.format = dPreset.format;
+        opts.formats = dPreset.formats;
+      }
     }
   }
 
@@ -225,6 +239,11 @@ async function phaseInit() {
       : new Set(requestedFormats);
     // Keep opts.format as the original string for backwards compatibility
     opts.format = requestedFormats.includes('all') ? 'all' : requestedFormats.join(',');
+  }
+
+  // --- Validate --dynamic-output-mode flag ---
+  if (opts.dynamicOutputMode && !['topics', 'unified'].includes(opts.dynamicOutputMode)) {
+    throw new Error(`Invalid --dynamic-output-mode "${opts.dynamicOutputMode}". Valid: topics, unified`);
   }
 
   // --- Resolve folder: positional arg or interactive selection ---
@@ -325,20 +344,20 @@ async function phaseInit() {
     setActiveModel(opts.model);
     log.step(`Model set via flag: ${config.GEMINI_MODEL}`);
   } else if (opts._modelTier) {
-    // Preset-driven: auto-select the best model for the chosen tier
+    // Preset-driven: pre-select the best model for the chosen tier, then let user confirm/override
     const modelIds = Object.keys(GEMINI_MODELS);
     const tierModel = modelIds.find(id => GEMINI_MODELS[id].tier === opts._modelTier);
     if (tierModel) {
-      setActiveModel(tierModel);
-      console.log(c.success(`Model auto-selected: ${GEMINI_MODELS[tierModel].name} (${opts._modelTier} tier)`));
-      log.step(`Model auto-selected for ${opts._modelTier} tier: ${config.GEMINI_MODEL}`);
+      setActiveModel(tierModel); // set as default
+    }
+    delete opts._modelTier;
+    if (!process.stdin.isTTY) {
+      log.step(`Model auto-selected (non-interactive): ${config.GEMINI_MODEL}`);
     } else {
-      // Fallback to interactive if tier not found
       const chosenModel = await selectModel(GEMINI_MODELS, config.GEMINI_MODEL);
       setActiveModel(chosenModel);
       log.step(`Model selected: ${config.GEMINI_MODEL}`);
     }
-    delete opts._modelTier;
   } else {
     // Interactive model selection (fallback to default in non-TTY)
     if (!process.stdin.isTTY) {

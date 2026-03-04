@@ -5,12 +5,13 @@ const path = require('path');
 
 // --- Config ---
 const config = require('../config');
-const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, SPEED, SEG_TIME } = config;
+const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, IMAGE_EXTS, SPEED, SEG_TIME } = config;
 
 // --- Utils ---
 const { c } = require('../utils/colors');
 const { findDocsRecursive } = require('../utils/fs');
 const { promptUserText } = require('../utils/cli');
+const { selectMany } = require('../utils/interactive');
 const { auditFileIntegrity, printIntegrityReport } = require('../utils/file-integrity');
 
 // --- Shared state ---
@@ -49,18 +50,21 @@ async function phaseDiscover(ctx) {
   // --- Find ALL document files recursively ---
   const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
 
+  // --- Find image files recursively ---
+  const imageFiles = findDocsRecursive(targetDir, IMAGE_EXTS);
+
   // --- Determine input mode ---
   let inputMode;
   if (videoFiles.length > 0) {
     inputMode = 'video';
   } else if (audioFiles.length > 0) {
     inputMode = 'audio';
-  } else if (allDocFiles.length > 0) {
+  } else if (allDocFiles.length > 0 || imageFiles.length > 0) {
     inputMode = 'document';
   } else {
     throw new Error(
-      'No processable files found (video, audio, or documents).\n' +
-      '  Supported: .mp4 .mkv .avi .mov .webm (video) | .mp3 .wav .m4a .ogg .flac .aac .wma (audio) | .vtt .txt .pdf .docx .md (docs)'
+      'No processable files found (video, audio, documents, or images).\n' +
+      '  Supported: .mp4 .mkv .avi .mov .webm (video) | .mp3 .wav .m4a .ogg .flac .aac .wma (audio) | .vtt .txt .pdf .docx .md (docs) | .png .jpg .gif .webp .svg (images)'
     );
   }
 
@@ -105,7 +109,7 @@ async function phaseDiscover(ctx) {
     if (opts.resume && progress.state.userName) {
       userName = progress.state.userName;
       console.log(`  Using saved name: ${c.cyan(userName)}`);
-    } else if (!opts.dynamic) {
+    } else if (!opts.dynamic && process.stdin.isTTY) {
       userName = await promptUserText('  Your name (for task assignment detection): ');
     }
   }
@@ -123,6 +127,7 @@ async function phaseDiscover(ctx) {
   if (inputMode === 'video') console.log(`  Videos  : ${c.highlight(videoFiles.length)}`);
   if (inputMode === 'audio') console.log(`  Audio   : ${c.highlight(audioFiles.length)}`);
   console.log(`  Docs    : ${c.highlight(allDocFiles.length)}`);
+  if (imageFiles.length > 0) console.log(`  Images  : ${c.highlight(imageFiles.length)}`);
   if (inputMode !== 'document') {
     console.log(`  Speed   : ${c.yellow(SPEED + 'x')}`);
     console.log(`  Segments: ${c.dim('< 5 min each')} (${c.yellow(SEG_TIME + 's')})`);
@@ -149,23 +154,25 @@ async function phaseDiscover(ctx) {
     mediaFiles.forEach((f, i) => console.log(`    ${c.dim(`[${i + 1}]`)} ${c.cyan(path.basename(f))}`));
 
     // If multiple media files found, let user select which to process
-    if (mediaFiles.length > 1) {
+    if (mediaFiles.length > 1 && process.stdin.isTTY) {
       console.log('');
-      const selectionInput = await promptUserText(`  Which files to process? (comma-separated numbers, or "all", default: all): `);
-      const trimmed = (selectionInput || '').trim().toLowerCase();
-      if (trimmed && trimmed !== 'all') {
-        const indices = trimmed.split(',').map(s => parseInt(s.trim(), 10) - 1).filter(n => !isNaN(n) && n >= 0 && n < mediaFiles.length);
-        if (indices.length > 0) {
-          const selected = indices.map(i => mediaFiles[i]);
-          if (inputMode === 'video') videoFiles = selected;
-          else audioFiles = selected;
-          console.log(`  \u2192 Processing ${c.highlight(selected.length)} selected file(s):`);
-          selected.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(path.basename(f))}`));
-        } else {
-          console.log(`  \u2192 ${c.dim('Invalid selection, processing all files')}`);
-        }
+      const items = mediaFiles.map((f, i) => ({
+        label: `${c.bold(path.basename(f))}`,
+        hint: `File ${i + 1}`,
+        value: i,
+      }));
+      const result = await selectMany({
+        title: c.bold(`🎬 Select ${mediaLabel} Files to Process`),
+        items,
+        defaultSelected: new Set(items.map((_, i) => i)),
+      });
+      if (result.indices.length > 0 && result.indices.length < mediaFiles.length) {
+        const selected = result.indices.map(i => mediaFiles[i]);
+        if (inputMode === 'video') videoFiles = selected;
+        else audioFiles = selected;
+        console.log(`  → Processing ${c.highlight(selected.length)} selected file(s)`);
       } else {
-        console.log(`  \u2192 Processing all ${c.highlight(mediaLabel)} files`);
+        console.log(`  → Processing all ${c.highlight(mediaLabel)} files`);
       }
     }
     const finalMedia = inputMode === 'video' ? videoFiles : audioFiles;
@@ -176,6 +183,12 @@ async function phaseDiscover(ctx) {
   if (allDocFiles.length > 0) {
     console.log(`  Found ${c.highlight(allDocFiles.length)} document(s) for context ${c.dim('(recursive)')}:`);
     allDocFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(f.relPath)}`));
+    console.log('');
+  }
+
+  if (imageFiles.length > 0) {
+    console.log(`  Found ${c.highlight(imageFiles.length)} image(s) for context ${c.dim('(recursive)')}:`);
+    imageFiles.forEach(f => console.log(`    ${c.dim('-')} ${c.cyan(f.relPath)}`));
     console.log('');
   }
 
@@ -192,7 +205,7 @@ async function phaseDiscover(ctx) {
   }
 
   timer.end();
-  return { ...ctx, videoFiles, audioFiles, allDocFiles, userName, inputMode, integrityAudit };
+  return { ...ctx, videoFiles, audioFiles, allDocFiles, imageFiles, userName, inputMode, integrityAudit };
 }
 
 module.exports = phaseDiscover;

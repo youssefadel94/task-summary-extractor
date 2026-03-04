@@ -13,6 +13,7 @@ const {
   GEMINI_FILE_API_EXTS,
   INLINE_TEXT_EXTS,
   DOC_PARSER_EXTS,
+  IMAGE_EXTS,
   GEMINI_UNSUPPORTED,
   MIME_MAP,
   GEMINI_POLL_TIMEOUT_MS,
@@ -20,6 +21,9 @@ const {
 // Access config.GEMINI_MODEL and config.GEMINI_CONTEXT_WINDOW at call time
 // (not destructured) so runtime model changes via setActiveModel() are visible.
 const { extractJson } = require('../utils/json-parser');
+
+// Max image size for inline data (20 MB — Gemini API limit)
+const MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024;
 const { parseDocument, canParse } = require('./doc-parser');
 const {
   selectDocsByBudget,
@@ -137,6 +141,19 @@ async function prepareDocsForGemini(ai, docFileList) {
         }
         prepared.push(fileDoc);
         fileApiUploaded++;
+      } else if (IMAGE_EXTS.includes(ext)) {
+        // Images → read as base64 and send as inlineData for Gemini Vision
+        const mime = MIME_MAP[ext] || 'application/octet-stream';
+        const stat = await fs.promises.stat(docPath);
+        if (stat.size > MAX_IMAGE_SIZE_BYTES) {
+          warnings.push(`${name}: image too large (${(stat.size / (1024 * 1024)).toFixed(1)} MB > 20 MB limit), skipped`);
+          continue;
+        }
+        const buffer = await fs.promises.readFile(docPath);
+        const base64Data = buffer.toString('base64');
+        prepared.push({ type: 'inlineData', fileName: name, mimeType: mime, data: base64Data });
+        totalBytes += stat.size;
+        inlineRead++;
       } else if (GEMINI_UNSUPPORTED.includes(ext)) {
         warnings.push(`${name}: unsupported format, Firebase only`);
       } else {
@@ -162,6 +179,124 @@ async function prepareDocsForGemini(ai, docFileList) {
   }
 
   return prepared;
+}
+
+// ======================== IMAGE BATCH ANALYSIS ========================
+
+/**
+ * Analyze a batch of images with Gemini Vision and return text descriptions.
+ * Used for folders with many images that can't all fit in one context window.
+ *
+ * @param {object} ai - Gemini AI instance
+ * @param {Array} imageDocs - Array of { type: 'inlineData', fileName, mimeType, data }
+ * @param {object} [opts] - Options
+ * @param {string} [opts.userRequest] - User's request for context-aware analysis
+ * @param {number} [opts.thinkingBudget=8192] - Thinking tokens per batch
+ * @param {number} [opts.batchSize=15] - Images per batch (Gemini handles ~20 well)
+ * @param {Function} [opts.onBatchDone] - Callback (batchIdx, totalBatches, description)
+ * @returns {Promise<Array<{batchIndex: number, images: string[], description: string, tokenUsage: object}>>}
+ */
+async function analyzeImageBatches(ai, imageDocs, opts = {}) {
+  const {
+    userRequest = 'Describe the content of these images in detail',
+    thinkingBudget = 8192,
+    batchSize = 15,
+    onBatchDone = null,
+  } = opts;
+
+  if (imageDocs.length === 0) return [];
+
+  // Split into batches
+  const batches = [];
+  for (let i = 0; i < imageDocs.length; i += batchSize) {
+    batches.push(imageDocs.slice(i, i + batchSize));
+  }
+
+  console.log(`  Analyzing ${imageDocs.length} image(s) in ${batches.length} batch(es) (${batchSize}/batch)...`);
+
+  const results = [];
+  for (let bIdx = 0; bIdx < batches.length; bIdx++) {
+    if (isShuttingDown()) break;
+
+    const batch = batches[bIdx];
+    const batchLabel = `batch ${bIdx + 1}/${batches.length}`;
+    console.log(`    ${c.dim(`[${batchLabel}]`)} Analyzing ${batch.length} image(s)...`);
+
+    const contentParts = [];
+    contentParts.push({
+      text: `You are analyzing a batch of ${batch.length} images (batch ${bIdx + 1} of ${batches.length}, images ${bIdx * batchSize + 1}-${bIdx * batchSize + batch.length} of ${imageDocs.length} total).
+
+USER REQUEST CONTEXT: "${userRequest}"
+
+For EACH image, provide:
+1. A clear description of what the image shows
+2. Any visible text (OCR — transcribe ALL visible text exactly as shown)
+3. Key visual elements (people, UI elements, screenshots, diagrams, etc.)
+4. Contextual relevance to the user's request
+
+Format your response as a structured analysis with clear separation between images.
+Use the image filenames as headers. Be thorough — extract ALL visible text content.`,
+    });
+
+    // Add each image with its filename
+    for (const img of batch) {
+      contentParts.push({ text: `\n--- Image: ${img.fileName} ---` });
+      contentParts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+    }
+
+    const requestPayload = {
+      model: config.GEMINI_MODEL,
+      contents: [{ role: 'user', parts: contentParts }],
+      config: {
+        systemInstruction: 'You are an expert image analyst. Analyze each image thoroughly, extracting ALL visible text, describing visual content, and identifying contextual meaning. Be comprehensive and precise.',
+        maxOutputTokens: 32768,
+        temperature: 0,
+        thinkingConfig: { thinkingBudget },
+      },
+    };
+
+    const t0 = Date.now();
+    try {
+      const response = await withRetry(
+        () => ai.models.generateContent(requestPayload),
+        { label: `Image batch analysis (${batchLabel})`, maxRetries: 2, baseDelay: 5000 }
+      );
+      const durationMs = Date.now() - t0;
+      let rawText;
+      try { rawText = response.text; } catch { rawText = ''; }
+
+      const usage = response.usageMetadata || {};
+      const tokenUsage = {
+        inputTokens: usage.promptTokenCount || 0,
+        outputTokens: usage.candidatesTokenCount || 0,
+        totalTokens: usage.totalTokenCount || 0,
+        thoughtTokens: usage.thoughtsTokenCount || 0,
+      };
+
+      const result = {
+        batchIndex: bIdx,
+        images: batch.map(img => img.fileName),
+        description: rawText,
+        durationMs,
+        tokenUsage,
+      };
+      results.push(result);
+
+      console.log(`    ${c.success(`[${batchLabel}]`)} ${c.dim(`${(durationMs / 1000).toFixed(1)}s · ${tokenUsage.totalTokens.toLocaleString()} tokens`)}`);
+      if (onBatchDone) onBatchDone(bIdx, batches.length, rawText);
+    } catch (err) {
+      console.warn(`    ${c.warn(`[${batchLabel}] Failed: ${err.message}`)}`);
+      results.push({
+        batchIndex: bIdx,
+        images: batch.map(img => img.fileName),
+        description: `[Analysis failed for batch ${bIdx + 1}: ${err.message}]`,
+        durationMs: Date.now() - t0,
+        tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, thoughtTokens: 0 },
+      });
+    }
+  }
+
+  return results;
 }
 
 // ======================== PROMPT LOADING ========================
@@ -399,6 +534,9 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       contentParts.push({ text: `=== Document: ${doc.fileName} ===\n${content}` });
     } else if (doc.type === 'fileData') {
       contentParts.push({ fileData: { mimeType: doc.mimeType, fileUri: doc.fileUri } });
+    } else if (doc.type === 'inlineData') {
+      contentParts.push({ text: `=== Image: ${doc.fileName} ===` });
+      contentParts.push({ inlineData: { mimeType: doc.mimeType, data: doc.data } });
     }
   }
 
@@ -512,6 +650,9 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
             reducedParts.push({ text: `=== Document: ${doc.fileName} ===\n${content}` });
           } else if (doc.type === 'fileData') {
             reducedParts.push({ fileData: { mimeType: doc.mimeType, fileUri: doc.fileUri } });
+          } else if (doc.type === 'inlineData') {
+            reducedParts.push({ text: `=== Image: ${doc.fileName} ===` });
+            reducedParts.push({ inlineData: { mimeType: doc.mimeType, data: doc.data } });
           }
         }
         // Re-add prompt/context parts (last 3-5 parts are prompt, focus, etc.)
@@ -741,6 +882,9 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
       contentParts.push({ text: `=== Document: ${doc.fileName} ===\n${content}` });
     } else if (doc.type === 'fileData') {
       contentParts.push({ fileData: { mimeType: doc.mimeType, fileUri: doc.fileUri } });
+    } else if (doc.type === 'inlineData') {
+      contentParts.push({ text: `=== Image: ${doc.fileName} ===` });
+      contentParts.push({ inlineData: { mimeType: doc.mimeType, data: doc.data } });
     }
   }
 
@@ -877,7 +1021,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
  * @returns {{ compiled: object, run: object }} - The compiled analysis + run metadata
  */
 async function compileFinalResult(ai, allSegmentAnalyses, userName, callName, scriptDir, opts = {}) {
-  const { thinkingBudget: compilationThinking = 10240 } = opts;
+  const { thinkingBudget: compilationThinking = 10240, contextDocs = [], docOnlyMode = false } = opts;
   const { systemInstruction } = loadPrompt(scriptDir);
 
   console.log('');
@@ -958,6 +1102,21 @@ ${segmentDumps}`;
 
   const contentParts = [{ text: compilationPrompt }];
 
+  // ------- Attach context documents (critical for doc-only mode) -------
+  if (contextDocs.length > 0) {
+    for (const doc of contextDocs) {
+      if (doc.type === 'inlineText') {
+        contentParts.push({ text: `=== Document: ${doc.fileName} ===\n${doc.content}` });
+      } else if (doc.type === 'fileData') {
+        contentParts.push({ fileData: { mimeType: doc.mimeType, fileUri: doc.fileUri } });
+      } else if (doc.type === 'inlineData') {
+        contentParts.push({ text: `=== Image: ${doc.fileName} ===` });
+        contentParts.push({ inlineData: { mimeType: doc.mimeType, data: doc.data } });
+      }
+    }
+    console.log(`  Context docs attached: ${contextDocs.length}`);
+  }
+
   // ------- Pre-flight context window check -------
   const estimatedInputTokens = estimateTokens(compilationPrompt);
   const safeLimit = Math.floor(config.GEMINI_CONTEXT_WINDOW * 0.80); // 80% of context window
@@ -1012,11 +1171,15 @@ ${segmentDumps}`;
     console.log(`  Trimmed compilation input to ~${(newEstimate / 1000).toFixed(0)}K tokens`);
   }
 
+  const docOnlySystemSuffix = docOnlyMode
+    ? '\n\nYou are in DOCUMENT ANALYSIS MODE — analyze ALL provided documents and images thoroughly. Extract every piece of meaningful content, structure it, and produce a comprehensive analysis. If images are provided, describe their visual content in detail. Output valid JSON only — no markdown fences.'
+    : '\n\nYou are now in COMPILATION MODE — your job is to merge multiple segment analyses into one final unified output. Deduplicate, reconcile conflicts, and produce the definitive analysis. Output valid JSON only — no markdown fences.';
+
   const requestPayload = {
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
-      systemInstruction: `${systemInstruction}\n\nYou are now in COMPILATION MODE — your job is to merge multiple segment analyses into one final unified output. Deduplicate, reconcile conflicts, and produce the definitive analysis. Output valid JSON only — no markdown fences.`,
+      systemInstruction: `${systemInstruction}${docOnlySystemSuffix}`,
       maxOutputTokens: 65536,
       temperature: 0,
       thinkingConfig: { thinkingBudget: compilationThinking },
@@ -1268,6 +1431,7 @@ async function cleanupGeminiFiles(ai, geminiFileName, contextDocs = []) {
 module.exports = {
   initGemini,
   prepareDocsForGemini,
+  analyzeImageBatches,
   loadPrompt,
   processWithGemini,
   processSegmentBatch,

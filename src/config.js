@@ -225,6 +225,7 @@ const SEG_TIME = envInt('VIDEO_SEGMENT_TIME', 280); // seconds — produces segm
 const PRESET = env('VIDEO_PRESET', 'slow');
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
 const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg'];
 const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS];
 const DOC_EXTS = [
   '.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md',
@@ -297,6 +298,16 @@ const MIME_MAP = {
   '.aac': 'audio/aac',
   '.wma': 'audio/x-ms-wma',
   '.json': 'application/json',
+  // Image types
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.tiff': 'image/tiff',
+  '.tif': 'image/tiff',
+  '.svg': 'image/svg+xml',
 };
 
 // ======================== VALIDATION ========================
@@ -363,6 +374,7 @@ module.exports = {
   PRESET,
   VIDEO_EXTS,
   AUDIO_EXTS,
+  IMAGE_EXTS,
   MEDIA_EXTS,
   DOC_EXTS,
   GEMINI_FILE_API_EXTS,

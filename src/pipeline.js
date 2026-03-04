@@ -52,6 +52,7 @@ const phaseDeepDive    = require('./phases/deep-dive');
 const { c } = require('./utils/colors');
 const { findDocsRecursive } = require('./utils/fs');
 const { promptUser, promptUserText, selectDocsToExclude } = require('./utils/cli');
+const { selectOne } = require('./utils/interactive');
 const { createProgressBar } = require('./utils/progress-bar');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
 const { saveHistory, buildHistoryEntry } = require('./utils/learning-loop');
@@ -99,7 +100,34 @@ async function run() {
     console.log(`\n  Request: ${c.highlight(`"${initCtx.opts.request}"`)}`);
     log.step(`Dynamic mode request: "${initCtx.opts.request}"`);
 
-    if (!initCtx.opts.userName) {
+    // --- Output structure selector ---
+    if (!initCtx.opts.dynamicOutputMode) {
+      if (process.stdin.isTTY) {
+        const outputResult = await selectOne({
+          title: c.bold('📋 Output Structure'),
+          items: [
+            {
+              label: `📑 ${c.bold('Topics')}`,
+              hint: 'Split into multiple focused documents (one per topic)',
+              value: 'topics',
+            },
+            {
+              label: `📄 ${c.bold('Unified')}`,
+              hint: 'Single comprehensive document covering everything',
+              value: 'unified',
+            },
+          ],
+          default: 0,
+          footer: '↑↓ navigate · Enter select',
+        });
+        initCtx.opts.dynamicOutputMode = outputResult.value;
+      } else {
+        initCtx.opts.dynamicOutputMode = 'topics';
+      }
+    }
+    log.step(`Dynamic output mode: ${initCtx.opts.dynamicOutputMode}`);
+
+    if (!initCtx.opts.userName && process.stdin.isTTY) {
       const name = await promptUserText('\n  Your name (optional, press Enter to skip): ');
       if (name && name.trim()) initCtx.opts.userName = name.trim();
     }
@@ -122,19 +150,96 @@ async function run() {
   let fullCtx = await phaseServices(ctx);
   bar.tick('Services ready');
 
+  // Phase 3.25: Image batch analysis — convert large image sets to text descriptions
+  // This runs BEFORE deep-summary and segment processing so ALL downstream code benefits.
+  const IMAGE_BATCH_THRESHOLD = 15;
+  const mainImageDocs = fullCtx.contextDocs.filter(d => d.type === 'inlineData');
+  let mainImageDescriptions = [];
+
+  if (mainImageDocs.length > IMAGE_BATCH_THRESHOLD && fullCtx.ai && !isShuttingDown()) {
+    const { analyzeImageBatches } = require('./services/gemini');
+    console.log('');
+    console.log(`  ${c.cyan('Image batch analysis:')} ${c.highlight(mainImageDocs.length)} images detected`);
+    console.log(`  ${c.dim('Analyzing images in batches to extract content for efficient processing...')}`);
+
+    try {
+      const batchResults = await analyzeImageBatches(fullCtx.ai, mainImageDocs, {
+        userRequest: fullCtx.opts.request || 'Analyze images and extract all visible content',
+        thinkingBudget: Math.min(fullCtx.opts.thinkingBudget || 8192, 8192),
+        batchSize: 15,
+        onBatchDone: (bIdx, total) => {
+          log.step(`Image batch ${bIdx + 1}/${total} analyzed`);
+        },
+      });
+
+      // Track cost
+      for (const br of batchResults) {
+        if (br.tokenUsage && br.tokenUsage.totalTokens > 0) {
+          fullCtx.costTracker.addSegment(`image-batch-${br.batchIndex + 1}`, br.tokenUsage, br.durationMs, false);
+        }
+      }
+
+      mainImageDescriptions = batchResults.filter(r => r.description && !r.description.startsWith('[Analysis failed'));
+      const totalImageTokens = batchResults.reduce((s, r) => s + (r.tokenUsage?.totalTokens || 0), 0);
+      console.log(`  ${c.success(`Image analysis complete:`)} ${c.highlight(mainImageDescriptions.length + '/' + batchResults.length)} batches · ${c.yellow(totalImageTokens.toLocaleString() + ' tokens')}`);
+
+      // Replace inlineData docs with synthesized text in contextDocs
+      if (mainImageDescriptions.length > 0) {
+        const nonImageDocs = fullCtx.contextDocs.filter(d => d.type !== 'inlineData');
+        const combinedImageAnalysis = mainImageDescriptions.map(r =>
+          `=== Images: ${r.images.join(', ')} ===\n${r.description}`
+        ).join('\n\n');
+
+        fullCtx.contextDocs = [
+          ...nonImageDocs,
+          {
+            type: 'inlineText',
+            fileName: '_image_analysis_combined.md',
+            content: combinedImageAnalysis,
+          },
+        ];
+      }
+      log.step(`Image batch analysis: ${batchResults.length} batches, ${mainImageDocs.length} images → ${mainImageDescriptions.length} descriptions`);
+    } catch (err) {
+      console.error(`  ${c.error(`Image batch analysis failed: ${err.message}`)}`);
+      console.error(`    ${c.dim('Images will be sent directly to each segment (may be slow)')}`);
+      log.error(`Image batch analysis failed: ${err.message}`);
+    }
+    console.log('');
+  }
+
   // Phase 3.5 (optional): Deep Summary — pre-summarize context docs
   // If user didn't pass --deep-summary but has many context docs, offer it interactively
   if (!fullCtx.opts.deepSummary && process.stdin.isTTY && fullCtx.ai && fullCtx.contextDocs.length >= 3) {
     const inlineDocs = fullCtx.contextDocs.filter(d => d.type === 'inlineText' && d.content);
+    const imageDocs = fullCtx.contextDocs.filter(d => d.type === 'inlineData');
     const totalChars = inlineDocs.reduce((sum, d) => sum + d.content.length, 0);
     const totalTokensEstimate = Math.ceil(totalChars * 0.3);
+    const imageTokensEstimate = imageDocs.reduce((sum, d) => {
+      const payloadBytes = d.data ? Math.ceil(d.data.length * 3 / 4) : 0;
+      return sum + 258 + Math.ceil(payloadBytes / 4);
+    }, 0);
+    const combinedTokens = totalTokensEstimate + imageTokensEstimate;
     // Only offer when context is large enough to benefit (>100K tokens)
-    if (totalTokensEstimate > 100000) {
-      console.log('');
-      console.log(`  ${c.cyan('You have')} ${c.highlight(inlineDocs.length)} ${c.cyan('context docs')} (~${c.highlight((totalTokensEstimate / 1000).toFixed(0) + 'K')} ${c.cyan('tokens)')}`);
-      console.log(`  ${c.dim('Deep summary can reduce per-segment context by 60-80%, saving time and cost.')}`);
-      const wantDeepSummary = await promptUser(`  ${c.cyan('Enable deep summary?')} [y/N] `);
-      if (wantDeepSummary) {
+    if (combinedTokens > 100000) {
+      const deepSumChoice = await selectOne({
+        title: c.bold('📦 Deep Summary'),
+        items: [
+          {
+            label: `✅ ${c.bold('Yes')}`,
+            hint: `Condense ${inlineDocs.length} docs (~${(combinedTokens / 1000).toFixed(0)}K tokens) — saves 60-80% cost`,
+            value: true,
+          },
+          {
+            label: `❌ ${c.bold('No')}`,
+            hint: 'Keep all documents at full fidelity',
+            value: false,
+          },
+        ],
+        default: 1,
+        footer: '↑↓ navigate · Enter select',
+      });
+      if (deepSumChoice.value) {
         fullCtx.opts.deepSummary = true;
       }
     }
@@ -283,7 +388,12 @@ async function run() {
       if (!compiledAnalysis) {
         console.log(`  ${c.warn('Compilation failed — dynamic mode will use merged segment data instead')}`);
       }
-      await runDynamicTopics(fullCtx, dynamicSource, outputResult.runDir);
+      // Pass image descriptions so dynamic mode has image context as text
+      const dynamicCtx = {
+        ...fullCtx,
+        imageDescriptions: mainImageDescriptions,
+      };
+      await runDynamicTopics(dynamicCtx, dynamicSource, outputResult.runDir);
     }
   }
 
@@ -315,26 +425,32 @@ async function run() {
  */
 async function runDocOnly(ctx) {
   // Lazy imports for doc-only mode
-  const { compileFinalResult } = require('./services/gemini');
+  const { compileFinalResult, analyzeImageBatches } = require('./services/gemini');
   const { validateAnalysis, formatSchemaLine, normalizeAnalysis } = require('./utils/schema-validator');
   const { renderResultsMarkdown } = require('./renderers/markdown');
   const { renderResultsHtml } = require('./renderers/html');
   const { renderResultsPdf } = require('./renderers/pdf');
   const { renderResultsDocx } = require('./renderers/docx');
 
-  const { opts, targetDir, allDocFiles, userName, progress, costTracker } = ctx;
+  const { opts, targetDir, allDocFiles, imageFiles = [], userName, progress, costTracker } = ctx;
   const callName = path.basename(targetDir);
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const pipelineStartMs = Date.now();
   const log = getLog();
   const bar = createProgressBar({ costTracker, callName });
 
+  const hasImages = imageFiles.length > 0;
+  const hasTextDocs = allDocFiles.length > 0;
+  const modeLabel = hasImages && hasTextDocs ? 'Documents + Images'
+    : hasImages ? 'Images' : 'Documents';
+
   console.log('');
   console.log(c.cyan('══════════════════════════════════════════════'));
-  console.log(c.heading('  DOCUMENT-ONLY MODE — Analyzing Documents'));
+  console.log(c.heading(`  DOCUMENT-ONLY MODE — Analyzing ${modeLabel}`));
   console.log(c.cyan('══════════════════════════════════════════════'));
   console.log(`  Folder: ${c.cyan(callName)}`);
-  console.log(`  Documents: ${c.highlight(allDocFiles.length)}`);
+  if (hasTextDocs) console.log(`  Documents: ${c.highlight(allDocFiles.length)}`);
+  if (hasImages) console.log(`  Images: ${c.highlight(imageFiles.length)}`);
   console.log('');
 
   // Initialize services
@@ -359,6 +475,120 @@ async function runDocOnly(ctx) {
     return;
   }
 
+  // --- Image batch analysis: for large image sets, analyze in batches first ---
+  // This converts images to text descriptions so they can fit in context
+  const IMAGE_BATCH_THRESHOLD = 15; // Direct send up to 15 images; batch-analyze above
+  const imageDocs = contextDocs.filter(d => d.type === 'inlineData');
+  const nonImageDocs = contextDocs.filter(d => d.type !== 'inlineData');
+  let imageDescriptions = []; // Array of text descriptions from batch analysis
+  let effectiveContextDocs = contextDocs; // What we'll send to compilation
+
+  if (imageDocs.length > IMAGE_BATCH_THRESHOLD) {
+    console.log('');
+    console.log(`  ${c.cyan('Image batch analysis:')} ${c.highlight(imageDocs.length)} images (too many for single request)`);
+    console.log(`  ${c.dim('Analyzing images in batches to extract text and visual content...')}`);
+
+    try {
+      const batchResults = await analyzeImageBatches(ai, imageDocs, {
+        userRequest: opts.request || 'Analyze images and extract all visible content',
+        thinkingBudget: Math.min(opts.thinkingBudget || 8192, 8192),
+        batchSize: 15,
+        onBatchDone: (bIdx, total, desc) => {
+          log.step(`Image batch ${bIdx + 1}/${total}: ${desc.length} chars`);
+        },
+      });
+
+      // Track cost for batch analysis
+      for (const br of batchResults) {
+        if (br.tokenUsage && br.tokenUsage.totalTokens > 0) {
+          costTracker.addSegment(`image-batch-${br.batchIndex + 1}`, br.tokenUsage, br.durationMs, false);
+        }
+      }
+
+      // Convert batch results to text descriptions
+      imageDescriptions = batchResults.filter(r => r.description && !r.description.startsWith('[Analysis failed'));
+
+      const totalImageTokens = batchResults.reduce((s, r) => s + (r.tokenUsage?.totalTokens || 0), 0);
+      console.log(`  ${c.success(`Image analysis complete:`)} ${c.highlight(imageDescriptions.length + '/' + batchResults.length)} batches · ${c.yellow(totalImageTokens.toLocaleString() + ' tokens')}`);
+
+      // Replace inlineData docs with a single inlineText doc containing all descriptions
+      if (imageDescriptions.length > 0) {
+        const combinedImageAnalysis = imageDescriptions.map(r =>
+          `=== Images: ${r.images.join(', ')} ===\n${r.description}`
+        ).join('\n\n');
+
+        // Effective context: non-image docs + synthesized image analysis as text
+        effectiveContextDocs = [
+          ...nonImageDocs,
+          {
+            type: 'inlineText',
+            fileName: '_image_analysis_combined.md',
+            content: combinedImageAnalysis,
+          },
+        ];
+      }
+      log.step(`Image batch analysis: ${batchResults.length} batches, ${imageDocs.length} images → ${imageDescriptions.length} descriptions`);
+    } catch (err) {
+      console.error(`  ${c.error(`Image batch analysis failed: ${err.message}`)}`);
+      console.error(`    ${c.dim('Falling back to sending images directly (may hit context limits)')}`);
+      log.error(`Image batch analysis failed: ${err.message}`);
+      // Fall back to sending all images directly
+      effectiveContextDocs = contextDocs;
+    }
+    console.log('');
+  }
+
+  // --- Deep Summary: pre-summarize context docs before compilation ---
+  let deepSummaryStats = null;
+  if (!opts.deepSummary && process.stdin.isTTY && ai && effectiveContextDocs.length >= 3) {
+    const inlineDocs = effectiveContextDocs.filter(d => d.type === 'inlineText' && d.content);
+    const docImageDocs = effectiveContextDocs.filter(d => d.type === 'inlineData');
+    const totalChars = inlineDocs.reduce((sum, d) => sum + d.content.length, 0);
+    const totalTokensEstimate = Math.ceil(totalChars * 0.3);
+    const imageTokensEst = docImageDocs.reduce((sum, d) => {
+      const payloadBytes = d.data ? Math.ceil(d.data.length * 3 / 4) : 0;
+      return sum + 258 + Math.ceil(payloadBytes / 4);
+    }, 0);
+    const combinedTokens = totalTokensEstimate + imageTokensEst;
+    if (combinedTokens > 100000) {
+      const deepSumChoice = await selectOne({
+        title: c.bold('📦 Deep Summary'),
+        items: [
+          {
+            label: `✅ ${c.bold('Yes')}`,
+            hint: `Condense ${inlineDocs.length} docs (~${(combinedTokens / 1000).toFixed(0)}K tokens) — saves 60-80% cost`,
+            value: true,
+          },
+          {
+            label: `❌ ${c.bold('No')}`,
+            hint: 'Keep all documents at full fidelity',
+            value: false,
+          },
+        ],
+        default: 1,
+        footer: '↑↓ navigate · Enter select',
+      });
+      if (deepSumChoice.value) {
+        opts.deepSummary = true;
+      }
+    }
+  }
+
+  if (opts.deepSummary && ai && effectiveContextDocs.length > 0) {
+    if (process.stdin.isTTY && (!opts.deepSummaryExclude || opts.deepSummaryExclude.length === 0)) {
+      const excluded = await selectDocsToExclude(effectiveContextDocs);
+      opts.deepSummaryExclude = excluded;
+    }
+    bar.setPhase('deep-summary', 1);
+    // Build a temporary context for phaseDeepSummary
+    const deepSumCtx = await phaseDeepSummary({
+      opts, ai, contextDocs: effectiveContextDocs, costTracker,
+    });
+    effectiveContextDocs = deepSumCtx.contextDocs;
+    deepSummaryStats = deepSumCtx.deepSummaryStats || null;
+    bar.tick('Docs summarized');
+  }
+
   // Build a single analysis from all documents (send as one "segment")
   bar.setPhase('compile', 1);
 
@@ -367,7 +597,7 @@ async function runDocOnly(ctx) {
     return;
   }
 
-  console.log(`  Analyzing ${c.highlight(contextDocs.length)} document(s) with ${c.cyan(config.GEMINI_MODEL)}...`);
+  console.log(`  Analyzing ${c.highlight(effectiveContextDocs.length)} document(s) with ${c.cyan(config.GEMINI_MODEL)}...`);
 
   let compiledAnalysis = null;
   let compilationRun = null;
@@ -383,7 +613,7 @@ async function runDocOnly(ctx) {
       ai, [], userName, callName, PKG_ROOT,
       {
         thinkingBudget: compBudget,
-        contextDocs,
+        contextDocs: effectiveContextDocs,
         docOnlyMode: true,
       }
     );
@@ -421,7 +651,17 @@ async function runDocOnly(ctx) {
     bar.tick('Compilation done');
     progress.markCompilationDone();
   } catch (err) {
-    console.error(`  ${c.error(`Document analysis failed: ${err.message}`)}`); 
+    console.error(`  ${c.error(`Document analysis failed: ${err.message}`)}`);
+    console.error(`  ${c.dim('Suggestions:')}`);
+    if (err.message.includes('context') || err.message.includes('token') || err.message.includes('too large')) {
+      console.error(`    ${c.dim('• Enable deep summary (--deep-summary) to reduce doc context size')}`);
+      console.error(`    ${c.dim('• Use --deep-summary-exclude to keep key docs at full length')}`);
+    }
+    if (err.message.includes('quota') || err.message.includes('429') || err.message.includes('rate')) {
+      console.error(`    ${c.dim('• Wait a moment and retry — API quota may have been exceeded')}`);
+    }
+    console.error(`    ${c.dim('• Try with fewer documents or smaller files')}`);
+    console.error(`    ${c.dim('• Check your GEMINI_API_KEY is valid')}`);
     log.error(`Doc-only compilation FAIL — ${err.message}`);
   }
 
@@ -442,6 +682,7 @@ async function runDocOnly(ctx) {
     contextDocuments: contextDocs.map(d => d.fileName),
     documentStorageUrls: docStorageUrls || {},
     firebaseAuthenticated: firebaseReady,
+    deepSummary: deepSummaryStats,
     files: [],
     compilation: compilationRun ? {
       runFile: compilationFile ? path.relative(PROJECT_ROOT, compilationFile) : null,
@@ -527,6 +768,46 @@ async function runDocOnly(ctx) {
     }
   }
 
+  // Health Dashboard
+  const healthReport = buildHealthReport({
+    segmentReports: [],
+    allSegmentAnalyses: [],
+    costSummary: costTracker.getSummary(),
+    compilationQuality: compiledAnalysis ? { valid: true } : { valid: false },
+    totalDurationMs: Date.now() - pipelineStartMs,
+    integrityWarnings: results.integrityWarnings,
+  });
+  printHealthDashboard(healthReport);
+  results.healthReport = healthReport;
+
+  // Learning Loop
+  if (!opts.disableLearning) {
+    try {
+      const entry = buildHistoryEntry({
+        callName,
+        healthReport,
+        costSummary: costTracker.getSummary(),
+        segmentCount: 0,
+        compilationQuality: compiledAnalysis ? { valid: true } : { valid: false },
+        baseBudget: opts.thinkingBudget,
+        compilationBudget: opts.compilationThinkingBudget,
+        hadFocusedPasses: false,
+      });
+      saveHistory(PROJECT_ROOT, entry);
+      log.step('Learning history saved');
+    } catch (histErr) {
+      log.warn(`Failed to save learning history: ${histErr.message}`);
+    }
+  }
+
+  // Deep Dive (optional): generate explanatory documents
+  if (opts.deepDive && compiledAnalysis && ai && !isShuttingDown()) {
+    bar.setPhase('deep-dive', 1);
+    const deepDiveCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName, contextDocs: effectiveContextDocs };
+    await phaseDeepDive(deepDiveCtx, compiledAnalysis, runDir);
+    bar.tick('Deep dive complete');
+  }
+
   // Cost summary
   const cost = costTracker.getSummary();
   if (cost.totalTokens > 0) {
@@ -542,7 +823,8 @@ async function runDocOnly(ctx) {
   console.log(c.cyan('  ══════════════════════════════════════'));
   console.log(c.heading('  Document-Only Analysis Complete'));
   console.log(c.cyan('  ══════════════════════════════════════'));
-  console.log(`  Documents: ${c.highlight(contextDocs.length)}`);
+  console.log(`  Documents: ${c.highlight(effectiveContextDocs.length)}`);
+  if (hasImages) console.log(`  Images:    ${c.highlight(imageFiles.length)} ${imageDescriptions.length > 0 ? c.dim(`(${imageDescriptions.length} batch descriptions)`) : ''}`);
   console.log(`  Output:    ${c.cyan(path.relative(PROJECT_ROOT, runDir) + '/')}`);
   console.log(`  Elapsed:   ${c.yellow(log.elapsed())}`);
   console.log('');
@@ -551,7 +833,17 @@ async function runDocOnly(ctx) {
   if (opts.dynamic && ai && !isShuttingDown()) {
     const dynamicSource = compiledAnalysis || null;
     if (dynamicSource) {
-      const dynamicCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
+      const dynamicCtx = {
+        ...serviceCtx,
+        opts,
+        targetDir,
+        costTracker,
+        userName,
+        callName,
+        // Pass effective context (with image descriptions as text) for dynamic mode
+        contextDocs: effectiveContextDocs,
+        imageDescriptions,
+      };
       await runDynamicTopics(dynamicCtx, dynamicSource, runDir);
     } else {
       console.log(`  ${c.warn('Compilation failed — skipping dynamic mode (no segment data in doc-only mode)')}`);
@@ -699,7 +991,7 @@ function mergeSegmentAnalysesForDynamic(allSegmentAnalyses) {
  * @param {string} parentRunDir - The run directory from the standard pipeline output
  */
 async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
-  const { planTopics, generateAllDynamicDocuments, writeDynamicOutput, compiledToVideoSummaries } = require('./modes/dynamic-mode');
+  const { planTopics, generateAllDynamicDocuments, generateUnifiedDocument, writeDynamicOutput, compiledToVideoSummaries } = require('./modes/dynamic-mode');
   const { initFirebase, uploadToStorage } = require('./services/firebase');
 
   const { opts, targetDir, ai, costTracker } = fullCtx;
@@ -738,7 +1030,52 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
       docSnippets.push(`[${d.fileName}]\n${snippet}`);
     }
   }
-  // If contextDocs is empty, try loading docs from disk (for doc-only mode compat)
+
+  // Add image batch descriptions as doc snippets (from pre-analysis in runDocOnly)
+  const imageDescriptions = fullCtx.imageDescriptions || [];
+  if (imageDescriptions.length > 0) {
+    for (const batchResult of imageDescriptions) {
+      const snippet = batchResult.description.length > 12000
+        ? batchResult.description.slice(0, 12000) + '\n... (truncated)'
+        : batchResult.description;
+      docSnippets.push(`[Image Analysis: ${batchResult.images.join(', ')}]\n${snippet}`);
+    }
+    console.log(`  ${c.dim(`Image context: ${imageDescriptions.length} batch description(s) added as doc snippets`)}`);
+  }
+
+  // Batch-analyze images on the fly when no pre-analyzed descriptions exist
+  // (regardless of text doc presence — mixed folders need image analysis too)
+  if (imageDescriptions.length === 0) {
+    const inlineDataDocs = contextDocs.filter(d => d.type === 'inlineData');
+    if (inlineDataDocs.length > 0) {
+      console.log(`  ${c.cyan('Image analysis:')} ${c.highlight(inlineDataDocs.length)} image(s) need analysis for dynamic mode...`);
+      try {
+        const { analyzeImageBatches } = require('./services/gemini');
+        const batchResults = await analyzeImageBatches(ai, inlineDataDocs, {
+          userRequest: userRequest,
+          thinkingBudget: Math.min(thinkingBudget, 8192),
+          batchSize: 15,
+        });
+        for (const br of batchResults) {
+          if (br.tokenUsage && br.tokenUsage.totalTokens > 0) {
+            costTracker.addSegment(`dynamic-image-batch-${br.batchIndex + 1}`, br.tokenUsage, br.durationMs, false);
+          }
+          if (br.description && !br.description.startsWith('[Analysis failed')) {
+            const snippet = br.description.length > 12000
+              ? br.description.slice(0, 12000) + '\n... (truncated)'
+              : br.description;
+            docSnippets.push(`[Image Analysis: ${br.images.join(', ')}]\n${snippet}`);
+          }
+        }
+        console.log(`  ${c.success(`Image analysis complete: ${docSnippets.length} snippet(s)`)}`);
+      } catch (err) {
+        console.error(`  ${c.error(`Image analysis failed: ${err.message}`)}`);
+        log.error(`Dynamic mode image analysis failed: ${err.message}`);
+      }
+    }
+  }
+
+  // If contextDocs is empty and no images, try loading docs from disk (for doc-only mode compat)
   if (docSnippets.length === 0) {
     const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
     for (const { absPath, relPath } of allDocFiles) {
@@ -753,11 +1090,78 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
     }
   }
 
-  console.log(`  Context: ${c.highlight(videoSummaries.length ? 'compiled analysis' : 'documents only')} + ${c.highlight(docSnippets.length)} doc snippet(s)`);
-  console.log('');
-
   const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
 
+  console.log(`  Context: ${c.highlight(videoSummaries.length ? 'compiled analysis' : 'documents only')} + ${c.highlight(docSnippets.length)} doc snippet(s)`);
+  console.log(`  Output:  ${c.cyan(opts.dynamicOutputMode === 'unified' ? 'Unified document' : 'Topic-split documents')}`);
+  console.log('');
+
+  // ---- UNIFIED MODE: single comprehensive document ----
+  if (opts.dynamicOutputMode === 'unified') {
+    if (isShuttingDown()) return;
+    console.log(`  ${c.dim('Generating unified document...')}`);
+
+    try {
+      const result = await generateUnifiedDocument(ai, userRequest, docSnippets, {
+        folderName,
+        userName: userName || opts.userName,
+        thinkingBudget,
+        videoSummaries,
+      });
+
+      if (result.tokenUsage) {
+        costTracker.addSegment('dynamic-unified', result.tokenUsage, result.durationMs, false);
+      }
+
+      // Write the unified document
+      const dynamicDir = parentRunDir
+        ? path.join(parentRunDir, 'dynamic')
+        : path.join(targetDir, 'runs', ts, 'dynamic');
+      fs.mkdirSync(dynamicDir, { recursive: true });
+
+      const unifiedPath = path.join(dynamicDir, 'unified-output.md');
+      fs.writeFileSync(unifiedPath, result.markdown, 'utf8');
+
+      // Also write a simple results JSON
+      const unifiedMeta = {
+        mode: 'unified',
+        userRequest,
+        folderName,
+        timestamp: ts,
+        durationMs: result.durationMs,
+        tokenUsage: result.tokenUsage,
+      };
+      fs.writeFileSync(path.join(dynamicDir, 'unified-meta.json'), JSON.stringify(unifiedMeta, null, 2), 'utf8');
+
+      console.log('');
+      console.log(`  ${c.success('Unified document generated successfully')}`);
+      console.log(`    Output: ${c.cyan(path.relative(PROJECT_ROOT, unifiedPath))}`);
+      console.log(`    Time:   ${c.yellow((result.durationMs / 1000).toFixed(1) + 's')}`);
+      console.log(`    Tokens: ${c.yellow((result.tokenUsage?.totalTokens || 0).toLocaleString())}`);
+
+      // Firebase upload (optional)
+      if (!opts.skipUpload && !isShuttingDown()) {
+        try {
+          const { storage: fbStorage, authenticated } = await initFirebase();
+          if (authenticated && fbStorage) {
+            const storagePath = `calls/${folderName}/dynamic/${ts}/unified-output.md`;
+            await uploadToStorage(fbStorage, unifiedPath, storagePath);
+            console.log(`  ${c.success(`Uploaded to Firebase: ${c.cyan(storagePath)}`)}`);
+          }
+        } catch (fbErr) {
+          console.warn(`  ${c.warn(`Firebase upload failed: ${fbErr.message}`)}`);
+        }
+      }
+
+      log.step(`Dynamic unified document: ${(result.durationMs / 1000).toFixed(1)}s, ${(result.tokenUsage?.totalTokens || 0).toLocaleString()} tokens`);
+    } catch (err) {
+      console.error(`  ${c.error(`Unified document generation failed: ${err.message}`)}`);
+      log.error(`Dynamic unified generation failed: ${err.message}`);
+    }
+    return;
+  }
+
+  // ---- TOPIC-SPLIT MODE: plan + generate multiple documents ----
   // Phase 1: Plan topics
   if (isShuttingDown()) return;
   console.log(`  ${c.dim('Phase 1:')} Planning documents...`);

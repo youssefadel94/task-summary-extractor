@@ -405,6 +405,21 @@ describe('estimateDocTokens', () => {
     const doc = makeFileDoc('uploaded.pdf');
     expect(estimateDocTokens(doc)).toBe(2000);
   });
+
+  it('returns estimate for inlineData (image) docs based on payload size', () => {
+    const doc = { type: 'inlineData', fileName: 'screenshot.png', mimeType: 'image/png', data: 'base64data' };
+    // 258 base + ceil(decoded_bytes / 4); small payload ≈ 260
+    expect(estimateDocTokens(doc)).toBeGreaterThanOrEqual(258);
+    expect(estimateDocTokens(doc)).toBeLessThan(300);
+    // Larger data → higher estimate
+    const bigDoc = { type: 'inlineData', fileName: 'big.png', mimeType: 'image/png', data: 'A'.repeat(1000) };
+    expect(estimateDocTokens(bigDoc)).toBeGreaterThan(400);
+  });
+
+  it('returns fallback estimate for unknown doc types', () => {
+    const doc = { type: 'unknown', fileName: 'mystery.xyz' };
+    expect(estimateDocTokens(doc)).toBe(500);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════

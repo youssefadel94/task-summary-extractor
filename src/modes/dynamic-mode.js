@@ -283,6 +283,113 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
   return { markdown, raw: rawText, durationMs, tokenUsage };
 }
 
+// ======================== UNIFIED DOCUMENT GENERATION ========================
+
+/**
+ * Generate a single comprehensive unified document (instead of multi-topic split).
+ * Used when user chooses "unified" output mode.
+ *
+ * @param {object} ai - GoogleGenAI instance
+ * @param {string} userRequest - What the user wants generated
+ * @param {string[]} docSnippets - Content from context documents (including image descriptions)
+ * @param {object} options
+ * @param {string} [options.folderName] - Name of the source folder
+ * @param {string} [options.userName] - User's name
+ * @param {number} [options.thinkingBudget] - Thinking tokens
+ * @param {Array} [options.videoSummaries] - Video segment summaries
+ * @returns {Promise<{markdown: string, raw: string, durationMs: number, tokenUsage: object}>}
+ */
+async function generateUnifiedDocument(ai, userRequest, docSnippets, options = {}) {
+  const { folderName = 'project', userName = '', thinkingBudget = 16384, videoSummaries = [] } = options;
+
+  // Build video context section
+  const videoSection = videoSummaries.length > 0
+    ? `\n\nSOURCE CONTENT ANALYZED (${videoSummaries.length} segment${videoSummaries.length > 1 ? 's' : ''}):\n` +
+      videoSummaries.map((vs, i) => {
+        const label = vs.totalSegments > 1
+          ? `--- Source: ${vs.videoFile} — Segment ${vs.segmentIndex + 1}/${vs.totalSegments} ---`
+          : `--- Source: ${vs.videoFile} ---`;
+        const summary = vs.summary.length > 6000
+          ? vs.summary.slice(0, 6000) + '\n... (truncated for token budget)'
+          : vs.summary;
+        return `${label}\n${summary}`;
+      }).join('\n\n')
+    : '';
+
+  const docsSection = docSnippets.length > 0
+    ? `\n\nCONTEXT DOCUMENTS PROVIDED:\n${docSnippets.join('\n\n---\n\n')}`
+    : '';
+
+  const prompt = `You are an expert writer creating a single, comprehensive document. A user has a request and optionally provided context — which may include video recordings, documents, images, or combinations.
+
+USER REQUEST:
+"${userRequest}"
+
+SOURCE FOLDER: "${folderName}"
+${userName ? `USER: "${userName}"` : ''}
+${videoSection}
+${docsSection}
+
+YOUR TASK:
+Write ONE comprehensive, well-structured Markdown document that fully addresses the user's request. This should be a complete, standalone document — not split into separate files.
+
+WRITING RULES:
+1. Write in clear, professional Markdown.
+2. Use a logical structure with headers (##, ###), bullet points, tables, code blocks where appropriate.
+3. Be thorough — cover ALL aspects of the request in depth.
+4. Ground your content in ALL provided context — video recordings, documents, AND images when available.
+5. If images/screenshots were analyzed, reference their content explicitly.
+6. If video content is provided, use specific details, quotes, and decisions from the recordings.
+7. Be practical and actionable — include concrete examples, steps, or recommendations.
+8. Target 1000-5000+ words depending on the complexity and breadth of the request.
+9. Include a table of contents at the top for long documents.
+10. Include a "Summary" or "Key Takeaways" section at the end.
+11. DO NOT include YAML frontmatter.
+12. Start with a level-1 heading (# Title).
+
+START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):`;
+
+  const requestPayload = {
+    model: config.GEMINI_MODEL,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    config: {
+      systemInstruction: 'You are an expert writer creating comprehensive documentation. Write clear, well-structured Markdown that directly and thoroughly addresses the request. Start directly with the content. Be exhaustive and detailed.',
+      maxOutputTokens: 65536,
+      temperature: 0.3,
+      thinkingConfig: { thinkingBudget },
+    },
+  };
+
+  const t0 = Date.now();
+  const response = await withRetry(
+    () => ai.models.generateContent(requestPayload),
+    { label: 'Dynamic mode unified document', maxRetries: 2, baseDelay: 5000 }
+  );
+  const durationMs = Date.now() - t0;
+  let rawText;
+  try { rawText = response.text; } catch { rawText = ''; }
+
+  // Clean up markdown fences if model wrapped output
+  let markdown = rawText.trim();
+  if (markdown.startsWith('```markdown')) {
+    markdown = markdown.replace(/^```markdown\s*\n?/, '').replace(/\n?```\s*$/, '');
+  } else if (markdown.startsWith('```md')) {
+    markdown = markdown.replace(/^```md\s*\n?/, '').replace(/\n?```\s*$/, '');
+  } else if (markdown.startsWith('```')) {
+    markdown = markdown.replace(/^```\s*\n?/, '').replace(/\n?```\s*$/, '');
+  }
+
+  const usage = response.usageMetadata || {};
+  const tokenUsage = {
+    inputTokens: usage.promptTokenCount || 0,
+    outputTokens: usage.candidatesTokenCount || 0,
+    totalTokens: usage.totalTokenCount || 0,
+    thoughtTokens: usage.thoughtsTokenCount || 0,
+  };
+
+  return { markdown, raw: rawText, durationMs, tokenUsage };
+}
+
 // ======================== BATCH GENERATION ========================
 
 /**
@@ -699,6 +806,7 @@ function compiledToVideoSummaries(compiled) {
 module.exports = {
   planTopics,
   generateDynamicDocument,
+  generateUnifiedDocument,
   generateAllDynamicDocuments,
   writeDynamicOutput,
   compiledToContext,

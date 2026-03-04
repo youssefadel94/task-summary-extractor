@@ -104,11 +104,12 @@ describe('buildBatches', () => {
     expect(batches[0].length).toBe(1);
   });
 
-  it('respects docs with zero content length', () => {
+  it('skips docs with zero content length', () => {
     const docs = [makeDoc('empty.md', 0), makeDoc('ok.md', 100)];
     const batches = buildBatches(docs, 1000);
     expect(batches.length).toBe(1);
-    expect(batches[0].length).toBe(2);
+    expect(batches[0].length).toBe(1); // empty doc is skipped
+    expect(batches[0][0].fileName).toBe('ok.md');
   });
 
   it('groups adjacent docs until limit, then starts new batch', () => {

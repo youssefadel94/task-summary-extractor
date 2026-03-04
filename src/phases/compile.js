@@ -25,7 +25,7 @@ const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT, phaseTimer } = require('
 async function phaseCompile(ctx, allSegmentAnalyses) {
   const log = getLog();
   const timer = phaseTimer('compile');
-  const { opts, ai, userName, callName, costTracker, progress } = ctx;
+  const { opts, ai, userName, callName, costTracker, progress, contextDocs = [] } = ctx;
 
   progress.setPhase('compile');
 
@@ -40,7 +40,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
 
       let compilationResult = await compileFinalResult(
         ai, allSegmentAnalyses, userName, callName, PKG_ROOT,
-        { thinkingBudget: compBudget.budget }
+        { thinkingBudget: compBudget.budget, contextDocs }
       );
 
       compiledAnalysis = normalizeAnalysis(compilationResult.compiled);
@@ -94,7 +94,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
         try {
           const retryResult = await compileFinalResult(
             ai, allSegmentAnalyses, userName, callName, PKG_ROOT,
-            { thinkingBudget: retryBudget }
+            { thinkingBudget: retryBudget, contextDocs }
           );
 
           const retryAnalysis = normalizeAnalysis(retryResult.compiled);

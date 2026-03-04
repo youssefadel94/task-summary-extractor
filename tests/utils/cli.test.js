@@ -296,6 +296,43 @@ describe('discoverFolders', () => {
     expect(result).toHaveLength(1);
     expect(result[0].absPath).toBe(sub);
   });
+
+  it('detects a folder containing image files', () => {
+    const sub = path.join(tmpDir, 'screenshots');
+    fs.mkdirSync(sub);
+    fs.writeFileSync(path.join(sub, 'screen1.png'), '');
+    fs.writeFileSync(path.join(sub, 'photo.jpg'), '');
+    const result = discoverFolders(tmpDir);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('screenshots');
+    expect(result[0].imageCount).toBe(2);
+    expect(result[0].description).toContain('2 image(s)');
+  });
+
+  it('detects mixed docs and images in a folder', () => {
+    const sub = path.join(tmpDir, 'mixed-content');
+    fs.mkdirSync(sub);
+    fs.writeFileSync(path.join(sub, 'notes.txt'), 'text');
+    fs.writeFileSync(path.join(sub, 'diagram.webp'), '');
+    const result = discoverFolders(tmpDir);
+    expect(result).toHaveLength(1);
+    expect(result[0].docCount).toBe(1);
+    expect(result[0].imageCount).toBe(1);
+    expect(result[0].description).toContain('1 doc');
+    expect(result[0].description).toContain('1 image');
+  });
+
+  it('discovers folder with only images (no docs or media)', () => {
+    const sub = path.join(tmpDir, 'images-only');
+    fs.mkdirSync(sub);
+    fs.writeFileSync(path.join(sub, 'arch.svg'), '<svg></svg>');
+    const result = discoverFolders(tmpDir);
+    expect(result).toHaveLength(1);
+    expect(result[0].imageCount).toBe(1);
+    expect(result[0].hasVideo).toBe(false);
+    expect(result[0].hasAudio).toBe(false);
+    expect(result[0].docCount).toBe(0);
+  });
 });
 
 // ─── FEATURE_FLAGS structure ───────────────────────────────────────────────────────────

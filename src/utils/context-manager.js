@@ -26,6 +26,15 @@ function estimateTokens(text) {
 function estimateDocTokens(doc) {
   if (doc.type === 'inlineText') return estimateTokens(doc.content);
   if (doc.type === 'fileData') return 2000; // PDFs: rough estimate, actual varies
+  if (doc.type === 'inlineData') {
+    // Gemini uses ~258 tokens per image for reasoning, BUT the base64 payload is huge.
+    // A 1MB image → ~1.3MB base64 → massive API request. Account for actual payload cost
+    // so budget-based selection doesn't pack hundreds of images thinking they're "cheap".
+    // Use 258 tokens (AI reasoning cost) + payload-proportional overhead.
+    const payloadBytes = doc.data ? doc.data.length : 0;
+    // ~1 token per 4 bytes of base64 (API transfer cost) + 258 (reasoning cost)
+    return 258 + Math.ceil(payloadBytes / 4);
+  }
   return 500;
 }
 
@@ -81,6 +90,10 @@ function classifyDocPriority(fileName) {
 
   // P4 — Full .docs deep-dives
   if (fl.includes('.docs/')) return PRIORITY.BACKGROUND;
+
+  // P2 — Images (screenshots, diagrams)
+  const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.tiff'];
+  if (IMAGE_EXTS.some(ext => fl.endsWith(ext))) return PRIORITY.MEDIUM;
 
   // Other root-level docs
   if (fl.endsWith('.md') || fl.endsWith('.txt')) return PRIORITY.MEDIUM;

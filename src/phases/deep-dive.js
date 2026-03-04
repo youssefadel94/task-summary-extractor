@@ -39,6 +39,10 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
         ? doc.content.slice(0, 3000) + '\n... (truncated)'
         : doc.content;
       contextSnippets.push(`[${doc.fileName}]\n${snippet}`);
+    } else if (doc.type === 'inlineData') {
+      // Image docs — note their presence so AI knows visual context exists
+      // (actual image data is already in the compiled analysis via upstream batch analysis)
+      contextSnippets.push(`[Image: ${doc.fileName}]`);
     }
   }
 

@@ -81,7 +81,10 @@ function buildBatches(docs, maxChars = BATCH_MAX_CHARS) {
   let currentChars = 0;
 
   for (let doc of docs) {
-    let docChars = doc.content ? doc.content.length : 0;
+    // Skip non-text docs (e.g. inlineData images) — they have no .content to summarize
+    if (!doc.content || doc.content.length === 0) continue;
+
+    let docChars = doc.content.length;
 
     // Truncate extremely large docs to avoid exceeding the context window.
     // Any single doc beyond MAX_DOC_CHARS is capped (tail is dropped) and a

@@ -29,7 +29,7 @@ const { getLog, isShuttingDown, phaseTimer, PROJECT_ROOT } = require('./_shared'
 async function phaseServices(ctx) {
   const log = getLog();
   const timer = phaseTimer('services');
-  const { opts, allDocFiles } = ctx;
+  const { opts, allDocFiles, imageFiles = [] } = ctx;
   const callName = path.basename(ctx.targetDir);
 
   console.log(`${c.dim('Initializing services...')}`);
@@ -59,9 +59,11 @@ async function phaseServices(ctx) {
   log.step(`Services: Firebase auth=${firebaseReady}, Gemini=${ai ? 'ready' : 'skipped'}`);
 
   // --- Prepare documents for Gemini ---
+  // Combine regular docs with image files for multimodal context
+  const allInputFiles = [...allDocFiles, ...imageFiles];
   let contextDocs = [];
   if (ai) {
-    contextDocs = await prepareDocsForGemini(ai, allDocFiles);
+    contextDocs = await prepareDocsForGemini(ai, allInputFiles);
   } else if (allDocFiles.length > 0) {
     console.log(`  ${c.warn('Skipping Gemini doc preparation (AI not active)')}`);
     contextDocs = allDocFiles
@@ -72,6 +74,13 @@ async function phaseServices(ctx) {
         fileName: relPath,
         content: fs.readFileSync(absPath, 'utf8').replace(/^\uFEFF/, ''),
       }));
+    // Include image stubs so downstream code is aware they exist (no actual data in dry-run)
+    if (imageFiles.length > 0) {
+      console.log(`  ${c.dim(`ℹ ${imageFiles.length} image(s) detected but skipped (AI not active)`)}`);
+      for (const { relPath } of imageFiles) {
+        contextDocs.push({ type: 'inlineData', fileName: relPath, data: '', mimeType: 'image/png', _dryRunStub: true });
+      }
+    }
   }
 
   // --- Upload documents to Firebase Storage for archival ---
@@ -142,6 +151,13 @@ function deepSummaryFingerprint(contextDocs, excludeNames) {
     // Include first 512 + last 512 chars for change detection without hashing megabytes
     hash.update(d.content.slice(0, 512));
     if (d.content.length > 512) hash.update(d.content.slice(-512));
+  }
+  // Include image docs in fingerprint — different images should invalidate cache
+  const imageDocs = [...contextDocs]
+    .filter(d => d.type === 'inlineData')
+    .sort((a, b) => a.fileName.localeCompare(b.fileName));
+  for (const d of imageDocs) {
+    hash.update(`img:${d.fileName}:${d.data ? d.data.length : 0}`);
   }
   hash.update(JSON.stringify([...excludeNames].sort()));
   return hash.digest('hex').slice(0, 16);

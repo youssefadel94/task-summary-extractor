@@ -98,6 +98,7 @@ function discoverFolders(projectRoot) {
     '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub',
     '.html', '.htm',
   ]);
+  const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg']);
   const folders = [];
 
   let entries;
@@ -115,6 +116,7 @@ function discoverFolders(projectRoot) {
     let hasVideo = false;
     let hasAudio = false;
     let docCount = 0;
+    let imageCount = 0;
     let hasRuns = false;
 
     // Quick scan top level + one depth
@@ -127,6 +129,7 @@ function discoverFolders(projectRoot) {
           if (VIDEO_EXTS.has(ext)) hasVideo = true;
           if (AUDIO_EXTS.has(ext)) hasAudio = true;
           if (DOC_EXTS.has(ext)) docCount++;
+          if (IMAGE_EXTS.has(ext)) imageCount++;
         } else if (item.isDirectory() && depth === 0) {
           if (item.name === 'runs') hasRuns = true;
           if (!SKIP_FOLDER_NAMES.has(item.name) && item.name !== 'runs') {
@@ -138,11 +141,12 @@ function discoverFolders(projectRoot) {
     scan(absPath);
 
     // Only include folders with at least some content
-    if (hasVideo || hasAudio || docCount > 0) {
+    if (hasVideo || hasAudio || docCount > 0 || imageCount > 0) {
       const parts = [];
       if (hasVideo) parts.push('video');
       if (hasAudio) parts.push('audio');
       if (docCount > 0) parts.push(`${docCount} doc(s)`);
+      if (imageCount > 0) parts.push(`${imageCount} image(s)`);
       if (hasRuns) parts.push('has runs');
       folders.push({
         name: entry.name,
@@ -150,6 +154,7 @@ function discoverFolders(projectRoot) {
         hasVideo,
         hasAudio,
         docCount,
+        imageCount,
         hasRuns,
         description: parts.join(', '),
       });
@@ -178,7 +183,7 @@ async function selectFolder(projectRoot) {
   }
 
   const items = folders.map(f => {
-    const icon = f.hasVideo ? '🎥' : f.hasAudio ? '🎵' : '📄';
+    const icon = f.hasVideo ? '🎥' : f.hasAudio ? '🎵' : (f.imageCount > 0 && f.docCount === 0) ? '🖼️' : '📄';
     const mode = (!f.hasVideo && !f.hasAudio) ? c.yellow(' (docs only)') : '';
     return {
       label: `${icon} ${c.bold(f.name)}${mode}`,
@@ -336,6 +341,7 @@ ${f('--log-level <level>', 'debug, info, warn, error (default: info)')}
   ${h('DYNAMIC MODE')}
 ${f('--dynamic', 'Enable document generation mode')}
 ${f('--request <text>', 'What to generate (prompted if omitted)')}
+${f('--dynamic-output-mode <mode>', 'Output: topics or unified (prompted if omitted)')}
 
   ${h('PROGRESS TRACKING')}
 ${f('(auto)', 'Every run auto-tracks changes vs previous run (on by default)')}
@@ -620,11 +626,19 @@ async function selectDocsToExclude(contextDocs) {
   // Identify binary-only docs that bypass the picker (no text extracted — can't summarize)
   const binaryOnlyDocs = contextDocs.filter(d => d.type === 'fileData' && !d.content);
 
+  // Identify image docs (inlineData) — these are processed separately, not summarizable
+  const imageDocs = contextDocs.filter(d => d.type === 'inlineData');
+
   if (eligible.length === 0) {
     if (binaryOnlyDocs.length > 0) {
       console.log('');
       console.log(`  ${c.dim('ℹ')} ${c.cyan(binaryOnlyDocs.length)} file(s) included at full fidelity (no text extractable):`);
       binaryOnlyDocs.forEach(d => console.log(`    ${c.dim('-')} ${c.cyan(d.fileName)} ${c.dim(`(${d.mimeType})`)}`));
+      console.log('');
+    }
+    if (imageDocs.length > 0) {
+      console.log(`  ${c.dim('ℹ')} ${c.cyan(imageDocs.length)} image(s) included (processed separately via batch analysis):`);
+      imageDocs.forEach(d => console.log(`    ${c.dim('-')} ${c.cyan(d.fileName)}`));
       console.log('');
     }
     return [];
@@ -634,6 +648,11 @@ async function selectDocsToExclude(contextDocs) {
   if (binaryOnlyDocs.length > 0) {
     console.log(`  ${c.dim('ℹ')} ${c.cyan(binaryOnlyDocs.length)} file(s) included at full fidelity (no text extractable):`);
     binaryOnlyDocs.forEach(d => console.log(`    ${c.dim('-')} ${c.cyan(d.fileName)} ${c.dim(`(${d.mimeType})`)}`));
+    console.log('');
+  }
+  if (imageDocs.length > 0) {
+    console.log(`  ${c.dim('ℹ')} ${c.cyan(imageDocs.length)} image(s) included (processed separately via batch analysis):`);
+    imageDocs.forEach(d => console.log(`    ${c.dim('-')} ${c.cyan(d.fileName)}`));
     console.log('');
   }
   console.log(`  ${c.dim('Deep Summary will create short summaries of your reference documents.')}`);
