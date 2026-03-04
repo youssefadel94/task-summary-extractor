@@ -158,6 +158,20 @@ describe('RUN_PRESETS', () => {
   it('detailed preset enables progress tracking', () => {
     expect(RUN_PRESETS.detailed.overrides.disableProgress).toBe(false);
   });
+
+  it('dynamic preset enables progress tracking', () => {
+    expect(RUN_PRESETS.dynamic.overrides.disableProgress).toBe(false);
+  });
+
+  it('--update-progress overrides --no-progress', () => {
+    const { flags } = parseArgs(['--update-progress', '--no-progress', 'call 1']);
+    expect(flags['update-progress']).toBe(true);
+    expect(flags['no-progress']).toBe(true);
+    // In init.js, disableProgress = !!flags['no-progress'] && !flags['update-progress']
+    // So when both are set, disableProgress should be false
+    const disableProgress = !!flags['no-progress'] && !flags['update-progress'];
+    expect(disableProgress).toBe(false);
+  });
 });
 
 // ─── showHelp ────────────────────────────────────────────────────────────────

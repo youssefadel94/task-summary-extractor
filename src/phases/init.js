@@ -79,7 +79,7 @@ async function phaseInit() {
     dynamic: !!flags.dynamic,
     request: typeof flags.request === 'string' ? flags.request : null,
     updateProgress: !!flags['update-progress'],
-    disableProgress: !!flags['no-progress'],
+    disableProgress: !!flags['no-progress'] && !flags['update-progress'], // --update-progress overrides --no-progress
     repoPath: flags.repo || null,
     model: typeof flags.model === 'string' ? flags.model : null,
     minConfidence: typeof flags['min-confidence'] === 'string' ? flags['min-confidence'].toLowerCase() : null,
@@ -124,6 +124,7 @@ async function phaseInit() {
       const dPreset = RUN_PRESETS.dynamic?.overrides;
       if (dPreset) {
         opts.disableFocusedPass = dPreset.disableFocusedPass;
+        opts.disableProgress = dPreset.disableProgress !== undefined ? dPreset.disableProgress : false;
         opts.format = dPreset.format;
         opts.formats = dPreset.formats;
         opts._modelTier = dPreset.modelTier;

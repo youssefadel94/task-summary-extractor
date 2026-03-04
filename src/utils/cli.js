@@ -476,6 +476,7 @@ const RUN_PRESETS = {
     description: 'Generate custom documents from your files — enter a request prompt',
     overrides: {
       disableFocusedPass: true, // no segments to re-analyze for dynamic
+      disableProgress: false,   // progress tracking enabled by default
       format: 'md,json',
       formats: new Set(['md', 'json']),
       modelTier: 'balanced',

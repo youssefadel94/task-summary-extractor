@@ -290,8 +290,13 @@ async function run() {
   // Phase 11 (auto): Progress Tracking — compare against previous run
   if (!fullCtx.opts.disableProgress && compiledAnalysis && !isShuttingDown()) {
     bar.setPhase('progress', 1);
-    await runAutoProgressCheck(fullCtx, compiledAnalysis, outputResult.runDir, outputResult.runTs);
-    bar.tick('Progress tracked');
+    try {
+      await runAutoProgressCheck(fullCtx, compiledAnalysis, outputResult.runDir, outputResult.runTs);
+      bar.tick('Progress tracked');
+    } catch (progressErr) {
+      log.warn(`Auto progress tracking failed (non-critical): ${progressErr.message}`);
+      console.warn(`  ${c.warn('Progress tracking failed (non-critical):')} ${progressErr.message}`);
+    }
   }
 
   // Cleanup
@@ -555,8 +560,14 @@ async function runDocOnly(ctx) {
 
   // Auto progress tracking (on by default)
   if (!opts.disableProgress && compiledAnalysis && !isShuttingDown()) {
-    const docCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
-    await runAutoProgressCheck(docCtx, compiledAnalysis, runDir, ts);
+    try {
+      const docCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
+      await runAutoProgressCheck(docCtx, compiledAnalysis, runDir, ts);
+    } catch (progressErr) {
+      const docLog = getLog();
+      docLog.warn(`Auto progress tracking failed (non-critical): ${progressErr.message}`);
+      console.warn(`  ${c.warn('Progress tracking failed (non-critical):')} ${progressErr.message}`);
+    }
   }
 
   log.step('Doc-only mode complete');
