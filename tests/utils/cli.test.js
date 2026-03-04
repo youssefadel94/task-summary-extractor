@@ -107,6 +107,19 @@ describe('parseArgs', () => {
     const { flags } = parseArgs(['--exclude-docs=notes.md']);
     expect(flags['exclude-docs']).toBe('notes.md');
   });
+
+  it('parses --no-progress as a boolean flag', () => {
+    const { flags, positional } = parseArgs(['--no-progress', 'call 1']);
+    expect(flags['no-progress']).toBe(true);
+    expect(positional).toContain('call 1');
+  });
+
+  it('--no-progress does not consume the next argument', () => {
+    const { flags, positional } = parseArgs(['--no-progress', '--name', 'Alice', 'folder']);
+    expect(flags['no-progress']).toBe(true);
+    expect(flags.name).toBe('Alice');
+    expect(positional).toContain('folder');
+  });
 });
 
 // ─── RUN_PRESETS ─────────────────────────────────────────────────────────────
@@ -132,6 +145,18 @@ describe('RUN_PRESETS', () => {
       expect(preset.description).toBeDefined();
       expect(preset.overrides).toBeDefined();
     }
+  });
+
+  it('fast preset disables progress tracking', () => {
+    expect(RUN_PRESETS.fast.overrides.disableProgress).toBe(true);
+  });
+
+  it('balanced preset enables progress tracking', () => {
+    expect(RUN_PRESETS.balanced.overrides.disableProgress).toBe(false);
+  });
+
+  it('detailed preset enables progress tracking', () => {
+    expect(RUN_PRESETS.detailed.overrides.disableProgress).toBe(false);
   });
 });
 

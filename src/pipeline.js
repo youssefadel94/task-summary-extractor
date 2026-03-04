@@ -287,6 +287,13 @@ async function run() {
     }
   }
 
+  // Phase 11 (auto): Progress Tracking — compare against previous run
+  if (!fullCtx.opts.disableProgress && compiledAnalysis && !isShuttingDown()) {
+    bar.setPhase('progress', 1);
+    await runAutoProgressCheck(fullCtx, compiledAnalysis, outputResult.runDir, outputResult.runTs);
+    bar.tick('Progress tracked');
+  }
+
   // Cleanup
   bar.finish();
   fullCtx.progress.cleanup();
@@ -544,6 +551,12 @@ async function runDocOnly(ctx) {
     } else {
       console.log(`  ${c.warn('Compilation failed — skipping dynamic mode (no segment data in doc-only mode)')}`);
     }
+  }
+
+  // Auto progress tracking (on by default)
+  if (!opts.disableProgress && compiledAnalysis && !isShuttingDown()) {
+    const docCtx = { ...serviceCtx, opts, targetDir, costTracker, userName, callName };
+    await runAutoProgressCheck(docCtx, compiledAnalysis, runDir, ts);
   }
 
   log.step('Doc-only mode complete');
@@ -815,6 +828,148 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
   console.log('');
 
   log.step(`Dynamic mode complete: ${stats.successful} docs, ${stats.totalTokens} tokens`);
+}
+
+// ======================== AUTO PROGRESS TRACKING ========================
+
+/**
+ * Automatic progress tracking — runs at the end of every pipeline execution
+ * (unless disabled with --no-progress). Compares the current compilation against
+ * the most recent previous run and produces a lightweight progress snapshot.
+ *
+ * This is different from standalone --update-progress:
+ *  - Runs as part of the normal pipeline (not a separate mode)
+ *  - Uses local deterministic assessment only (no extra Gemini API calls)
+ *  - Writes progress.json + progress.md into the current run directory
+ *  - Initializes git repo if not already present (for future tracking)
+ *  - First run simply records the baseline (no comparison possible)
+ *
+ * @param {object} ctx - Pipeline context with opts, targetDir, callName, costTracker
+ * @param {object} compiledAnalysis - Current run's compiled analysis
+ * @param {string} runDir - Current run output directory
+ * @param {string} runTs - Current run timestamp string
+ */
+async function runAutoProgressCheck(ctx, compiledAnalysis, runDir, runTs) {
+  const { isGitAvailable, isGitRepo, initRepo } = require('./services/git');
+  const { detectAllChanges, serializeReport, extractTrackableItems } = require('./modes/change-detector');
+  const { assessProgressLocal, buildProgressSummary, renderProgressMarkdown, STATUS_ICONS, mergeProgressIntoAnalysis } = require('./modes/progress-updater');
+
+  const log = getLog();
+  const { opts, targetDir, callName } = ctx;
+
+  // --- Step 1: Ensure git repo exists for future change tracking ---
+  try {
+    if (isGitAvailable() && !isGitRepo(opts.repoPath || targetDir)) {
+      const { root, created } = initRepo(targetDir);
+      if (created) {
+        log.step(`Git repo auto-initialized for progress tracking: ${root}`);
+      }
+    }
+  } catch (gitErr) {
+    log.warn(`Git auto-init failed (non-critical): ${gitErr.message}`);
+  }
+
+  // --- Step 2: Load previous compilation for comparison ---
+  const prev = loadPreviousCompilation(targetDir, runTs);
+  if (!prev) {
+    // First run — no previous data to compare against. Record baseline.
+    log.step('Progress tracking: first run — baseline recorded for future comparisons');
+    console.log(`  ${c.info('Progress tracking:')} ${c.dim('First run — baseline recorded for future comparisons')}`);
+
+    // Still extract and save item counts as a baseline snapshot
+    const items = extractTrackableItems(compiledAnalysis);
+    const baseline = {
+      timestamp: runTs,
+      mode: 'baseline',
+      callName,
+      itemCount: items.length,
+      itemBreakdown: {
+        tickets: (compiledAnalysis.tickets || []).length,
+        change_requests: (compiledAnalysis.change_requests || []).length,
+        action_items: (compiledAnalysis.action_items || []).length,
+        blockers: (compiledAnalysis.blockers || []).length,
+        scope_changes: (compiledAnalysis.scope_changes || []).length,
+      },
+      message: 'First run — baseline for future progress tracking',
+    };
+    try {
+      fs.writeFileSync(path.join(runDir, 'progress.json'), JSON.stringify(baseline, null, 2), 'utf8');
+    } catch { /* non-critical */ }
+    return;
+  }
+
+  // --- Step 3: Detect changes since previous run ---
+  let changeReport;
+  try {
+    changeReport = detectAllChanges({
+      repoPath: opts.repoPath,
+      callDir: targetDir,
+      sinceISO: prev.timestamp,
+      analysis: prev.compiled,
+    });
+  } catch (err) {
+    log.warn(`Progress tracking: change detection failed — ${err.message}`);
+    return;
+  }
+
+  // --- Step 4: Local assessment (deterministic, no API cost) ---
+  const localAssessments = assessProgressLocal(changeReport.items, changeReport.correlations);
+  const summary = buildProgressSummary(localAssessments);
+
+  // --- Step 5: Merge progress into current analysis ---
+  const annotated = mergeProgressIntoAnalysis(
+    JSON.parse(JSON.stringify(compiledAnalysis)),
+    localAssessments
+  );
+
+  // --- Step 6: Write progress data ---
+  const progressData = {
+    timestamp: runTs,
+    mode: 'auto',
+    callName,
+    sinceAnalysis: prev.timestamp,
+    changeReport: serializeReport(changeReport),
+    assessments: localAssessments,
+    summary,
+    annotatedAnalysis: annotated,
+  };
+
+  try {
+    fs.writeFileSync(
+      path.join(runDir, 'progress.json'),
+      JSON.stringify(progressData, null, 2),
+      'utf8'
+    );
+
+    const progressMd = renderProgressMarkdown({
+      assessments: localAssessments,
+      changeReport,
+      meta: { callName, timestamp: runTs, mode: 'auto' },
+    });
+    fs.writeFileSync(path.join(runDir, 'progress.md'), progressMd, 'utf8');
+  } catch (writeErr) {
+    log.warn(`Progress tracking: failed to write output — ${writeErr.message}`);
+    return;
+  }
+
+  // --- Step 7: Print compact summary ---
+  const hasChanges = changeReport.totals.commits > 0 ||
+    changeReport.totals.filesChanged > 0 ||
+    changeReport.totals.docsChanged > 0;
+
+  if (hasChanges || summary.done > 0 || summary.inProgress > 0) {
+    console.log('');
+    console.log(`  ${c.heading('Progress Tracking')} ${c.dim(`(vs ${prev.timestamp})`)}`);
+    console.log(`    ${c.dim('Changes:')} ${c.highlight(changeReport.totals.commits)} commits, ${c.highlight(changeReport.totals.filesChanged)} files, ${c.highlight(changeReport.totals.docsChanged)} docs`);
+    console.log(`    ${STATUS_ICONS.DONE} ${c.green(summary.done)} done  ${STATUS_ICONS.IN_PROGRESS} ${c.yellow(summary.inProgress)} in progress  ${STATUS_ICONS.NOT_STARTED} ${c.dim(summary.notStarted)} not started`);
+    const pct = summary.total > 0 ? ((summary.done / summary.total) * 100).toFixed(0) : '0';
+    console.log(`    ${c.dim('Completion:')} ${c.highlight(pct + '%')} (${summary.done}/${summary.total})`);
+    console.log(`    ${c.dim('Report:')} ${c.cyan(path.relative(PROJECT_ROOT, path.join(runDir, 'progress.md')))}`);
+  } else {
+    console.log(`  ${c.info('Progress tracking:')} ${c.dim('No changes detected since last run')}`);
+  }
+
+  log.step(`Auto progress: ${summary.done} done, ${summary.inProgress} in-progress, ${summary.notStarted} not-started (since ${prev.timestamp})`);
 }
 
 // ======================== SMART CHANGE DETECTION ========================

@@ -79,6 +79,7 @@ async function phaseInit() {
     dynamic: !!flags.dynamic,
     request: typeof flags.request === 'string' ? flags.request : null,
     updateProgress: !!flags['update-progress'],
+    disableProgress: !!flags['no-progress'],
     repoPath: flags.repo || null,
     model: typeof flags.model === 'string' ? flags.model : null,
     minConfidence: typeof flags['min-confidence'] === 'string' ? flags['min-confidence'].toLowerCase() : null,
@@ -111,6 +112,7 @@ async function phaseInit() {
         opts.disableFocusedPass = preset.disableFocusedPass;
         opts.disableLearning = preset.disableLearning;
         opts.disableDiff = preset.disableDiff;
+        opts.disableProgress = preset.disableProgress !== undefined ? preset.disableProgress : false;
         opts.format = preset.format;
         opts.formats = preset.formats;
         opts._modelTier = preset.modelTier; // used later for model auto-selection
@@ -387,6 +389,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (!opts.disableFocusedPass) features.push(c.green('focused-pass'));
   if (!opts.disableLearning) features.push(c.green('learning'));
   if (!opts.disableDiff) features.push(c.green('diff'));
+  if (!opts.disableProgress) features.push(c.green('progress'));
   if (opts.deepDive) features.push(c.cyan('deep-dive'));
   if (opts.deepSummary) features.push(c.cyan('deep-summary'));
   if (opts.dynamic) features.push(c.cyan('dynamic'));
@@ -399,6 +402,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.disableFocusedPass) disabled.push(c.dim('no-focused'));
   if (opts.disableLearning) disabled.push(c.dim('no-learning'));
   if (opts.disableDiff) disabled.push(c.dim('no-diff'));
+  if (opts.disableProgress) disabled.push(c.dim('no-progress'));
   if (opts.noBatch) disabled.push(c.dim('no-batch'));
 
   if (features.length > 0) {

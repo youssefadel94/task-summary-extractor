@@ -38,7 +38,7 @@ function parseArgs(argv) {
     'resume', 'reanalyze', 'dry-run',
     'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
-    'no-html', 'no-batch',
+    'no-html', 'no-batch', 'no-progress',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -338,8 +338,10 @@ ${f('--dynamic', 'Enable document generation mode')}
 ${f('--request <text>', 'What to generate (prompted if omitted)')}
 
   ${h('PROGRESS TRACKING')}
-${f('--update-progress', 'Detect changes via git since last analysis')}
+${f('(auto)', 'Every run auto-tracks changes vs previous run (on by default)')}
+${f('--update-progress', 'Standalone mode — detect changes without re-analyzing')}
 ${f('--repo <path>', 'Path to project git repo')}
+${f('--no-progress', 'Disable automatic progress tracking')}
 
   ${h('UPLOAD & STORAGE')}
 ${f('--skip-upload', 'Skip all Firebase uploads')}
@@ -428,6 +430,7 @@ const RUN_PRESETS = {
       disableFocusedPass: true,
       disableLearning: true,
       disableDiff: true,
+      disableProgress: true,
       format: 'md,json',
       formats: new Set(['md', 'json']),
       modelTier: 'economy',
@@ -441,6 +444,7 @@ const RUN_PRESETS = {
       disableFocusedPass: false,
       disableLearning: false,
       disableDiff: false,
+      disableProgress: false,
       format: 'all',
       formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
       modelTier: 'balanced',
@@ -454,6 +458,7 @@ const RUN_PRESETS = {
       disableFocusedPass: false,
       disableLearning: false,
       disableDiff: false,
+      disableProgress: false,
       format: 'all',
       formats: new Set(['md', 'html', 'json', 'pdf', 'docx']),
       modelTier: 'premium',
@@ -719,6 +724,16 @@ const FEATURE_FLAGS = [
     label: 'Batch Processing',
     desc: 'Group short segments into batches for efficiency',
     category: 'processing',
+    default: true,
+    inverted: true,
+  },
+  {
+    key: 'disableProgress',
+    flag: '--no-progress',
+    icon: '📊',
+    label: 'Progress Tracking',
+    desc: 'Auto-track changes vs previous run (git + doc changes)',
+    category: 'quality',
     default: true,
     inverted: true,
   },
