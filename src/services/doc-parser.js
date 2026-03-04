@@ -73,7 +73,10 @@ const NEWLY_SUPPORTED_EXTS = ['.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
  * @returns {Promise<{ text: string, warnings: string[] }>}
  */
 async function parsePdf(filePath) {
-  const pdfParse = require('pdf-parse');
+  let pdfParse;
+  try { pdfParse = require('pdf-parse'); } catch {
+    return { text: '', warnings: ['pdf-parse is not installed — run: npm install pdf-parse'] };
+  }
   const warnings = [];
 
   try {
@@ -102,7 +105,10 @@ async function parsePdf(filePath) {
  * @returns {Promise<{ text: string, warnings: string[] }>}
  */
 async function parseDocx(filePath) {
-  const mammoth = require('mammoth');
+  let mammoth;
+  try { mammoth = require('mammoth'); } catch {
+    return { text: '', warnings: ['mammoth is not installed — run: npm install mammoth'] };
+  }
   const warnings = [];
 
   try {
@@ -143,7 +149,10 @@ async function parseDocx(filePath) {
  * @returns {Promise<{ text: string, warnings: string[] }>}
  */
 async function parseExcel(filePath) {
-  const XLSX = require('xlsx');
+  let XLSX;
+  try { XLSX = require('xlsx'); } catch {
+    return { text: '', warnings: ['xlsx is not installed — run: npm install xlsx'] };
+  }
   const warnings = [];
 
   try {
@@ -191,7 +200,10 @@ async function parseExcel(filePath) {
  * @returns {Promise<{ text: string, warnings: string[] }>}
  */
 async function parseWithOfficeParser(filePath) {
-  const officeparser = require('officeparser');
+  let officeparser;
+  try { officeparser = require('officeparser'); } catch {
+    return { text: '', warnings: ['officeparser is not installed — run: npm install officeparser'] };
+  }
   const warnings = [];
 
   try {

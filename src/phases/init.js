@@ -337,10 +337,14 @@ async function phaseInit() {
     }
     delete opts._modelTier;
   } else {
-    // Interactive model selection
-    const chosenModel = await selectModel(GEMINI_MODELS, config.GEMINI_MODEL);
-    setActiveModel(chosenModel);
-    log.step(`Model selected: ${config.GEMINI_MODEL}`);
+    // Interactive model selection (fallback to default in non-TTY)
+    if (!process.stdin.isTTY) {
+      log.step(`Model auto-selected (non-interactive): ${config.GEMINI_MODEL}`);
+    } else {
+      const chosenModel = await selectModel(GEMINI_MODELS, config.GEMINI_MODEL);
+      setActiveModel(chosenModel);
+      log.step(`Model selected: ${config.GEMINI_MODEL}`);
+    }
   }
 
   // --- Print run summary ---

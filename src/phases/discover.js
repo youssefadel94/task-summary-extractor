@@ -109,10 +109,10 @@ async function phaseDiscover(ctx) {
       userName = await promptUserText('  Your name (for task assignment detection): ');
     }
   }
-  if (!userName) {
+  if (!userName && !opts.dynamic) {
     console.log(`  ${c.yellow('⚠')} No name provided — personalized task detection will be skipped.`);
     console.log(`    ${c.dim('Tip: use --name "Your Name" for task attribution next time.')}`);
-  } else {
+  } else if (userName) {
     log.step(`User identified as: ${userName}`);
   }
 
@@ -139,7 +139,10 @@ async function phaseDiscover(ctx) {
 
   if (inputMode === 'document') {
     console.log(`  ${c.info('No video or audio files found \u2014 running in document-only mode.')}`);
-    console.log(`  ${c.dim('Tip: Use --dynamic for custom document generation.')}\n`);
+    if (!opts.dynamic) {
+      console.log(`  ${c.dim('Tip: Use --dynamic for custom document generation.')}`);
+    }
+    console.log('');
   } else {
     const mediaLabel = inputMode === 'video' ? 'video' : 'audio';
     console.log(`  Found ${c.highlight(mediaFiles.length)} ${mediaLabel} file(s):`);

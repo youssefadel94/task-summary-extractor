@@ -38,7 +38,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
       const compBudget = calculateCompilationBudget(allSegmentAnalyses, opts.compilationThinkingBudget);
       console.log(`  Compilation thinking budget: ${c.yellow(compBudget.budget.toLocaleString())} tokens ${c.dim(`(${compBudget.reason})`)}`);
 
-      const compilationResult = await compileFinalResult(
+      let compilationResult = await compileFinalResult(
         ai, allSegmentAnalyses, userName, callName, PKG_ROOT,
         { thinkingBudget: compBudget.budget }
       );
@@ -76,7 +76,6 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
 
       // === COMPILATION AUTO-RETRY on parse failure or quality FAIL ===
       const shouldRetryCompilation = !compiledAnalysis || compiledAnalysis._incomplete || (() => {
-        if (!compiledAnalysis) return true;
         const cq = assessQuality(compiledAnalysis, {
           parseSuccess: compilationRun?.parseSuccess ?? false,
           rawLength: (compilationResult.raw || '').length,
@@ -121,6 +120,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
               console.log(`  ${c.success('Compilation retry succeeded — using retry result')}`);
               compiledAnalysis = retryAnalysis;
               compilationRun = retryRun;
+              compilationResult = retryResult;
               compSchemaReport = retrySchema;
               log.step('Compilation retry accepted');
             } else {

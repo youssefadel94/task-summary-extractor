@@ -608,9 +608,20 @@ function mergeSegmentAnalysesForDynamic(allSegmentAnalyses) {
     if (Array.isArray(seg.scope_changes)) merged.scope_changes.push(...seg.scope_changes);
     if (Array.isArray(seg.file_references)) merged.file_references.push(...seg.file_references);
 
-    // Use last your_tasks if present
+    // Merge your_tasks if present
     if (seg.your_tasks) {
-      merged.your_tasks = seg.your_tasks;
+      if (!merged.your_tasks) {
+        merged.your_tasks = JSON.parse(JSON.stringify(seg.your_tasks));
+      } else {
+        // Merge arrays within your_tasks instead of overwriting
+        for (const [key, val] of Object.entries(seg.your_tasks)) {
+          if (Array.isArray(val) && Array.isArray(merged.your_tasks[key])) {
+            merged.your_tasks[key].push(...val);
+          } else if (!merged.your_tasks[key]) {
+            merged.your_tasks[key] = val;
+          }
+        }
+      }
     }
 
     if (seg.summary) summaries.push(seg.summary);
@@ -984,7 +995,7 @@ async function runProgressUpdate(initCtx) {
   console.log(`  ${STATUS_ICONS.IN_PROGRESS} In Progress: ${c.yellow(finalSummary.inProgress)}`);
   console.log(`  ${STATUS_ICONS.NOT_STARTED} Not Started: ${c.dim(finalSummary.notStarted)}`);
   console.log(`  ${STATUS_ICONS.SUPERSEDED} Superseded:  ${c.dim(finalSummary.superseded)}`);
-  const completionPct = finalSummary.total > 0 ? ((finalSummary.done / finalSummary.total) * 100).toFixed(0) : 0;
+  const completionPct = finalSummary.total > 0 ? ((finalSummary.done / finalSummary.total) * 100).toFixed(0) : '0';
   console.log(`  Overall: ${c.highlight(completionPct + '%')} complete (${c.highlight(finalSummary.done + '/' + finalSummary.total)})`);
   console.log('');
 

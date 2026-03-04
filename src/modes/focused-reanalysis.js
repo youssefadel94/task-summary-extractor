@@ -122,7 +122,7 @@ function identifyWeaknesses(qualityReport, analysis) {
       `FOCUS: LOW-CONFIDENCE VERIFICATION — ${lowConfItems.length} items were marked LOW confidence. ` +
       'Re-examine these specific items against the video and context documents. ' +
       'Either upgrade their confidence with supporting evidence, or remove them if truly unsupported: ' +
-      lowConfItems.slice(0, 5).map(i => `"${i.id || i.ticket_id || i.description?.slice(0, 50)}"`).join(', ')
+      lowConfItems.slice(0, 5).map(i => `"${i.id || i.ticket_id || i.description?.slice(0, 50) || '(unnamed item)'}"`).join(', ')
     );
   }
 
@@ -140,15 +140,7 @@ function identifyWeaknesses(qualityReport, analysis) {
   // When the analysis has very few extracted items AND the density dimension
   // is low, the segment is likely simple (chit-chat, small-talk, intro) or
   // the AI legitimately had nothing to extract. A focused pass won't help.
-  const totalItems = [
-    ...(analysis.tickets || []),
-    ...(analysis.action_items || []),
-    ...(analysis.change_requests || []),
-    ...(analysis.blockers || []),
-    ...(analysis.scope_changes || []),
-  ].length;
-
-  const isSparseSegment = totalItems <= 2 && dims.density && dims.density.score < 30;
+  const isSparseSegment = allItems.length <= 2 && dims.density && dims.density.score < 30;
 
   const shouldReanalyze = focusInstructions.length > 0 &&
     qualityReport.score < 60 &&       // Only re-analyze if quality is truly lacking

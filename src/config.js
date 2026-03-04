@@ -322,8 +322,8 @@ function validateConfig({ skipFirebase = false, skipGemini = false } = {}) {
     }
   }
 
-  if (SPEED <= 0 || SPEED > 10) {
-    errors.push(`VIDEO_SPEED=${SPEED} is out of range. Must be between 0.1 and 10.`);
+  if (SPEED < 0.5 || SPEED > 10) {
+    errors.push(`VIDEO_SPEED=${SPEED} is out of range. Must be between 0.5 and 10.`);
   }
 
   if (SEG_TIME < 30 || SEG_TIME > 3600) {

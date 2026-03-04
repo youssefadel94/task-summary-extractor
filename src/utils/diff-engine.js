@@ -52,13 +52,15 @@ function loadPreviousCompilation(targetDir, currentRunTs = null) {
       const resultsPath = path.join(runsDir, dir, 'results.json');
       if (fs.existsSync(resultsPath)) {
         const results = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
-        if (results.compilation) {
+        const compiledData = results.compilation?.parsed || results.compilation || null;
+        if (compiledData && typeof compiledData === 'object') {
           return {
             timestamp: dir,
-            compiled: null, // No compiled data in results.json directly
+            compiled: compiledData,
             runPath: path.join(runsDir, dir),
           };
         }
+        // results.json exists but no usable compiled data — continue searching older runs
       }
     }
   } catch (err) {

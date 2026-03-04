@@ -115,7 +115,7 @@ function dedupBy(arr, keyFn) {
     if (seen.has(k)) {
       const existing = seen.get(k);
       for (const [field, val] of Object.entries(item)) {
-        if (val && !existing[field]) existing[field] = val;
+        if (val != null && existing[field] == null) existing[field] = val;
       }
       continue;
     }
@@ -201,7 +201,7 @@ function confBadgeFull(c, reason) {
 
 /** Escape a string for safe HTML insertion. */
 function escHtml(s) {
-  if (!s) return '';
+  if (s == null) return '';
   return String(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

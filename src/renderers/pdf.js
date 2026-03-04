@@ -11,7 +11,6 @@
 
 'use strict';
 
-const { c } = require('../utils/colors');
 
 /**
  * Render an HTML string to a PDF file.

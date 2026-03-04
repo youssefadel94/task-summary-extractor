@@ -413,7 +413,7 @@ function renderResultsMarkdown({ compiled, meta }) {
         ln('');
         if (ds.source) ln(`- **Source**: \`${ds.source}\``);
         if (ds.plan_status) ln(`- **Plan Status**: ${ds.plan_status}`);
-        if (ds.checklist_progress) ln(`- **Checklist**: ${ds.checklist_progress}`);
+        if (ds.checklist_progress) ln(`- **Checklist**: ${typeof ds.checklist_progress === 'object' ? JSON.stringify(ds.checklist_progress) : ds.checklist_progress}`);
 
         // Sub-tickets
         if (ds.sub_tickets && ds.sub_tickets.length > 0) {

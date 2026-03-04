@@ -209,7 +209,7 @@ function renderYourTasks(yourTasks, clusterMap, allTickets) {
   if (yourTasks.completed_in_call?.length) {
     elements.push(heading('Completed In Call', 3));
     for (const c of yourTasks.completed_in_call) {
-      elements.push(bulletItem(c.description || c.action || String(c)));
+      elements.push(bulletItem(typeof c === 'string' ? c : (c.description || c.action || String(c))));
     }
   }
   if (yourTasks.tasks_waiting_on_others?.length) {
@@ -286,11 +286,11 @@ function renderBlockers(blockers, clusterMap) {
   const rows = blockers.map(b => [
     b.description || '',
     b.owner ? resolve(b.owner, clusterMap) : '—',
-    b.severity || b.priority || '—',
-    b.resolution || '—',
+    (b.type || b.severity || b.priority || '—').replace(/_/g, ' '),
+    (b.status || b.resolution || '—').replace(/_/g, ' '),
     b.confidence || '—',
   ]);
-  elements.push(buildTable(['Blocker', 'Owner', 'Severity', 'Resolution', 'Conf.'], rows));
+  elements.push(buildTable(['Blocker', 'Owner', 'Type', 'Status', 'Conf.'], rows));
   return elements;
 }
 

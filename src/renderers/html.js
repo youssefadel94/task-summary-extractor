@@ -215,7 +215,7 @@ function renderResultsHtml({ compiled, meta }) {
   ln('<dl class="meta-grid">');
   ln(`<dt>Date</dt><dd>${e(meta.processedAt ? meta.processedAt.slice(0, 10) : 'N/A')}</dd>`);
   ln(`<dt>Participants</dt><dd>${e(orderedPeople.join(', ') || 'Unknown')}</dd>`);
-  ln(`<dt>Segments</dt><dd>${meta.segmentCount || 'N/A'}</dd>`);
+  ln(`<dt>Segments</dt><dd>${e(String(meta.segmentCount || 'N/A'))}</dd>`);
   ln(`<dt>Model</dt><dd>${e(meta.geminiModel || 'N/A')}</dd>`);
 
   const comp = meta.compilation;
@@ -469,7 +469,7 @@ function renderResultsHtml({ compiled, meta }) {
         ln('<h4>📄 Documented State</h4><ul>');
         if (ds.source) ln(`<li><strong>Source</strong>: <code>${e(ds.source)}</code></li>`);
         if (ds.plan_status) ln(`<li><strong>Plan Status</strong>: ${e(ds.plan_status)}</li>`);
-        if (ds.checklist_progress) ln(`<li><strong>Checklist</strong>: ${e(ds.checklist_progress)}</li>`);
+        if (ds.checklist_progress) ln(`<li><strong>Checklist</strong>: ${e(typeof ds.checklist_progress === 'object' ? JSON.stringify(ds.checklist_progress) : ds.checklist_progress)}</li>`);
         if (ds.sub_tickets && ds.sub_tickets.length > 0) {
           ln('<li><strong>Sub-tickets</strong>:<ul>');
           for (const st of ds.sub_tickets) ln(`<li><strong>${e(st.id)}</strong> ${e(st.title)} — ${e(st.documented_status || '?')}</li>`);

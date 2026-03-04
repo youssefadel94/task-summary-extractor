@@ -377,8 +377,10 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
       for (const [fileName, summary] of Object.entries(result.summaries)) {
         allSummaries.set(fileName.toLowerCase(), summary);
       }
-      totalInput += result.tokenUsage.inputTokens;
-      totalOutput += result.tokenUsage.outputTokens;
+      if (result.tokenUsage) {
+        totalInput += result.tokenUsage.inputTokens || 0;
+        totalOutput += result.tokenUsage.outputTokens || 0;
+      }
     }
   }
 

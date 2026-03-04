@@ -142,7 +142,8 @@ RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
     { label: 'Dynamic mode topic planning', maxRetries: 2, baseDelay: 3000 }
   );
   const durationMs = Date.now() - t0;
-  const rawText = response.text;
+  let rawText;
+  try { rawText = response.text; } catch { rawText = ''; }
 
   const parsed = extractJson(rawText);
   const topics = parsed?.topics || [];
@@ -258,7 +259,8 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
     { label: `Dynamic doc: ${topic.title}`, maxRetries: 2, baseDelay: 3000 }
   );
   const durationMs = Date.now() - t0;
-  const rawText = response.text;
+  let rawText;
+  try { rawText = response.text; } catch { rawText = ''; }
 
   // Clean up markdown fences if model wrapped output
   let markdown = rawText.trim();
@@ -300,8 +302,6 @@ async function generateAllDynamicDocuments(ai, topics, userRequest, docSnippets,
       batch.map(topic =>
         generateDynamicDocument(ai, topic, userRequest, docSnippets, { ...docOptions, allTopics: topics })
           .then(result => {
-            completed++;
-            if (onProgress) onProgress(completed, topics.length, topic);
             return { topic, ...result };
           })
       )
@@ -309,10 +309,11 @@ async function generateAllDynamicDocuments(ai, topics, userRequest, docSnippets,
 
     for (let i = 0; i < batchResults.length; i++) {
       const r = batchResults[i];
+      completed++;
       if (r.status === 'fulfilled') {
+        if (onProgress) onProgress(completed, topics.length, batch[i]);
         results.push(r.value);
       } else {
-        completed++;
         if (onProgress) onProgress(completed, topics.length, batch[i]);
         results.push({
           topic: batch[i],

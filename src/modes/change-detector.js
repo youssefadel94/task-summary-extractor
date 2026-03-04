@@ -189,9 +189,8 @@ function correlateItemsWithChanges(items, gitData) {
   const { commits, changedFiles, workingChanges } = gitData;
 
   // Build searchable indexes
-  const allChangedPaths = new Set(changedFiles.map(f => f.path));
   const workingPaths = new Set((workingChanges || []).map(f => f.path.toLowerCase()));
-  const allCommitMessages = commits.map(c => c.message.toLowerCase());
+  const workingPathsArr = [...workingPaths];
   const allCommitText = commits.map(c => `${c.message} ${(c.files || []).join(' ')}`).join(' ').toLowerCase();
 
   const correlations = new Map();
@@ -229,7 +228,7 @@ function correlateItemsWithChanges(items, gitData) {
       }
 
       // Also check working tree
-      if (workingPaths.has(ref.toLowerCase()) || [...workingPaths].some(p => p.endsWith(refBase))) {
+      if (workingPaths.has(ref.toLowerCase()) || workingPathsArr.some(p => p.endsWith(refBase))) {
         score += 0.1;
         evidence.push({
           type: 'working_tree',
@@ -240,7 +239,8 @@ function correlateItemsWithChanges(items, gitData) {
     }
 
     // Strategy 2: ID matching in commit messages
-    const itemIdPattern = item.id.replace(/[-_]/g, '[-_\\s]?');
+    const escapedId = item.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const itemIdPattern = escapedId.replace(/[-_]/g, '[-_\\s]?');
     const idRegex = new RegExp(itemIdPattern, 'i');
     for (const commit of commits) {
       if (idRegex.test(commit.message)) {
@@ -297,7 +297,7 @@ function correlateItemsWithChanges(items, gitData) {
       score,
       evidence,
       localAssessment: score >= 0.6 ? 'DONE' : score >= 0.25 ? 'IN_PROGRESS' : 'NOT_STARTED',
-      localConfidence: score >= 0.6 ? 'MEDIUM' : score >= 0.25 ? 'LOW' : 'LOW',
+      localConfidence: score >= 0.6 ? 'MEDIUM' : score >= 0.25 ? 'LOW' : 'VERY_LOW',
     });
   }
 
@@ -421,7 +421,7 @@ function detectAllChanges({ repoPath, callDir, sinceISO, analysis }) {
   report.totals.docsChanged = report.documents.changes.length;
 
   // --- Correlate items with changes ---
-  if (report.git.available && report.git.commits.length > 0) {
+  if (report.git.available && (report.git.commits.length > 0 || report.git.workingChanges.length > 0)) {
     report.correlations = correlateItemsWithChanges(report.items, report.git);
   }
 
