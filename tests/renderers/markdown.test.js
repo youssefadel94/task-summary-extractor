@@ -146,4 +146,46 @@ describe('renderResultsMarkdown', () => {
     const md = renderResultsMarkdown({ compiled, meta: baseMeta({ callName: undefined }) });
     expect(md).toContain('# 📋 Call Analysis — Unknown');
   });
+
+  it('formats duration correctly when seconds round to 60', () => {
+    const compiled = { tickets: [], change_requests: [], action_items: [], blockers: [], scope_changes: [], file_references: [], summary: 'Test' };
+    const meta = baseMeta({
+      segments: [
+        { file: 'seg_00.mp4', duration: '4:40', durationSeconds: 280.321, sizeMB: '26.71', video: 'v.mkv' },
+        { file: 'seg_01.mp4', duration: '0:19', durationSeconds: 19.333, sizeMB: '2.46', video: 'v.mkv' },
+      ],
+      settings: { speed: 1.5, preset: 'slow', segmentTimeSec: 280 },
+    });
+    const md = renderResultsMarkdown({ compiled, meta });
+    expect(md).toContain('**5:00**');
+    expect(md).not.toContain('4:60');
+  });
+
+  it('uses fallback for empty executive summary', () => {
+    const compiled = { tickets: [], change_requests: [], action_items: [], blockers: [], scope_changes: [], file_references: [], summary: '' };
+    const md = renderResultsMarkdown({ compiled, meta: baseMeta() });
+    expect(md).toContain('No executive summary was generated');
+  });
+
+  it('falls back to id when ticket_id is missing', () => {
+    const compiled = loadCompiled();
+    compiled.tickets.push({ id: 'FALLBACK-1', title: 'Test Ticket', status: 'open', confidence: 'HIGH' });
+    const md = renderResultsMarkdown({ compiled, meta: baseMeta() });
+    expect(md).toContain('FALLBACK-1 — Test Ticket');
+  });
+
+  it('falls back scope change description to title/what when new_scope is missing', () => {
+    const compiled = loadCompiled();
+    compiled.scope_changes.push({ id: 'SC-X', type: 'deferred', title: 'Deferred X feature', confidence: 'MEDIUM' });
+    const md = renderResultsMarkdown({ compiled, meta: baseMeta() });
+    expect(md).toContain('Deferred X feature');
+    expect(md).not.toMatch(/SC-X.*undefined/);
+  });
+
+  it('resolves action_item assignee field when assigned_to is missing', () => {
+    const compiled = loadCompiled();
+    compiled.action_items.push({ id: 'AI-X', description: 'Do it', assignee: 'TestPerson', status: 'pending', confidence: 'MEDIUM' });
+    const md = renderResultsMarkdown({ compiled, meta: baseMeta() });
+    expect(md).toContain('TestPerson');
+  });
 });

@@ -686,7 +686,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   }
   const durationMs = Date.now() - t0;
 
-  const rawText = response.text;
+  let rawText = response.text;
 
   // 6. Extract token usage
   const usage = response.usageMetadata || {};
@@ -710,6 +710,34 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   const outputTruncated = tokenUsage.outputTokens >= Math.floor(MAX_OUTPUT_SINGLE * 0.98);
   if (outputTruncated) {
     console.warn(`    ⚠ Output likely truncated — ${tokenUsage.outputTokens.toLocaleString()} tokens used (max: ${MAX_OUTPUT_SINGLE.toLocaleString()}). JSON may be incomplete.`);
+  }
+
+  // Detect thinking budget drain — model used all tokens for thinking, 0 for output
+  if (tokenUsage.outputTokens === 0 && tokenUsage.thoughtTokens > 0) {
+    console.warn(`    ⚠ Thinking budget drain — ${tokenUsage.thoughtTokens.toLocaleString()} thinking tokens consumed entire output budget (0 output tokens)`);
+    console.log(`    ↻ Retrying with reduced thinking budget to force output...`);
+    const reducedThinking = Math.min(Math.floor(thinkingBudget * 0.25), 4096);
+    requestPayload.config.thinkingConfig = { thinkingBudget: reducedThinking };
+    try {
+      const retryResponse = await withRetry(
+        () => ai.models.generateContent(requestPayload),
+        { label: `Gemini segment analysis — reduced thinking (${displayName})`, maxRetries: 1, baseDelay: 5000 }
+      );
+      const retryUsage = retryResponse.usageMetadata || {};
+      const retryOutput = retryUsage.candidatesTokenCount || 0;
+      console.log(`    ✓ Reduced-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
+      if (retryOutput > 0) {
+        // Use retry result
+        response = retryResponse;
+        rawText = retryResponse.text;
+        tokenUsage.outputTokens = retryOutput;
+        tokenUsage.thoughtTokens = retryUsage.thoughtsTokenCount || 0;
+        tokenUsage.totalTokens = retryUsage.totalTokenCount || 0;
+        tokenUsage.inputTokens = retryUsage.promptTokenCount || tokenUsage.inputTokens;
+      }
+    } catch (retryErr) {
+      console.warn(`    ⚠ Reduced-thinking retry failed: ${retryErr.message}`);
+    }
   }
 
   // 7. Parse JSON response
@@ -930,7 +958,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   );
   const durationMs = Date.now() - t0;
 
-  const rawText = response.text;
+  let rawText = response.text;
 
   // Token usage
   const usage = response.usageMetadata || {};
@@ -954,6 +982,32 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   const outputTruncated = tokenUsage.outputTokens >= Math.floor(MAX_OUTPUT * 0.98);
   if (outputTruncated) {
     console.warn(`    ⚠ Output likely truncated — ${tokenUsage.outputTokens.toLocaleString()} tokens used (max: ${MAX_OUTPUT.toLocaleString()}). JSON may be incomplete.`);
+  }
+
+  // Detect thinking budget drain — model used all tokens for thinking, 0 for output
+  if (tokenUsage.outputTokens === 0 && tokenUsage.thoughtTokens > 0) {
+    console.warn(`    ⚠ Thinking budget drain — ${tokenUsage.thoughtTokens.toLocaleString()} thinking tokens consumed entire output budget (0 output tokens)`);
+    console.log(`    ↻ Retrying batch with reduced thinking budget...`);
+    const reducedThinking = Math.min(Math.floor(thinkingBudget * 0.25), 4096);
+    requestPayload.config.thinkingConfig = { thinkingBudget: reducedThinking };
+    try {
+      const retryResponse = await withRetry(
+        () => ai.models.generateContent(requestPayload),
+        { label: `Gemini batch analysis — reduced thinking (${displayName})`, maxRetries: 1, baseDelay: 5000 }
+      );
+      const retryUsage = retryResponse.usageMetadata || {};
+      const retryOutput = retryUsage.candidatesTokenCount || 0;
+      console.log(`    ✓ Reduced-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
+      if (retryOutput > 0) {
+        rawText = retryResponse.text;
+        tokenUsage.outputTokens = retryOutput;
+        tokenUsage.thoughtTokens = retryUsage.thoughtsTokenCount || 0;
+        tokenUsage.totalTokens = retryUsage.totalTokenCount || 0;
+        tokenUsage.inputTokens = retryUsage.promptTokenCount || tokenUsage.inputTokens;
+      }
+    } catch (retryErr) {
+      console.warn(`    ⚠ Reduced-thinking retry failed: ${retryErr.message}`);
+    }
   }
 
   // Parse
@@ -1227,7 +1281,7 @@ ${segmentDumps}`;
     }
   }
   const durationMs = Date.now() - t0;
-  const rawText = response.text;
+  let rawText = response.text;
 
   // Token usage
   const usage = response.usageMetadata || {};
@@ -1245,6 +1299,33 @@ ${segmentDumps}`;
   console.log(`  Tokens — input: ${tokenUsage.inputTokens.toLocaleString()} | output: ${tokenUsage.outputTokens.toLocaleString()} | thinking: ${tokenUsage.thoughtTokens.toLocaleString()} | total: ${tokenUsage.totalTokens.toLocaleString()}`);
   console.log(`  Context — used: ${contextUsedPct}% | remaining: ${tokenUsage.contextRemaining.toLocaleString()} / ${config.GEMINI_CONTEXT_WINDOW.toLocaleString()} tokens`);
   console.log(`  Compilation duration: ${(durationMs / 1000).toFixed(1)}s`);
+
+  // Detect thinking budget drain — model used all tokens for thinking, 0 for output
+  if (tokenUsage.outputTokens === 0 && tokenUsage.thoughtTokens > 0) {
+    console.warn(`  ⚠ Thinking budget drain — ${tokenUsage.thoughtTokens.toLocaleString()} thinking tokens consumed entire output budget (0 output tokens)`);
+    console.log(`  ↻ Retrying compilation with reduced thinking budget...`);
+    const reducedThinking = Math.min(Math.floor(compilationThinking * 0.25), 4096);
+    requestPayload.config.thinkingConfig = { thinkingBudget: reducedThinking };
+    try {
+      const retryResponse = await withRetry(
+        () => ai.models.generateContent(requestPayload),
+        { label: 'Gemini compilation — reduced thinking', maxRetries: 1, baseDelay: 5000 }
+      );
+      const retryUsage = retryResponse.usageMetadata || {};
+      const retryOutput = retryUsage.candidatesTokenCount || 0;
+      console.log(`  ✓ Reduced-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
+      if (retryOutput > 0) {
+        response = retryResponse;
+        rawText = retryResponse.text;
+        tokenUsage.outputTokens = retryOutput;
+        tokenUsage.thoughtTokens = retryUsage.thoughtsTokenCount || 0;
+        tokenUsage.totalTokens = retryUsage.totalTokenCount || 0;
+        tokenUsage.inputTokens = retryUsage.promptTokenCount || tokenUsage.inputTokens;
+      }
+    } catch (retryErr) {
+      console.warn(`  ⚠ Reduced-thinking retry failed: ${retryErr.message}`);
+    }
+  }
 
   // Parse compiled result
   const compiled = extractJson(rawText);

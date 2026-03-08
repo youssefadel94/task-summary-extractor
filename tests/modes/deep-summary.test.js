@@ -394,14 +394,18 @@ describe('deepSummarize', () => {
     let callCount = 0;
     const ai = makeMockAi(() => {
       callCount++;
-      // First call (full batch) fails with unparseable response
+      // First call (full batch) fails with unparseable response (thinking drain)
       if (callCount === 1) {
         return { text: '', usageMetadata: { promptTokenCount: 9000, candidatesTokenCount: 0, thoughtsTokenCount: 6553 } };
+      }
+      // Second call: thinking-drain retry (also returns unparseable to trigger split)
+      if (callCount === 2) {
+        return { text: '', usageMetadata: { promptTokenCount: 9000, candidatesTokenCount: 0 } };
       }
       // Sub-batch calls succeed
       return {
         text: JSON.stringify({
-          summaries: callCount === 2
+          summaries: callCount === 3
             ? { 'a.md': 'Summary A', 'b.md': 'Summary B' }
             : { 'c.md': 'Summary C', 'd.md': 'Summary D' },
           metadata: {},
@@ -413,8 +417,8 @@ describe('deepSummarize', () => {
     const docs = [makeDoc('a.md', 2000), makeDoc('b.md', 2000), makeDoc('c.md', 2000), makeDoc('d.md', 2000)];
     const result = await deepSummarize(ai, docs, { excludeFileNames: [] });
 
-    // 1 original call + 2 sub-batch retries = 3
-    expect(ai.models.generateContent).toHaveBeenCalledTimes(3);
+    // 1 original call + 1 thinking-drain retry + 2 sub-batch retries = 4
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(4);
     // All 4 docs should be summarized via the sub-batches
     expect(result.stats.summarized).toBe(4);
     expect(result.docs.every(d => d._deepSummarized)).toBe(true);

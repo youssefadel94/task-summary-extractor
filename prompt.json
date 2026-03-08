@@ -164,7 +164,7 @@
             {
                 "ticket_id": "string (use REAL IDs from tracking docs e.g. CR31296872, TICKET-01, PROJ-42, OKR-3, DEAL-100; only use INFERRED_N if no match exists)",
                 "title": "string (short descriptive title)",
-                "status": "open|closed|in_progress|blocked|pending_review|complete_pending_deployment",
+                "status": "open|closed|in_progress|blocked|pending_review|complete_pending_deployment|implementation_complete_pending_external|complete_pending_review|deferred|cancelled",
                 "assignee": "string or null",
                 "reviewer": "string or null",
                 "documented_state": {
@@ -200,7 +200,7 @@
                 ],
                 "code_changes": [
                     {
-                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|design_revision|content_update|documentation)",
+                        "type": "string (bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|design_revision|content_update|documentation|scope_change|testing|migration)",
                         "file_path": "string (exact path, URL, document name, or artifact identifier — null if unresolvable)",
                         "description": "string",
                         "details": "string",
@@ -225,7 +225,7 @@
                 "what": "string (precise description of the change)",
                 "how": "string (implementation/execution approach discussed or specified)",
                 "why": "string (business, technical, legal, or strategic reason)",
-                "type": "bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|contract_revision|design_change|content_update|documentation",
+                "type": "bug_fix|feature|refactor|optimization|cleanup|upgrade|integration|configuration|process_change|policy_update|contract_revision|design_change|content_update|documentation|scope_change|testing|migration",
                 "priority": "low|medium|high|critical",
                 "status": "actionable|pending_decision|blocked|completed",
                 "dependencies": ["string (IDs of other change requests this depends on)"],

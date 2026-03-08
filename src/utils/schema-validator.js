@@ -345,8 +345,10 @@ function normalizeAnalysis(data) {
 
   // Patch ticket items — fill missing required fields with defaults
   if (Array.isArray(data.tickets)) {
+    // Filter out objects that the AI incorrectly placed in tickets[]
+    // (e.g. change_requests, blockers with no ticket_id)
+    data.tickets = data.tickets.filter(t => t && typeof t === 'object' && t.ticket_id);
     for (const ticket of data.tickets) {
-      if (!ticket || typeof ticket !== 'object') continue;
       if (!ticket.confidence) ticket.confidence = 'MEDIUM';
       if (!ticket.discussed_state && ticket.discussed_state !== null) {
         ticket.discussed_state = { summary: '' };
@@ -354,11 +356,15 @@ function normalizeAnalysis(data) {
     }
   }
 
-  // Patch action_items — fill missing confidence
+  // Patch action_items — fill missing confidence, normalize field names
   if (Array.isArray(data.action_items)) {
     for (const item of data.action_items) {
       if (!item || typeof item !== 'object') continue;
       if (!item.confidence) item.confidence = 'MEDIUM';
+      // AI sometimes uses 'assignee' instead of 'assigned_to'
+      if (!item.assigned_to && item.assignee) {
+        item.assigned_to = item.assignee;
+      }
     }
   }
 
@@ -378,11 +384,15 @@ function normalizeAnalysis(data) {
     }
   }
 
-  // Patch scope_changes — fill missing confidence
+  // Patch scope_changes — fill missing confidence, normalize field names
   if (Array.isArray(data.scope_changes)) {
     for (const item of data.scope_changes) {
       if (!item || typeof item !== 'object') continue;
       if (!item.confidence) item.confidence = 'MEDIUM';
+      // AI sometimes uses 'title'/'what'/'description' instead of 'new_scope'
+      if (!item.new_scope) {
+        item.new_scope = item.title || item.what || item.description || '';
+      }
     }
   }
 

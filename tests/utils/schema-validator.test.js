@@ -300,9 +300,9 @@ describe('normalizeAnalysis', () => {
   });
 
   it('does not overwrite existing arrays', () => {
-    const data = { tickets: [{ id: '1', confidence: 'HIGH', discussed_state: { summary: 'ok' } }], summary: 'Test' };
+    const data = { tickets: [{ ticket_id: 'T-1', id: '1', confidence: 'HIGH', discussed_state: { summary: 'ok' } }], summary: 'Test' };
     const result = normalizeAnalysis(data);
-    expect(result.tickets).toEqual([{ id: '1', confidence: 'HIGH', discussed_state: { summary: 'ok' } }]);
+    expect(result.tickets).toEqual([{ ticket_id: 'T-1', id: '1', confidence: 'HIGH', discussed_state: { summary: 'ok' } }]);
     expect(result.action_items).toEqual([]);
   });
 
@@ -378,5 +378,47 @@ describe('normalizeAnalysis', () => {
     normalizeAnalysis(data);
     expect(data.action_items[0].confidence).toBe('MEDIUM');
     expect(data.action_items[1].confidence).toBe('HIGH');
+  });
+
+  it('filters out tickets without ticket_id', () => {
+    const data = {
+      summary: 'Test',
+      tickets: [
+        { ticket_id: 'T-1', title: 'Valid' },
+        { id: 'CR-Q8', title: 'No ticket_id', status: 'pending_decision' },
+        { title: 'Also missing ticket_id' },
+      ],
+    };
+    normalizeAnalysis(data);
+    expect(data.tickets).toHaveLength(1);
+    expect(data.tickets[0].ticket_id).toBe('T-1');
+  });
+
+  it('normalizes action_items assignee → assigned_to', () => {
+    const data = {
+      summary: 'Test',
+      action_items: [
+        { id: 'AI-1', description: 'Do X', assignee: 'Alice' },
+        { id: 'AI-2', description: 'Do Y', assigned_to: 'Bob' },
+      ],
+    };
+    normalizeAnalysis(data);
+    expect(data.action_items[0].assigned_to).toBe('Alice');
+    expect(data.action_items[1].assigned_to).toBe('Bob');
+  });
+
+  it('normalizes scope_changes missing new_scope', () => {
+    const data = {
+      summary: 'Test',
+      scope_changes: [
+        { id: 'SC-1', title: 'Deferred SMS', what: 'SMS deferred' },
+        { id: 'SC-2', new_scope: 'Already set' },
+        { id: 'SC-3', description: 'From description' },
+      ],
+    };
+    normalizeAnalysis(data);
+    expect(data.scope_changes[0].new_scope).toBe('Deferred SMS');
+    expect(data.scope_changes[1].new_scope).toBe('Already set');
+    expect(data.scope_changes[2].new_scope).toBe('From description');
   });
 });

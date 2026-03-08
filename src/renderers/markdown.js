@@ -181,14 +181,16 @@ function renderResultsMarkdown({ compiled, meta }) {
       }
       const groupDur = group.segs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
       const groupSize = group.segs.reduce((sum, s) => sum + (parseFloat(s.sizeMB) || 0), 0);
-      ln(`| | **Subtotal** | **${Math.floor(groupDur / 60)}:${String(Math.round(groupDur % 60)).padStart(2, '0')}** | **${groupSize.toFixed(2)} MB** |`);
+      const groupTotalSec = Math.round(groupDur);
+      ln(`| | **Subtotal** | **${Math.floor(groupTotalSec / 60)}:${String(groupTotalSec % 60).padStart(2, '0')}** | **${groupSize.toFixed(2)} MB** |`);
       ln('');
     }
 
     if (multiVideo) {
       const totalDur = segs.reduce((sum, s) => sum + (s.durationSeconds || 0), 0);
       const totalSize = segs.reduce((sum, s) => sum + (parseFloat(s.sizeMB) || 0), 0);
-      ln(`> **Overall Total**: ${segs.length} segments | **${Math.floor(totalDur / 60)}:${String(Math.round(totalDur % 60)).padStart(2, '0')}** | **${totalSize.toFixed(2)} MB**`);
+      const totalTotalSec = Math.round(totalDur);
+      ln(`> **Overall Total**: ${segs.length} segments | **${Math.floor(totalTotalSec / 60)}:${String(totalTotalSec % 60).padStart(2, '0')}** | **${totalSize.toFixed(2)} MB**`);
       ln('');
     }
 
@@ -237,7 +239,11 @@ function renderResultsMarkdown({ compiled, meta }) {
   // ══════════════════════════════════════════════════════
   ln('## 📝 Executive Summary');
   ln('');
-  if (summary) ln(summary);
+  if (summary) {
+    ln(summary);
+  } else {
+    ln('_No executive summary was generated for this call._');
+  }
   ln('');
 
   // ══════════════════════════════════════════════════════
@@ -400,7 +406,7 @@ function renderResultsMarkdown({ compiled, meta }) {
       const status = (t.status || 'unknown').replace(/_/g, ' ');
 
       const tConf = confBadge(t.confidence);
-      ln(`### ${t.ticket_id} — ${t.title || 'Untitled'}${tConf}`);
+      ln(`### ${t.ticket_id || t.id || 'Unknown'} — ${t.title || 'Untitled'}${tConf}`);
       ln('');
       ln(`> **Status**: ${status} | **Assignee**: ${assignee}${reviewer ? ` | **Reviewer**: ${reviewer}` : ''}`);
       if (t.confidence_reason) ln(`> **Confidence**: ${t.confidence} — ${t.confidence_reason}`);
@@ -545,7 +551,7 @@ function renderResultsMarkdown({ compiled, meta }) {
     ln('| ID | Description | Assigned To | Status | Priority | Conf | Ref | Timestamp |');
     ln('| --- | --- | --- | --- | --- | --- | --- | --- |');
     for (const ai of allActions) {
-      const assignee = ai.assigned_to ? resolve(ai.assigned_to, clusterMap) : '-';
+      const assignee = (ai.assigned_to || ai.assignee) ? resolve(ai.assigned_to || ai.assignee, clusterMap) : '-';
       const status = (ai.status || '?').replace(/_/g, ' ');
       const pri = ai.priority || '-';
       const conf = ai.confidence || '-';
@@ -688,7 +694,8 @@ function renderResultsMarkdown({ compiled, meta }) {
       const decidedBy = sc.decided_by ? resolve(sc.decided_by, clusterMap) : null;
       const ts = sc.referenced_at ? ` @ ${fmtTs(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
       const scConf = confBadge(sc.confidence);
-      ln(`- ${icon} **${sc.id}** (${(sc.type || '').replace(/_/g, ' ')}): ${sc.new_scope}${scConf}${ts}`);
+      const scDesc = sc.new_scope || sc.title || sc.what || sc.description || 'No description';
+      ln(`- ${icon} **${sc.id}** (${(sc.type || '').replace(/_/g, ' ')}): ${scDesc}${scConf}${ts}`);
       if (sc.original_scope && sc.original_scope !== 'not documented') {
         ln(`  - **Was**: ${sc.original_scope}`);
       }

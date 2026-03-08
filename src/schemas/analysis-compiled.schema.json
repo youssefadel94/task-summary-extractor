@@ -19,7 +19,7 @@
           "title": { "type": "string" },
           "status": {
             "type": "string",
-            "enum": ["open", "closed", "in_progress", "blocked", "pending_review", "complete_pending_deployment"]
+            "enum": ["open", "closed", "in_progress", "blocked", "pending_review", "complete_pending_deployment", "implementation_complete_pending_external", "complete_pending_review", "deferred", "cancelled"]
           },
           "assignee": { "type": ["string", "null"] },
           "reviewer": { "type": ["string", "null"] },
@@ -91,7 +91,7 @@
               "properties": {
                 "type": {
                   "type": "string",
-                  "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "design_revision", "content_update", "documentation"]
+                  "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "design_revision", "content_update", "documentation", "scope_change", "testing", "migration"]
                 },
                 "file_path": { "type": ["string", "null"] },
                 "description": { "type": "string" },
@@ -136,7 +136,7 @@
           "why": { "type": "string" },
           "type": {
             "type": "string",
-            "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "contract_revision", "design_change", "content_update", "documentation"]
+            "enum": ["bug_fix", "feature", "refactor", "optimization", "cleanup", "upgrade", "integration", "configuration", "process_change", "policy_update", "contract_revision", "design_change", "content_update", "documentation", "scope_change", "testing", "migration"]
           },
           "priority": {
             "type": "string",

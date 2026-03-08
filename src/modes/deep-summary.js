@@ -241,7 +241,28 @@ ${docEntries.join('\n\n')}`;
       { label, maxRetries: 2, baseDelay: 3000 }
     );
 
-    const rawText = response.text;
+    let rawText = response.text;
+
+    // Detect thinking budget drain — model consumed all output budget for thinking
+    const dsUsage = response.usageMetadata || {};
+    if ((dsUsage.candidatesTokenCount || 0) === 0 && (dsUsage.thoughtsTokenCount || 0) > 0) {
+      console.warn(`    ${c.warn(`Deep summary batch ${batchIndex + 1}: thinking drain (${dsUsage.thoughtsTokenCount} think, 0 output) — retrying with thinking disabled`)}`);
+      requestPayload.config.thinkingConfig = { thinkingBudget: 0 };
+      try {
+        const retryResp = await withRetry(
+          () => ai.models.generateContent(requestPayload),
+          { label: `${label} — no-think retry`, maxRetries: 1, baseDelay: 3000 }
+        );
+        const retryUsage = retryResp.usageMetadata || {};
+        if ((retryUsage.candidatesTokenCount || 0) > 0) {
+          rawText = retryResp.text;
+          console.log(`    ${c.success(`Retry succeeded: ${retryUsage.candidatesTokenCount} output tokens`)}`);
+        }
+      } catch (retryErr) {
+        console.warn(`    ${c.warn(`No-think retry failed: ${retryErr.message}`)}`);
+      }
+    }
+
     const parsed = extractJson(rawText);
 
     if (!parsed || !parsed.summaries) {

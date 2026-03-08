@@ -460,7 +460,7 @@ function renderResultsHtml({ compiled, meta }) {
       const tConf = confBadgeHtml(t.confidence);
 
       ln('<div class="card">');
-      ln(`<h3>${e(t.ticket_id)} — ${e(t.title || 'Untitled')}${tConf}</h3>`);
+      ln(`<h3>${e(t.ticket_id || t.id || 'Unknown')} — ${e(t.title || 'Untitled')}${tConf}</h3>`);
       ln(`<blockquote><strong>Status</strong>: ${e(status)} | <strong>Assignee</strong>: ${e(assignee)}${reviewer ? ` | <strong>Reviewer</strong>: ${e(reviewer)}` : ''}</blockquote>`);
 
       // Documented state
@@ -578,7 +578,7 @@ function renderResultsHtml({ compiled, meta }) {
     ln('<h2>📋 All Action Items</h2>');
     ln('<table><tr><th>ID</th><th>Description</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Conf</th><th>Ref</th><th>Timestamp</th></tr>');
     for (const ai of allActions) {
-      const assignee = ai.assigned_to ? resolve(ai.assigned_to, clusterMap) : '-';
+      const assignee = (ai.assigned_to || ai.assignee) ? resolve(ai.assigned_to || ai.assignee, clusterMap) : '-';
       const status = (ai.status || '?').replace(/_/g, ' ');
       const pri = priBadgeHtml(ai.priority);
       const conf = confBadgeHtml(ai.confidence);
@@ -675,7 +675,8 @@ function renderResultsHtml({ compiled, meta }) {
       const decidedBy = sc.decided_by ? resolve(sc.decided_by, clusterMap) : null;
       const scConf = confBadgeHtml(sc.confidence);
       const ts = sc.referenced_at ? ` @ ${tsHtml(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
-      ln(`<li>${icon} <strong>${e(sc.id)}</strong> (${e((sc.type || '').replace(/_/g, ' '))}): ${e(sc.new_scope)}${scConf}${ts}`);
+      const scDesc = sc.new_scope || sc.title || sc.what || sc.description || 'No description';
+      ln(`<li>${icon} <strong>${e(sc.id)}</strong> (${e((sc.type || '').replace(/_/g, ' '))}): ${e(scDesc)}${scConf}${ts}`);
       if (sc.original_scope && sc.original_scope !== 'not documented') ln(`<br>&nbsp;&nbsp;Was: ${e(sc.original_scope)}`);
       if (sc.reason) ln(`<br>&nbsp;&nbsp;Reason: ${e(sc.reason)}`);
       if (decidedBy) ln(`<br>&nbsp;&nbsp;Decided by: ${e(decidedBy)}`);
