@@ -353,6 +353,20 @@ function normalizeAnalysis(data) {
       if (!ticket.discussed_state && ticket.discussed_state !== null) {
         ticket.discussed_state = { summary: '' };
       }
+      // Inherit source_segment/source_video from parent ticket to nested items if missing
+      const seg = ticket.source_segment;
+      const vid = ticket.source_video;
+      if (seg || vid) {
+        for (const nested of ['code_changes', 'comments', 'video_segments']) {
+          if (Array.isArray(ticket[nested])) {
+            for (const item of ticket[nested]) {
+              if (!item || typeof item !== 'object') continue;
+              if (!item.source_segment && seg) item.source_segment = seg;
+              if (!item.source_video && vid) item.source_video = vid;
+            }
+          }
+        }
+      }
     }
   }
 

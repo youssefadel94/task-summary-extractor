@@ -99,7 +99,9 @@
                   "type": "string",
                   "enum": ["low", "medium", "high", "critical"]
                 },
-                "referenced_at": { "type": ["string", "null"] }
+                "referenced_at": { "type": ["string", "null"] },
+                "source_segment": { "type": ["integer", "null"] },
+                "source_video": { "type": ["string", "null"] }
               }
             }
           },
