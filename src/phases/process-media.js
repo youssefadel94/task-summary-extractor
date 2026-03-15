@@ -434,6 +434,16 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
           let batchRunPath = path.join(geminiRunsDir, batchRunFileName);
           fs.writeFileSync(batchRunPath, JSON.stringify(batchRun, null, 2), 'utf8');
 
+          // Detect unrecovered thinking drain — fall back to single-segment mode
+          const batchTU = batchRun.run.tokenUsage || {};
+          if (batchTU.outputTokens === 0 && batchTU.thoughtTokens > 0) {
+            console.warn(`    ${c.warn('Thinking budget drain not recovered — falling back to single-segment processing')}`);
+            log.warn(`Batch ${bIdx} thinking drain (${batchTU.thoughtTokens} thinking, 0 output) — falling back to single-segment`);
+            costTracker.addSegment(`batch_${bIdx}_drain`, batchTU, batchRun.run.durationMs, false);
+            batchedSuccessfully = false;
+            break;
+          }
+
           let analysis = normalizeAnalysis(batchRun.output.parsed || { rawResponse: batchRun.output.raw });
           analysis._geminiMeta = {
             model: batchRun.run.model,
