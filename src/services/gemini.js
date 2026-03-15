@@ -715,17 +715,16 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   // Detect thinking budget drain — model used all tokens for thinking, 0 for output
   if (tokenUsage.outputTokens === 0 && tokenUsage.thoughtTokens > 0) {
     console.warn(`    ⚠ Thinking budget drain — ${tokenUsage.thoughtTokens.toLocaleString()} thinking tokens consumed entire output budget (0 output tokens)`);
-    console.log(`    ↻ Retrying with reduced thinking budget to force output...`);
-    const reducedThinking = Math.min(Math.floor(thinkingBudget * 0.25), 4096);
-    requestPayload.config.thinkingConfig = { thinkingBudget: reducedThinking };
+    console.log(`    ↻ Retrying with thinking disabled to force output...`);
+    requestPayload.config.thinkingConfig = { thinkingBudget: 0 };
     try {
       const retryResponse = await withRetry(
         () => ai.models.generateContent(requestPayload),
-        { label: `Gemini segment analysis — reduced thinking (${displayName})`, maxRetries: 1, baseDelay: 5000 }
+        { label: `Gemini segment analysis — no thinking (${displayName})`, maxRetries: 1, baseDelay: 5000 }
       );
       const retryUsage = retryResponse.usageMetadata || {};
       const retryOutput = retryUsage.candidatesTokenCount || 0;
-      console.log(`    ✓ Reduced-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
+      console.log(`    ✓ No-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
       if (retryOutput > 0) {
         // Use retry result
         response = retryResponse;
@@ -736,7 +735,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
         tokenUsage.inputTokens = retryUsage.promptTokenCount || tokenUsage.inputTokens;
       }
     } catch (retryErr) {
-      console.warn(`    ⚠ Reduced-thinking retry failed: ${retryErr.message}`);
+      console.warn(`    ⚠ No-thinking retry failed: ${retryErr.message}`);
     }
   }
 
@@ -987,17 +986,16 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   // Detect thinking budget drain — model used all tokens for thinking, 0 for output
   if (tokenUsage.outputTokens === 0 && tokenUsage.thoughtTokens > 0) {
     console.warn(`    ⚠ Thinking budget drain — ${tokenUsage.thoughtTokens.toLocaleString()} thinking tokens consumed entire output budget (0 output tokens)`);
-    console.log(`    ↻ Retrying batch with reduced thinking budget...`);
-    const reducedThinking = Math.min(Math.floor(thinkingBudget * 0.25), 4096);
-    requestPayload.config.thinkingConfig = { thinkingBudget: reducedThinking };
+    console.log(`    ↻ Retrying batch with thinking disabled to force output...`);
+    requestPayload.config.thinkingConfig = { thinkingBudget: 0 };
     try {
       const retryResponse = await withRetry(
         () => ai.models.generateContent(requestPayload),
-        { label: `Gemini batch analysis — reduced thinking (${displayName})`, maxRetries: 1, baseDelay: 5000 }
+        { label: `Gemini batch analysis — no thinking (${displayName})`, maxRetries: 1, baseDelay: 5000 }
       );
       const retryUsage = retryResponse.usageMetadata || {};
       const retryOutput = retryUsage.candidatesTokenCount || 0;
-      console.log(`    ✓ Reduced-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
+      console.log(`    ✓ No-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
       if (retryOutput > 0) {
         rawText = retryResponse.text;
         tokenUsage.outputTokens = retryOutput;
@@ -1006,7 +1004,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
         tokenUsage.inputTokens = retryUsage.promptTokenCount || tokenUsage.inputTokens;
       }
     } catch (retryErr) {
-      console.warn(`    ⚠ Reduced-thinking retry failed: ${retryErr.message}`);
+      console.warn(`    ⚠ No-thinking retry failed: ${retryErr.message}`);
     }
   }
 
@@ -1303,17 +1301,16 @@ ${segmentDumps}`;
   // Detect thinking budget drain — model used all tokens for thinking, 0 for output
   if (tokenUsage.outputTokens === 0 && tokenUsage.thoughtTokens > 0) {
     console.warn(`  ⚠ Thinking budget drain — ${tokenUsage.thoughtTokens.toLocaleString()} thinking tokens consumed entire output budget (0 output tokens)`);
-    console.log(`  ↻ Retrying compilation with reduced thinking budget...`);
-    const reducedThinking = Math.min(Math.floor(compilationThinking * 0.25), 4096);
-    requestPayload.config.thinkingConfig = { thinkingBudget: reducedThinking };
+    console.log(`  ↻ Retrying compilation with thinking disabled to force output...`);
+    requestPayload.config.thinkingConfig = { thinkingBudget: 0 };
     try {
       const retryResponse = await withRetry(
         () => ai.models.generateContent(requestPayload),
-        { label: 'Gemini compilation — reduced thinking', maxRetries: 1, baseDelay: 5000 }
+        { label: 'Gemini compilation — no thinking', maxRetries: 1, baseDelay: 5000 }
       );
       const retryUsage = retryResponse.usageMetadata || {};
       const retryOutput = retryUsage.candidatesTokenCount || 0;
-      console.log(`  ✓ Reduced-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
+      console.log(`  ✓ No-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
       if (retryOutput > 0) {
         response = retryResponse;
         rawText = retryResponse.text;
@@ -1323,7 +1320,7 @@ ${segmentDumps}`;
         tokenUsage.inputTokens = retryUsage.promptTokenCount || tokenUsage.inputTokens;
       }
     } catch (retryErr) {
-      console.warn(`  ⚠ Reduced-thinking retry failed: ${retryErr.message}`);
+      console.warn(`  ⚠ No-thinking retry failed: ${retryErr.message}`);
     }
   }
 
