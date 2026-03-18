@@ -29,7 +29,7 @@
             "properties": {
               "source": { "type": ["string", "null"] },
               "plan_status": { "type": "string" },
-              "checklist_progress": { "type": ["string", "object"] },
+              "checklist_progress": { "type": ["string", "object", "null"] },
               "sub_tickets": {
                 "type": "array",
                 "items": {

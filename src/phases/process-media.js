@@ -475,7 +475,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
             qualityReport.retryHints = [...(qualityReport.retryHints || []), ...schemaReport.retryHints];
           }
           const sScore = schemaScore(schemaReport);
-          if (sScore < 50 && !qualityReport.shouldRetry) {
+          if (sScore < 50 && !qualityReport.shouldRetry && qualityReport.score < THRESHOLDS.PASS_ABOVE) {
             qualityReport.shouldRetry = true;
             qualityReport.retryHints = qualityReport.retryHints || [];
             qualityReport.retryHints.push('Your response had significant schema violations. Follow the output_structure EXACTLY as specified.');
@@ -847,7 +847,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
         // Factor schema score into shouldRetry decision
         const sScore = schemaScore(schemaReport);
-        if (sScore < 50 && !qualityReport.shouldRetry) {
+        if (sScore < 50 && !qualityReport.shouldRetry && qualityReport.score < THRESHOLDS.PASS_ABOVE) {
           qualityReport.shouldRetry = true;
           qualityReport.retryHints = qualityReport.retryHints || [];
           qualityReport.retryHints.push('Your response had significant schema violations. Follow the output_structure EXACTLY as specified.');

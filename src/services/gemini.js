@@ -488,7 +488,9 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       console.log(`    Segment too large for external URL (${(fileSizeBytes / 1048576).toFixed(1)} MB > 20 MB) — using File API upload`);
       // file stays null → falls through to Strategy C below
     } else {
-      file = { uri: storageDownloadUrl, mimeType: 'video/mp4', name: null, state: 'ACTIVE' };
+      const ext = path.extname(filePath).toLowerCase();
+      const detectedMime = MIME_MAP[ext] || 'video/mp4';
+      file = { uri: storageDownloadUrl, mimeType: detectedMime, name: null, state: 'ACTIVE' };
       usedExternalUrl = true;
       console.log(`    Using Firebase Storage URL as external reference (skip Gemini upload)`);
     }
