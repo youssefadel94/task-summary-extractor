@@ -11,6 +11,22 @@ sample-call/
 **/*.mov
 **/*.webm
 
+# ─── Audio Files ──────────────────────────────────────
+**/*.mp3
+**/*.wav
+**/*.flac
+**/*.aac
+**/*.ogg
+
+# image files
+**/*.jpg
+**/*.jpeg
+**/*.png
+**/*.gif
+**/*.bmp
+**/*.svg
+**/*.ico
+
 # ─── Environment & Dependencies ───────────────────────
 .env
 .env.local
@@ -23,3 +39,4 @@ history.json
 Thumbs.db
 *.swp
 .vscode/settings.json
+message */
