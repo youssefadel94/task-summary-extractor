@@ -72,7 +72,7 @@ const GEMINI_API_KEY = env('GEMINI_API_KEY');
  * Complete Gemini model registry — specs, context windows, pricing, and descriptions.
  *
  * Pricing source: Google AI for Developers — https://ai.google.dev/gemini-api/docs/pricing
- * Last verified: February 2026
+ * Last verified: April 2026
  *
  * Rates are per 1 million tokens. Output pricing INCLUDES thinking tokens
  * (unified rate). Some models have tiered pricing based on context length
@@ -171,6 +171,24 @@ const GEMINI_MODELS = {
       longContextThreshold: 200_000,
     },
     costEstimate: '~$0.01/segment',
+  },
+  'gemini-3.1-flash-lite-preview': {
+    name: 'Gemini 3.1 Flash-Lite Preview',
+    description: 'Most cost-efficient Gemini 3 — optimized for high-volume agentic tasks, translation, and simple data processing',
+    contextWindow: 1_048_576,
+    maxOutput: 65536,
+    maxThinkingBudget: 24576,
+    thinking: true,
+    tier: 'economy',
+    pricing: {
+      inputPerM: 0.25,
+      inputLongPerM: 0.25,    // flat rate (no long context tier)
+      outputPerM: 1.50,       // includes thinking tokens
+      outputLongPerM: 1.50,
+      thinkingPerM: 1.50,
+      longContextThreshold: 200_000,
+    },
+    costEstimate: '~$0.02/segment',
   },
 };
 

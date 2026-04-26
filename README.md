@@ -285,6 +285,7 @@ Use `--model <id>` or run without it for an interactive picker:
 | `gemini-2.5-flash-lite` | ⚡⚡ Fastest | ¢ | High volume, budget runs |
 | `gemini-2.5-pro` | 🧠 Slower | $$ | Deep reasoning, complex meetings |
 | `gemini-3-flash-preview` | ⚡ Fast | $ | Latest flash model |
+| `gemini-3.1-flash-lite-preview` | ⚡⚡ Fastest | ¢ | Most budget-friendly Gemini 3 |
 | `gemini-3.1-pro-preview` | 🧠 Slower | $$$ | Most capable overall |
 
 ### Cheat Sheet
