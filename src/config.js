@@ -228,7 +228,7 @@ const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tiff', '.tif', '.svg'];
 const MEDIA_EXTS = [...VIDEO_EXTS, ...AUDIO_EXTS];
 const DOC_EXTS = [
-  '.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md',
+  '.vtt', '.txt', '.pdf', '.docx', '.doc', '.srt', '.csv', '.md', '.json',
   '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub',
   '.html', '.htm',
 ];
@@ -253,7 +253,7 @@ const GEMINI_POLL_TIMEOUT_MS = envInt('GEMINI_POLL_TIMEOUT_MS', 300000); // 5 mi
 // Extensions that Gemini supports via File API for generateContent
 const GEMINI_FILE_API_EXTS = ['.pdf'];
 // Text-readable extensions — inlined as text parts (Gemini rejects text/vtt, text/csv etc. as fileData)
-const INLINE_TEXT_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv'];
+const INLINE_TEXT_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json'];
 // Extensions where doc-parser extracts text before sending to Gemini
 // (previously unsupported — now converted to inline text automatically)
 const DOC_PARSER_EXTS = [

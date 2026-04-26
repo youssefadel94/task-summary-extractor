@@ -64,7 +64,7 @@ async function phaseDiscover(ctx) {
   } else {
     throw new Error(
       'No processable files found (video, audio, documents, or images).\n' +
-      '  Supported: .mp4 .mkv .avi .mov .webm (video) | .mp3 .wav .m4a .ogg .flac .aac .wma (audio) | .vtt .txt .pdf .docx .md (docs) | .png .jpg .gif .webp .svg (images)'
+      '  Supported: .mp4 .mkv .avi .mov .webm (video) | .mp3 .wav .m4a .ogg .flac .aac .wma (audio) | .vtt .txt .pdf .docx .md .json .csv (docs) | .png .jpg .gif .webp .svg (images)'
     );
   }
 

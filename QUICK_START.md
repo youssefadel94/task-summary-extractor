@@ -110,7 +110,7 @@ The tool **automatically scans all subfolders** for documents. Use whatever stru
 **Supported files:**
 - Video: `.mp4`, `.mkv`, `.webm`, `.avi`, `.mov`
 - Audio: `.mp3`, `.wav`, `.ogg`, `.m4a`, `.flac`, `.aac`, `.wma`
-- Docs: `.vtt`, `.srt`, `.txt`, `.md`, `.csv`, `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`
+- Docs: `.vtt`, `.srt`, `.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.html`
 
 ---
 

@@ -1,6 +1,6 @@
 # Task Summary Extractor
 
-> **v10.3.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.6.9** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
@@ -371,7 +371,7 @@ my-meeting/
     └── requirements.md
 ```
 
-**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.mp3` `.wav` `.ogg` `.m4a` `.flac` `.aac` `.wma` (audio) · `.vtt` `.srt` `.txt` `.md` `.csv` `.pdf` (docs)
+**Supported formats:** `.mp4` `.mkv` `.webm` `.avi` `.mov` (video) · `.mp3` `.wav` `.ogg` `.m4a` `.flac` `.aac` `.wma` (audio) · `.vtt` `.srt` `.txt` `.md` `.csv` `.json` `.pdf` (docs)
 
 The tool **recursively scans all subfolders**. `.tasks/` gets highest priority weighting but everything is included.
 
@@ -606,6 +606,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.6.9** | **JSON file support** — `.json` files now discovered and sent to Gemini as inline text context (same pipeline as `.txt`/`.md`/`.csv`); added to `DOC_EXTS`, `INLINE_TEXT_EXTS`, and all supported-format docs |
 | **v10.3.0** | **Codebase audit & hardening** — fixed batch retry crash (`const` reassignment), ZIP header validation bug, case-insensitive path matching, PDF parser API, Markdown table pipe escaping, missing Gemini retry in progress mode, ESC key handling, model name validation, confidence normalization for all item types, non-zero exit code on dynamic failures, setup error handling |
 | **v10.2.3** | **Unified feature flags** — Custom and Dynamic modes show the same 6 feature flags, removed mode-specific filtering |
 | **v10.2.2** | **CLI flow fixes** — removed Dynamic Mode, Progress Tracker, HTML Output from feature flags (they are mode/format choices), dynamic preset defaults, non-TTY guard, source label fix |
