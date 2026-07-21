@@ -6,8 +6,19 @@ attention to the two flows the maintainer actually uses:
 1. **⚙️ Custom** — choose each setting interactively (format → confidence → feature flags → model), then run the normal pipeline.
 2. **📄 Dynamic** — generate custom documents from files given a request prompt (topics or unified output).
 
-Baseline (before this effort): **33.2%** statements. The critical paths for the
-two used flows were ~0% covered.
+Baseline (before this effort): **33.2%** statements (496 tests). The critical
+paths for the two used flows were ~0% covered.
+
+After this effort: **41.0%** statements, **573 tests + 3 gated live tests**.
+Key flow files improved: `dynamic-mode.js` 0→74%, `cli.js` 39→61%,
+`doc-parser.js` 0→44%, `config.js` →69%, `format.js` →100%, `pipeline.js`
+0→21% (Dynamic orchestration + segment-merge covered). Custom-flow interactive
+selectors are exercised end-to-end through their non-TTY fallbacks, and a
+real-API live smoke test proves the Dynamic flow end-to-end.
+
+Remaining low-coverage files are the hardest to test without heavy mocking:
+`init.js` (interactive wizard orchestration) and `pdf.js` (needs a headless
+Chromium). Both are exercised indirectly and by the live test / manual runs.
 
 ## Flow map
 
