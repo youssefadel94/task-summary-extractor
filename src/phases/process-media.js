@@ -1033,6 +1033,10 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       const segNum = j + 1;
       const videoName = path.basename(videoPath);
       const tagSeg = (arr) => (arr || []).forEach(item => {
+        // Some arrays (e.g. ticket comments/code_changes) legitimately contain
+        // plain strings — skip non-objects or we'd throw "cannot create property
+        // 'source_segment' on string" and crash the whole segment tagging step.
+        if (!item || typeof item !== 'object') return;
         item.source_segment = segNum;
         if (!item.source_video) item.source_video = videoName;
       });

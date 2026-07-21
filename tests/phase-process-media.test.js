@@ -10,6 +10,21 @@ const video = require('../src/services/video');
 const { setLog } = require('../src/phases/_shared');
 const CostTracker = require('../src/utils/cost-tracker');
 const Progress = require('../src/utils/checkpoint');
+const { makeMockAI } = require('./helpers/mock-ai');
+
+// Mock AI that also stubs the File API used to upload the video segment, so the
+// REAL processWithGemini runs end-to-end (upload → generateContent → parse).
+function makeVideoMockAI(responder) {
+  const ai = makeMockAI(responder);
+  ai.files = {
+    upload: async () => ({ name: 'files/mock-seg', uri: 'https://gen/files/mock-seg', mimeType: 'video/mp4', state: 'ACTIVE' }),
+    get: async () => ({ name: 'files/mock-seg', state: 'ACTIVE' }),
+    delete: async () => ({}),
+  };
+  return ai;
+}
+
+const SEGMENT_ANALYSIS = JSON.stringify(require('./fixtures/sample-analysis.json'));
 
 let ffmpegOk = true;
 try { video.getFFmpeg(); video.getFFprobe(); } catch { ffmpegOk = false; }
@@ -74,6 +89,33 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
 
     // Progress checkpoint recorded the compression.
     expect(ctx.progress.isCompressed(path.basename(clip, '.mp4'))).toBe(true);
+  }, 120000);
+
+  it('runs the full AI analysis loop with a mock Gemini (real processWithGemini)', async () => {
+    const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pm3-'));
+    const callName = path.basename(dir3);
+    try {
+      const clip3 = makeClip(dir3);
+      const ctx = makeCtx(dir3, clip3, {
+        skipGemini: false, skipUpload: true, disableFocusedPass: true,
+        noStorageUrl: true, noBatch: true,
+      });
+      ctx.ai = makeVideoMockAI(() => SEGMENT_ANALYSIS);
+
+      const { fileResult, segmentAnalyses, segmentReports } = await phaseProcessVideo(ctx, clip3, 0);
+
+      // One segment analyzed; the fixture's tickets survived parsing/normalization.
+      expect(segmentAnalyses.length).toBe(1);
+      expect(segmentAnalyses[0].tickets.length).toBeGreaterThan(0);
+      expect(fileResult.segments[0].analysis).toBeTruthy();
+      expect(segmentReports.length).toBe(1);
+      expect(segmentReports[0].qualityReport).toBeTruthy();
+      // Cost was tracked from the mock token usage.
+      expect(ctx.costTracker.getSummary().totalTokens).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(dir3, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
+    }
   }, 120000);
 
   it('raw mode (--no-compress) stream-copies without re-encoding', async () => {
