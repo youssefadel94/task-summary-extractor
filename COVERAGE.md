@@ -89,8 +89,15 @@ Findings from the audit pass are tracked here as they're confirmed and fixed.
 
 Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly covered: deep-dive (0→81%), docx (87%), pdf (74%), cost-tracker (98%), checkpoint (74%), colors (84%), learning-loop, fs, health-dashboard, inject-cli-flags, context-manager regressions.
 
+### Round 3 fixes (entrypoint/setup audit + doc-only integration)
+- [FIXED] `schema-validator.js` `normalizeAnalysis`: stopped silently dropping tickets the model keyed with `id` instead of `ticket_id` (data loss). Now rescues id-keyed tickets that carry a ticket signal, still dropping genuinely misplaced objects.
+- [FIXED] `quality-gate.js` `getConfidenceStats`: empty analysis reports `coverage: 100` (a percentage), not `1`.
+- [FIXED] `setup.js`: API key written with split/join so a `$` in the key isn't mangled by String.replace.
+- Added `tests/pipeline-doconly.test.js` — an offline end-to-end run of the doc-only pipeline (phaseServices → stubbed compile → renderers → health dashboard → output). Lifted `pipeline.js` coverage to ~36% and guards the whole Custom-flow document path. Overall coverage ~**50%**, **640 tests + 3 gated live**.
+
 ### Remaining audit findings (tracked, lower priority)
 - `progress-updater.js`: id-field mismatch can drop a `_progress` annotation when a ticket lacks `ticket_id` (uses synthetic id).
+- `setup.js`: `--silent` runs `git checkout -b` / creates sample files without confirmation (surprising for CI automation) — a design decision, left as-is.
 - `context-manager.js` `detectBoundaryContext`: "mid-conversation" note fires broadly because it sees overlap-sliced cues past the segment end (prompt-note only, no crash).
 - `gemini.js`/`context-manager.js`: VTT budget is estimated on full (unsliced) transcript, can crowd out other docs (efficiency, not correctness).
 - `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
