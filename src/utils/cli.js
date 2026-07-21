@@ -377,10 +377,10 @@ ${f('--version, -v', 'Show version')}
   ${h('EXAMPLES')}
     ${c.dim('$')} taskex ${c.dim('# Interactive wizard — choose mode, model, format')}
     ${c.dim('$')} taskex "call 1" ${c.dim('# Analyze a call (interactive wizard)')}
-    ${c.dim('$')} taskex --model gemini-2.5-pro "call 1" ${c.dim('# Skip wizard, use specific model')}
+    ${c.dim('$')} taskex --model gemini-3.1-pro-preview "call 1" ${c.dim('# Skip wizard, use specific model')}
     ${c.dim('$')} taskex --format md,html "call 1" ${c.dim('# Skip wizard, specific formats')}
     ${c.dim('$')} taskex --name "Jane" --skip-upload "call 1"
-    ${c.dim('$')} taskex --model gemini-2.5-pro --deep-dive "call 1"
+    ${c.dim('$')} taskex --model gemini-3.1-pro-preview --deep-dive "call 1"
     ${c.dim('$')} taskex --dynamic --request "Plan API migration" "specs"
     ${c.dim('$')} taskex --min-confidence medium "call 1" ${c.dim('# Filter low-confidence')}
     ${c.dim('$')} taskex --format md "call 1" ${c.dim('# Markdown only')}

@@ -33,8 +33,8 @@ describe('parseArgs', () => {
   });
 
   it('parses --key value syntax for non-boolean flags', () => {
-    const { flags } = parseArgs(['--model', 'gemini-2.5-pro']);
-    expect(flags.model).toBe('gemini-2.5-pro');
+    const { flags } = parseArgs(['--model', 'gemini-3.1-pro-preview']);
+    expect(flags.model).toBe('gemini-3.1-pro-preview');
   });
 
   it('boolean flags do not consume the next argument as a value', () => {
@@ -56,10 +56,10 @@ describe('parseArgs', () => {
 
   it('handles mixed boolean flags, value flags, and positional args', () => {
     const { flags, positional } = parseArgs([
-      '--resume', '--model', 'gemini-2.5-flash', '--name=Youssef', 'call 1',
+      '--resume', '--model', 'gemini-3-flash-preview', '--name=Youssef', 'call 1',
     ]);
     expect(flags.resume).toBe(true);
-    expect(flags.model).toBe('gemini-2.5-flash');
+    expect(flags.model).toBe('gemini-3-flash-preview');
     expect(flags.name).toBe('Youssef');
     expect(positional).toEqual(['call 1']);
   });

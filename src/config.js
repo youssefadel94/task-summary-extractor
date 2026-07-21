@@ -118,60 +118,6 @@ const GEMINI_MODELS = {
     },
     costEstimate: '~$0.07/segment',
   },
-  'gemini-2.5-pro': {
-    name: 'Gemini 2.5 Pro',
-    description: 'Stable premium — deep reasoning, coding, math, STEM, long context',
-    contextWindow: 1_048_576,
-    maxOutput: 65536,
-    maxThinkingBudget: 32768,
-    thinking: true,
-    tier: 'premium',
-    pricing: {
-      inputPerM: 1.25,
-      inputLongPerM: 2.50,
-      outputPerM: 10.00,      // includes thinking tokens
-      outputLongPerM: 15.00,
-      thinkingPerM: 10.00,
-      longContextThreshold: 200_000,
-    },
-    costEstimate: '~$0.20/segment',
-  },
-  'gemini-2.5-flash': {
-    name: 'Gemini 2.5 Flash',
-    description: 'Best price-performance — thinking, 1M context, high throughput',
-    contextWindow: 1_048_576,
-    maxOutput: 65536,
-    maxThinkingBudget: 24576,
-    thinking: true,
-    tier: 'balanced',
-    pricing: {
-      inputPerM: 0.30,
-      inputLongPerM: 0.30,    // flat rate
-      outputPerM: 2.50,       // includes thinking tokens
-      outputLongPerM: 2.50,
-      thinkingPerM: 2.50,
-      longContextThreshold: 200_000,
-    },
-    costEstimate: '~$0.05/segment',
-  },
-  'gemini-2.5-flash-lite': {
-    name: 'Gemini 2.5 Flash-Lite',
-    description: 'Cheapest available — fastest, most cost-efficient for high-volume tasks',
-    contextWindow: 1_048_576,
-    maxOutput: 65536,
-    maxThinkingBudget: 24576,
-    thinking: true,
-    tier: 'economy',
-    pricing: {
-      inputPerM: 0.10,
-      inputLongPerM: 0.10,    // flat rate
-      outputPerM: 0.40,       // includes thinking tokens
-      outputLongPerM: 0.40,
-      thinkingPerM: 0.40,
-      longContextThreshold: 200_000,
-    },
-    costEstimate: '~$0.01/segment',
-  },
   'gemini-3.1-flash-lite-preview': {
     name: 'Gemini 3.1 Flash-Lite Preview',
     description: 'Most cost-efficient Gemini 3 — optimized for high-volume agentic tasks, translation, and simple data processing',
@@ -192,8 +138,9 @@ const GEMINI_MODELS = {
   },
 };
 
-// Active model — defaults from env or 'gemini-2.5-flash'
-let GEMINI_MODEL = env('GEMINI_MODEL', 'gemini-2.5-flash');
+// Active model — defaults from env or 'gemini-3-flash-preview'.
+// (The gemini-2.5-* line now returns 404 "no longer available to new users".)
+let GEMINI_MODEL = env('GEMINI_MODEL', 'gemini-3-flash-preview');
 let GEMINI_CONTEXT_WINDOW = (GEMINI_MODELS[GEMINI_MODEL] || {}).contextWindow || 1_048_576;
 
 /**
@@ -223,7 +170,7 @@ function setActiveModel(modelId) {
  */
 function getActiveModelPricing() {
   const specs = GEMINI_MODELS[module.exports.GEMINI_MODEL];
-  return specs ? specs.pricing : GEMINI_MODELS['gemini-2.5-flash'].pricing;
+  return specs ? specs.pricing : GEMINI_MODELS['gemini-3-flash-preview'].pricing;
 }
 
 /**

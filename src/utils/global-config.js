@@ -30,7 +30,7 @@ const CONFIG_FILE = path.join(os.homedir(), '.taskexrc');
 // Maps config key name → description (for interactive prompts)
 const CONFIG_KEYS = {
   GEMINI_API_KEY:          { label: 'Gemini API Key',          required: true,  hint: 'Get one at https://aistudio.google.com/apikey' },
-  GEMINI_MODEL:            { label: 'Default Gemini Model',    required: false, hint: 'e.g. gemini-2.5-flash, gemini-2.5-pro' },
+  GEMINI_MODEL:            { label: 'Default Gemini Model',    required: false, hint: 'e.g. gemini-3-flash-preview, gemini-3.1-pro-preview' },
   FIREBASE_API_KEY:        { label: 'Firebase API Key',        required: false, hint: 'From Firebase Console → Project Settings' },
   FIREBASE_PROJECT_ID:     { label: 'Firebase Project ID',     required: false, hint: 'e.g. my-project-12345' },
   FIREBASE_STORAGE_BUCKET: { label: 'Firebase Storage Bucket', required: false, hint: 'e.g. my-project-12345.appspot.com' },

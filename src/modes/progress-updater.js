@@ -227,7 +227,7 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
 
   const parsed = extractJson(rawText);
   if (!parsed) {
-    throw new Error('Failed to parse AI progress assessment response as JSON. Try a different model (--model gemini-2.5-pro) or run again — transient API issues can cause this.');
+    throw new Error('Failed to parse AI progress assessment response as JSON. Try a different model (--model gemini-3.1-pro-preview) or run again — transient API issues can cause this.');
   }
 
   // Validate that AI-returned assessment IDs match actual items

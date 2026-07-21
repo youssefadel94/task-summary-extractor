@@ -64,6 +64,8 @@ Findings from the audit pass are tracked here as they're confirmed and fixed.
 - [FIXED] `renderers/html.js`: `related_tickets` injected unescaped in the person To-Do list. Now HTML-escaped.
 - [FIXED] `utils/format.js` `fmtBytes`: added numeric guard (NaN/undefined/null/negative → "0 B").
 
+- [FIXED] `config.js`: default model was `gemini-2.5-flash`, and the economy tier resolved to `gemini-2.5-flash-lite` — the entire `gemini-2.5-*` line now returns 404 "no longer available to new users" (confirmed via live API). Removed the three retired 2.5 models, set the default to `gemini-3-flash-preview`, and fixed the pricing fallback. All tiers now resolve to available `gemini-3.x` models. Docs/help/.env.example updated.
+
 ### Remaining audit findings (tracked, lower priority)
 - `config.js`: package-root `.env` outranks `~/.taskexrc`, inverting documented precedence (dev-checkout only).
 - `progress-updater.js`: id-field mismatch can drop a `_progress` annotation when a ticket lacks `ticket_id` (uses synthetic id).

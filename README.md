@@ -4,7 +4,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
-  <img src="https://img.shields.io/badge/gemini-2.5%2B-blue" alt="Gemini" />
+  <img src="https://img.shields.io/badge/gemini-3%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
   <img src="https://img.shields.io/badge/version-10.3.0-brightgreen" alt="Version" />
   <img src="https://img.shields.io/badge/tests-423%20passing-brightgreen" alt="Tests" />
@@ -177,7 +177,7 @@ These are the ones you'll actually use:
 | Flag | What It Does | Example |
 |------|-------------|---------|
 | `--name <name>` | Set your name (skips prompt) | `--name "Jane"` |
-| `--model <id>` | Pick a Gemini model (skips selector) | `--model gemini-2.5-pro` |
+| `--model <id>` | Pick a Gemini model (skips selector) | `--model gemini-3.1-pro-preview` |
 | `--skip-upload` | Don't upload to Firebase (local only) | `--skip-upload` |
 | `--force-upload` | Re-upload files even if they already exist | `--force-upload` |
 | `--resume` | Continue an interrupted run | `--resume` |
@@ -196,7 +196,7 @@ These are the ones you'll actually use:
 taskex
 
 # Specify everything upfront
-taskex --name "Jane" --model gemini-2.5-pro --skip-upload "my-meeting"
+taskex --name "Jane" --model gemini-3.1-pro-preview --skip-upload "my-meeting"
 
 # Resume a run that crashed halfway
 taskex --resume "my-meeting"
@@ -281,12 +281,9 @@ Use `--model <id>` or run without it for an interactive picker:
 
 | Model ID | Speed | Cost | Best For |
 |----------|-------|------|----------|
-| `gemini-2.5-flash` | ⚡ Fast | $ | **Default** — best price-performance |
-| `gemini-2.5-flash-lite` | ⚡⚡ Fastest | ¢ | High volume, budget runs |
-| `gemini-2.5-pro` | 🧠 Slower | $$ | Deep reasoning, complex meetings |
-| `gemini-3-flash-preview` | ⚡ Fast | $ | Latest flash model |
-| `gemini-3.1-flash-lite-preview` | ⚡⚡ Fastest | ¢ | Most budget-friendly Gemini 3 |
-| `gemini-3.1-pro-preview` | 🧠 Slower | $$$ | Most capable overall |
+| `gemini-3-flash-preview` | ⚡ Fast | $ | **Default** — best price-performance |
+| `gemini-3.1-flash-lite-preview` | ⚡⚡ Fastest | ¢ | High volume, budget runs |
+| `gemini-3.1-pro-preview` | 🧠 Slower | $$$ | Deep reasoning, complex meetings |
 
 ### Cheat Sheet
 
@@ -430,7 +427,7 @@ Only `GEMINI_API_KEY` is required — everything else has defaults:
 GEMINI_API_KEY=your-key-here
 
 # Optional — uncomment to customize
-# GEMINI_MODEL=gemini-2.5-flash
+# GEMINI_MODEL=gemini-3-flash-preview
 # VIDEO_SPEED=1.6
 # THINKING_BUDGET=24576
 # LOG_LEVEL=info

@@ -649,7 +649,7 @@ Each segment analysis is saved as a timestamped JSON file:
 ```json
 {
   "run": {
-    "model": "gemini-2.5-flash",
+    "model": "gemini-3-flash-preview",
     "displayName": "my-meeting_Recording_seg00",
     "userName": "Jane Smith",
     "timestamp": "2026-02-23T17:39:50.123Z",

@@ -221,7 +221,7 @@ my-project/runs/{timestamp}/
 | **Analyze a meeting** | `taskex --name "Jane" "my-meeting"` |
 | **Save API key globally** | `taskex config` |
 | **Pass API key inline** | `taskex --gemini-key "AIza..." "my-meeting"` |
-| **Pick a specific model** | `taskex --model gemini-2.5-pro "my-meeting"` |
+| **Pick a specific model** | `taskex --model gemini-3.1-pro-preview "my-meeting"` |
 | **Run without Firebase** | `taskex --skip-upload "my-meeting"` |
 | **Resume interrupted run** | `taskex --resume "my-meeting"` |
 | **Force re-analysis** | `taskex --reanalyze "my-meeting"` |
