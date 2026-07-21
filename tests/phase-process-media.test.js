@@ -33,13 +33,15 @@ const d = ffmpegOk ? describe : describe.skip;
 // No-op logger: any method call returns '' (works for void calls and string interp).
 const stubLog = new Proxy({}, { get: () => () => '' });
 
-function makeClip(dir, name = 'meeting.mp4') {
+function makeClip(dir, name = 'meeting.mp4', durationSec = 2) {
   const out = path.join(dir, name);
   const r = spawnSync(video.getFFmpeg(), [
     '-y',
-    '-f', 'lavfi', '-i', 'testsrc=duration=2:size=320x240:rate=10',
-    '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', out,
+    '-f', 'lavfi', '-i', `testsrc=duration=${durationSec}:size=320x240:rate=10`,
+    '-f', 'lavfi', '-i', `sine=frequency=440:duration=${durationSec}`,
+    // Keyframe every ~1s so stream-copy splitting can produce multiple segments.
+    '-c:v', 'libx264', '-g', '10', '-keyint_min', '10', '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac', '-shortest', out,
   ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   if (r.status !== 0) throw new Error('fixture gen failed');
   return out;
@@ -114,6 +116,39 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
       expect(ctx.costTracker.getSummary().totalTokens).toBeGreaterThan(0);
     } finally {
       fs.rmSync(dir3, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
+    }
+  }, 120000);
+
+  it('multi-segment batching path runs processSegmentBatch for real', async () => {
+    const bdir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmb-'));
+    const callName = path.basename(bdir);
+    try {
+      const longClip = makeClip(bdir, 'meeting.mp4', 6);
+      // Pre-split into the segment dir phaseProcessVideo reuses, so it skips
+      // compression and sees >1 segment → the batching path runs. (noCompress
+      // ignores segmentTime and short clips don't re-encode into multiple parts.)
+      const segDir = path.join(bdir, 'compressed', 'meeting');
+      const pre = video.splitOnly(longClip, segDir, { segTime: 2 });
+      expect(pre.length).toBeGreaterThan(1); // fixture sanity
+
+      const ctx = makeCtx(bdir, longClip, {
+        skipGemini: false, skipUpload: true, noBatch: false,
+        disableFocusedPass: true, noStorageUrl: true,
+      });
+      ctx.ai = makeVideoMockAI(() => SEGMENT_ANALYSIS);
+
+      const { fileResult, segmentAnalyses } = await phaseProcessVideo(ctx, longClip, 0);
+
+      // Multiple segments → the batching path (processSegmentBatch) ran. A batch
+      // yields ONE merged analysis covering its segments, so segmentAnalyses holds
+      // one entry per batch (≥1), fileResult.segments one entry per segment (>1).
+      expect(fileResult.segments.length).toBeGreaterThan(1);
+      expect(segmentAnalyses.length).toBeGreaterThanOrEqual(1);
+      for (const a of segmentAnalyses) expect(a.tickets.length).toBeGreaterThan(0);
+      for (const s of fileResult.segments) expect(s.analysis).toBeTruthy();
+    } finally {
+      fs.rmSync(bdir, { recursive: true, force: true });
       fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
     }
   }, 120000);
