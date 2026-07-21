@@ -77,6 +77,21 @@ Findings from the audit pass are tracked here as they're confirmed and fixed.
 
 - [FIXED] `config.js`: default model was `gemini-2.5-flash`, and the economy tier resolved to `gemini-2.5-flash-lite` — the entire `gemini-2.5-*` line now returns 404 "no longer available to new users" (confirmed via live API). Removed the three retired 2.5 models, set the default to `gemini-3-flash-preview`, and fixed the pricing fallback. All tiers now resolve to available `gemini-3.x` models. Docs/help/.env.example updated.
 
+### Round 2 fixes (deeper audit of untested code)
+- [FIXED] `context-manager.js` `buildFullSegmentSummary`: referenced an out-of-scope `userName`, throwing `ReferenceError` during segment analysis whenever a recent segment's `your_tasks` lacked `user_name` — crashed segment 3+ of any multi-segment video. Now threaded through.
+- [FIXED] `context-manager.js` cue regex only matched VTT's `.` millisecond separator, so `.srt` transcripts never sliced (whole transcript shipped to every segment). Now accepts `.` and `,`.
+- [FIXED] `pipeline.js` `runDocOnly`: `phaseDeepSummary` was called without `callName`, crashing doc-only + `--deep-summary` on `path.join(..., undefined)`.
+- [FIXED] `process-media.js`: batch→single-segment fallback re-analyzed segments already completed by earlier successful batches (duplicate items into compilation + double cost). Now skipped.
+- [FIXED] `health-dashboard.js`: `printHealthDashboard` crashed on `comp.issues.length` for the minimal `{ valid }` compilation sentinel used by doc-only/dynamic modes — crashed the final dashboard on every such run. Normalised + guarded. Also fixed a parse-rate inconsistency for missing quality reports.
+- [FIXED] `deep-dive.js` `writeDeepDiveOutput`: same malformed-topic hardening as dynamic mode (fallback id/title/category, filename de-collision, real empty-output reason).
+- [FIXED] `gemini.js` `compileFinalResult`: RESOURCE_EXHAUSTED reduced-retry dropped context docs in doc-only mode (where they're the subject) — now preserved on retry.
+- [FIXED] `config.js`: package-root `.env` now correctly ranks below `~/.taskexrc` (documented precedence).
+
+Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly covered: deep-dive (0→81%), docx (87%), pdf (74%), cost-tracker (98%), checkpoint (74%), colors (84%), learning-loop, fs, health-dashboard, inject-cli-flags, context-manager regressions.
+
 ### Remaining audit findings (tracked, lower priority)
-- `config.js`: package-root `.env` outranks `~/.taskexrc`, inverting documented precedence (dev-checkout only).
 - `progress-updater.js`: id-field mismatch can drop a `_progress` annotation when a ticket lacks `ticket_id` (uses synthetic id).
+- `context-manager.js` `detectBoundaryContext`: "mid-conversation" note fires broadly because it sees overlap-sliced cues past the segment end (prompt-note only, no crash).
+- `gemini.js`/`context-manager.js`: VTT budget is estimated on full (unsliced) transcript, can crowd out other docs (efficiency, not correctness).
+- `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
+- Hard-to-unit-test orchestration remains lower coverage: `gemini.js` (7%), `pipeline.js` run()/runDocOnly, `init.js`, `phases/*` — exercised by the live smoke test and manual runs.
