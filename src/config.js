@@ -17,15 +17,20 @@ const fs_ = require('fs');
 // ── Step 1: Load .env (CWD first, then package root — both with override: false) ──
 // dotenv's default: only sets vars that aren't already set.
 // Load CWD .env first (higher priority), then package root .env (fills gaps).
+// dotenv is set-if-missing (override:false), so the FIRST source to set a key
+// wins. Load in documented precedence — CWD .env > ~/.taskexrc > package-root
+// .env — so a global ~/.taskexrc outranks a stray package-root .env (dev fallback).
 const cwd = process.cwd();
 const cwdEnv = path.join(cwd, '.env');
 const pkgEnv = path.resolve(__dirname, '..', '.env');
 if (fs_.existsSync(cwdEnv)) require('dotenv').config({ path: cwdEnv });
-if (fs_.existsSync(pkgEnv)) require('dotenv').config({ path: pkgEnv });
 
 // ── Step 2: Inject global config (~/.taskexrc) for keys still missing ─────
 const { injectGlobalConfig } = require('./utils/global-config');
 injectGlobalConfig();
+
+// ── Step 3: Package-root .env as a last-resort development fallback ────────
+if (fs_.existsSync(pkgEnv)) require('dotenv').config({ path: pkgEnv });
 
 // ======================== HELPERS ========================
 
