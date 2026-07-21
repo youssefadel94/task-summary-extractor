@@ -107,6 +107,9 @@ Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly
 - [FIXED] `process-media.js` `tagSeg`: assumed every array element is an object, but ticket `comments`/`code_changes` legitimately contain plain strings — `item.source_segment = …` threw and crashed the whole segment tagging step on realistic AI output. Now skips non-objects.
 - Added the full AI-analysis-loop test: drives the REAL `processWithGemini` with a mock `ai` (stubbed File API) + a real ffmpeg segment + a realistic fixture response, through upload → generateContent → parse → quality gate → schema → tag → collect. `process-media.js` 21 → 38%, `gemini.js` 27 → 36%, overall ~**55%**, **665 tests + 3 gated live**.
 
+### Round 7 (media branches: batching + focused re-analysis)
+- Covered the multi-segment **batching path** (`processSegmentBatch`) by pre-splitting a real clip into the segment dir phaseProcessVideo reuses, and the **focused re-analysis** integration (`identifyWeaknesses` → `runFocusedPass` → `mergeFocusedResults`) by feeding a "weak but not sparse" analysis. Both passed clean (no new bug). `process-media.js` 38 → 62%, `gemini.js` 36 → 48%, overall ~**58%**, **667 tests + 3 gated live**.
+
 ### Remaining (tracked, low severity — cosmetic/design; intentionally not fixed)
 - `context-manager.js` `detectBoundaryContext`: "mid-conversation" prompt note fires broadly. The semantics are tangled with overlap-slicing (a tighter bound would suppress the legitimate "continues next segment" case) and it only affects a prompt hint, not output — left as-is.
 - `setup.js`: `--silent` runs `git checkout -b` / creates sample files without confirmation (surprising for CI automation) — a design decision, left as-is.
