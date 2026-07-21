@@ -99,11 +99,14 @@ Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly
 - [FIXED] `progress-updater.js` `mergeProgressIntoAnalysis`: id-field mismatch dropped a `_progress` annotation when a ticket was keyed with `id` instead of `ticket_id`. Now falls back across id fields.
 - Added `tests/services/gemini-helpers.test.js` covering `loadPrompt`, `buildDocBridgeText`, `prepareDocsForGemini` (offline paths), `analyzeImageBatches`, and `compileFinalResult` (the core compilation used by both flows). `gemini.js` 7% → ~27%. Overall coverage ~**52%**, **654 tests + 3 gated live**.
 
-### Remaining audit findings (tracked, low severity — cosmetic/design)
-- `context-manager.js` `detectBoundaryContext`: "mid-conversation" note fires broadly (prompt-note only, no crash).
-- `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
+### Round 5 (media pipeline coverage + retry fix)
+- [FIXED] `retry.js` `isTransientError`: word-bounded the 5xx/429 status patterns so permanent errors like "exceeds 5000 chars" or ids containing "500"/"4290" aren't retried; also matches Gemini's `RESOURCE_EXHAUSTED` (underscore) form.
+- Added `tests/services/video.test.js`: generates tiny synthetic clips with real ffmpeg and exercises `findBin`, `probe`, `probeFormat`, `verifySegment`, `compressAndSegment`, `splitOnly` (gated on ffmpeg). `video.js` 0 → ~42%. Overall coverage ~**53%**, **662 tests + 3 gated live**.
+
+### Remaining (tracked, low severity — cosmetic/design; intentionally not fixed)
+- `context-manager.js` `detectBoundaryContext`: "mid-conversation" prompt note fires broadly. The semantics are tangled with overlap-slicing (a tighter bound would suppress the legitimate "continues next segment" case) and it only affects a prompt hint, not output — left as-is.
 - `setup.js`: `--silent` runs `git checkout -b` / creates sample files without confirmation (surprising for CI automation) — a design decision, left as-is.
-- Hard-to-unit-test orchestration remains lower coverage: the media `process-media` path (needs ffmpeg + real media), parts of `gemini.js` segment analysis, `init.js` interactive wizard — covered by the live smoke test and real runs.
+- `process-media.js` `phaseProcessVideo` orchestration (3%): couples ffmpeg + Gemini + batching/caching/focused-pass/quality-gate across a very large function. Its building blocks (`video.js`, gemini helpers, quality-gate, schema-validator, context-manager) are now individually tested; the orchestration itself is exercised by the live smoke test and real runs. A full harness would be high-cost/low-ROI.
 - `context-manager.js` `detectBoundaryContext`: "mid-conversation" note fires broadly because it sees overlap-sliced cues past the segment end (prompt-note only, no crash).
 - `gemini.js`/`context-manager.js`: VTT budget is estimated on full (unsliced) transcript, can crowd out other docs (efficiency, not correctness).
 - `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
