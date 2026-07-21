@@ -234,6 +234,18 @@ describe('sliceVttForSegment', () => {
     expect(sliced).toContain('beginning');
     expect(sliced).toContain('End of');
   });
+
+  it('slices an SRT transcript with comma millisecond separators (regression)', () => {
+    // SRT uses "," not "." — before the fix, no cues parsed so the whole
+    // transcript was shipped to every segment.
+    const srt = [
+      '1', '00:00:01,000 --> 00:00:05,000', 'Early cue about alpha', '',
+      '2', '00:10:00,000 --> 00:10:05,000', 'Late cue about omega', '',
+    ].join('\n');
+    const sliced = sliceVttForSegment(srt, 0, 60, 30);
+    expect(sliced).toContain('alpha');
+    expect(sliced).not.toContain('omega'); // late cue (600s) outside the 0–90s window
+  });
 });
 
 // ═════════════════════════════════════════════════════════════
@@ -267,6 +279,20 @@ describe('buildProgressiveContext', () => {
     expect(result).toContain('OAuth');
     expect(result).toContain('AI-1');
     expect(result).toContain('Update redirect URIs');
+  });
+
+  it('does not crash when a recent segment has your_tasks without user_name (regression)', () => {
+    // Previously referenced an out-of-scope `userName`, throwing ReferenceError
+    // under strict mode whenever your_tasks.user_name was falsy.
+    const analyses = [{ your_tasks: { tasks_todo: [{ description: 'do x' }], tasks_waiting_on_others: [] } }];
+    expect(() => buildProgressiveContext(analyses, 'Youssef')).not.toThrow();
+    const result = buildProgressiveContext(analyses, 'Youssef');
+    expect(result).toContain('User Tasks (Youssef)'); // falls back to the passed userName
+  });
+
+  it('handles your_tasks without user_name and no userName provided', () => {
+    const analyses = [{ your_tasks: { tasks_todo: [] } }];
+    expect(() => buildProgressiveContext(analyses, '')).not.toThrow();
   });
 
   it('produces COMPRESSED summary for older segments', () => {

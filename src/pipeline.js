@@ -580,9 +580,11 @@ async function runDocOnly(ctx) {
       opts.deepSummaryExclude = excluded;
     }
     bar.setPhase('deep-summary', 1);
-    // Build a temporary context for phaseDeepSummary
+    // Build a temporary context for phaseDeepSummary. `callName` is required —
+    // phaseDeepSummary uses it to build the deep-summary cache path, and omitting
+    // it makes path.join(..., undefined) throw and abort the whole doc-only run.
     const deepSumCtx = await phaseDeepSummary({
-      opts, ai, contextDocs: effectiveContextDocs, costTracker,
+      opts, ai, contextDocs: effectiveContextDocs, costTracker, callName,
     });
     effectiveContextDocs = deepSumCtx.contextDocs;
     deepSummaryStats = deepSumCtx.deepSummaryStats || null;

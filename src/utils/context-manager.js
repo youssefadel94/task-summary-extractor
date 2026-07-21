@@ -167,8 +167,11 @@ function parseVttCues(vttContent) {
     const lines = block.trim().split('\n');
     // Find the timestamp line
     for (let i = 0; i < lines.length; i++) {
+      // Accept both VTT (`.`) and SRT (`,`) millisecond separators — SRT files
+      // are classified as sliceable, so a VTT-only regex silently ships the whole
+      // transcript to every segment.
       const match = lines[i].match(
-        /(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})/
+        /(\d{2}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[.,](\d{3})/
       );
       if (match) {
         const startSec = +match[1] * 3600 + +match[2] * 60 + +match[3] + +match[4] / 1000;
@@ -267,7 +270,7 @@ function buildProgressiveContext(previousAnalyses, userName) {
 
     if (isRecent) {
       // FULL detail for recent segments
-      parts.push(buildFullSegmentSummary(prev, idx));
+      parts.push(buildFullSegmentSummary(prev, idx, userName));
     } else {
       // COMPRESSED for older segments
       parts.push(buildCompressedSegmentSummary(prev, idx));
@@ -278,7 +281,7 @@ function buildProgressiveContext(previousAnalyses, userName) {
 }
 
 /** Full detail summary for a segment (recent segments). */
-function buildFullSegmentSummary(prev, idx) {
+function buildFullSegmentSummary(prev, idx, userName = '') {
   const lines = [`=== SEGMENT ${idx + 1} (FULL DETAIL) ===`];
 
   // Summary

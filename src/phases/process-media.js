@@ -633,8 +633,18 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   // ════════════════════════════════════════════════════════════
   if (!batchedSuccessfully) {
 
+  // Segments already analyzed by earlier successful batches (before a later batch
+  // failed and triggered this fallback) are recorded in fileResult.segments with
+  // an `analysis`. Skip them here — the single-segment cache lookup only sees
+  // `segment_NN_*.json` files, not the `batch_*_segs_*.json` those batches wrote,
+  // so without this guard they'd be re-analyzed (duplicate items + double cost).
+  const alreadyDone = new Set(
+    fileResult.segments.filter(s => s.analysis).map(s => s.segmentIndex)
+  );
+
   for (let j = 0; j < segments.length; j++) {
     if (isShuttingDown()) break;
+    if (alreadyDone.has(j)) continue;
 
     const { segPath, segName, storagePath, storageUrl, durSec, sizeMB } = segmentMeta[j];
 
