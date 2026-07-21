@@ -450,14 +450,35 @@ async function generateAllDynamicDocuments(ai, topics, userRequest, docSnippets,
 function writeDynamicOutput(outputDir, documents, meta = {}) {
   fs.mkdirSync(outputDir, { recursive: true });
 
+  // Normalise topic metadata up front. `topics` come straight from model JSON and
+  // may be missing id/title/category. Without this, a single malformed topic would
+  // throw inside the write loop (.toLowerCase() on undefined) and discard EVERY
+  // generated document. Fill deterministic fallbacks so writes always succeed.
+  documents.forEach((doc, i) => {
+    if (!doc.topic || typeof doc.topic !== 'object') doc.topic = {};
+    if (!doc.topic.id) doc.topic.id = `DM-${String(i + 1).padStart(2, '0')}`;
+    if (!doc.topic.title) doc.topic.title = doc.topic.id;
+    if (!doc.topic.category) doc.topic.category = 'other';
+  });
+
   const docPaths = [];
   const successful = documents.filter(d => d.markdown);
   const failed = documents.filter(d => !d.markdown);
 
+  // Guard against filename collisions (same id+title on two topics).
+  const usedNames = new Set();
+
   // Write individual documents
   for (const doc of successful) {
-    const slug = slugify(doc.topic.title);
-    const fileName = `${doc.topic.id.toLowerCase()}-${slug}.md`;
+    const slug = slugify(doc.topic.title) || 'document';
+    let fileName = `${String(doc.topic.id).toLowerCase()}-${slug}.md`;
+    if (usedNames.has(fileName)) {
+      let n = 2;
+      const base = fileName.replace(/\.md$/, '');
+      while (usedNames.has(`${base}-${n}.md`)) n++;
+      fileName = `${base}-${n}.md`;
+    }
+    usedNames.add(fileName);
     const filePath = path.join(outputDir, fileName);
     fs.writeFileSync(filePath, doc.markdown, 'utf8');
     docPaths.push(filePath);
@@ -523,7 +544,7 @@ function writeDynamicOutput(outputDir, documents, meta = {}) {
     indexLines.push('');
     indexLines.push(`> ⚠ ${failed.length} document(s) failed to generate:`);
     for (const doc of failed) {
-      indexLines.push(`> - ${doc.topic.title}: ${doc.error}`);
+      indexLines.push(`> - ${doc.topic.title}: ${doc.error || 'empty output (model returned no content)'}`);
     }
   }
 

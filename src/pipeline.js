@@ -1026,16 +1026,23 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
   // Build doc snippets from context docs (if available in fullCtx)
   const contextDocs = fullCtx.contextDocs || [];
   const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml'];
+  // Image batch analysis (>15 images) is surfaced two ways by the upstream
+  // pipelines: as a synthesized `_image_analysis_combined.md` inlineText doc in
+  // contextDocs AND as `imageDescriptions`. Skip the synthesized doc here when we
+  // already have imageDescriptions, otherwise the same image content is embedded
+  // twice in docSnippets (wasted tokens, duplicated context).
+  const imageDescriptions = fullCtx.imageDescriptions || [];
+  const skipCombinedImageDoc = imageDescriptions.length > 0;
   const docSnippets = [];
   for (const d of contextDocs) {
     if (d.type === 'inlineText' && d.content) {
+      if (skipCombinedImageDoc && d.fileName === '_image_analysis_combined.md') continue;
       const snippet = d.content.length > 8000 ? d.content.slice(0, 8000) + '\n... (truncated)' : d.content;
       docSnippets.push(`[${d.fileName}]\n${snippet}`);
     }
   }
 
   // Add image batch descriptions as doc snippets (from pre-analysis in runDocOnly)
-  const imageDescriptions = fullCtx.imageDescriptions || [];
   if (imageDescriptions.length > 0) {
     for (const batchResult of imageDescriptions) {
       const snippet = batchResult.description.length > 12000

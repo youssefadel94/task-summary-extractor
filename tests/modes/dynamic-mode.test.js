@@ -257,3 +257,47 @@ describe('compiledToVideoSummaries', () => {
     expect(compiledToVideoSummaries({})).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// writeDynamicOutput — robustness against malformed topic metadata (regression)
+// ---------------------------------------------------------------------------
+
+describe('writeDynamicOutput — malformed topics do not lose documents', () => {
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-dyn2-')); });
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }); });
+
+  it('fills fallback id/title when a topic is missing them (does not throw or drop docs)', () => {
+    const documents = [
+      { topic: { title: 'Has Title' }, markdown: '# One', durationMs: 1, tokenUsage: { totalTokens: 1 } },  // no id
+      { topic: { id: 'DM-99' }, markdown: '# Two', durationMs: 1, tokenUsage: { totalTokens: 1 } },          // no title
+      { topic: {}, markdown: '# Three', durationMs: 1, tokenUsage: { totalTokens: 1 } },                      // neither
+    ];
+    let result;
+    expect(() => { result = writeDynamicOutput(dir, documents, { folderName: 'p', userRequest: 'r', timestamp: 't' }); }).not.toThrow();
+    expect(result.stats.successful).toBe(3);
+    // All three markdown files must have been written.
+    const mdFiles = fs.readdirSync(dir).filter(f => f.endsWith('.md') && f !== 'INDEX.md');
+    expect(mdFiles).toHaveLength(3);
+  });
+
+  it('disambiguates colliding filenames', () => {
+    const documents = [
+      { topic: { id: 'DM-01', title: 'Same' }, markdown: '# a', durationMs: 1, tokenUsage: { totalTokens: 1 } },
+      { topic: { id: 'DM-01', title: 'Same' }, markdown: '# b', durationMs: 1, tokenUsage: { totalTokens: 1 } },
+    ];
+    writeDynamicOutput(dir, documents, { folderName: 'p', userRequest: 'r', timestamp: 't' });
+    const mdFiles = fs.readdirSync(dir).filter(f => f.endsWith('.md') && f !== 'INDEX.md');
+    expect(mdFiles).toHaveLength(2); // no overwrite
+  });
+
+  it('shows a real reason (not "undefined") for empty-output failures', () => {
+    const documents = [
+      { topic: { id: 'DM-01', title: 'Empty One' }, markdown: null, durationMs: 0, tokenUsage: { totalTokens: 0 } }, // no error field
+    ];
+    writeDynamicOutput(dir, documents, { folderName: 'p', userRequest: 'r', timestamp: 't' });
+    const index = fs.readFileSync(path.join(dir, 'INDEX.md'), 'utf8');
+    expect(index).toContain('Empty One');
+    expect(index).not.toContain('Empty One: undefined');
+  });
+});

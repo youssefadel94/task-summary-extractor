@@ -49,3 +49,17 @@ two used flows were ~0% covered.
 Findings from the audit pass are tracked here as they're confirmed and fixed.
 
 - [FIXED] `pipeline.js` `runDynamicTopics`: `thinkingBudget` used before its `const` declaration (temporal dead zone) → `ReferenceError` in Dynamic mode when a folder has images but no pre-analyzed descriptions. Declaration moved above first use.
+- [FIXED] `confidence-filter.js`: `--min-confidence medium/high` erased all `your_tasks` items (To Do / Waiting / Decisions) because they carry no `confidence` field and were assumed LOW. Now preserved unless they carry an explicit confidence.
+- [FIXED] `cli.js` `parseArgs`: boolean flags in `--flag=value` form coerced `false`/`0`/`no`/`off` to `true`. Now parsed correctly.
+- [FIXED] `init.js`: wizard-configured flags (`--min-confidence`, `--deep-summary`, `--deep-dive`, `--no-html/-batch/-progress`) now skip interactive prompts, matching documented behavior.
+- [FIXED] `markdown.js`: table cells with newlines (multi-line descriptions) split rows and corrupted tables. Newlines now collapsed to spaces.
+- [FIXED] `dynamic-mode.js` `writeDynamicOutput`: a topic missing `id`/`title` threw and discarded ALL generated docs. Now fills deterministic fallbacks, disambiguates filename collisions, and shows a real reason for empty-output failures.
+- [FIXED] `pipeline.js` `runDynamicTopics`: image-analysis context was embedded twice in `docSnippets` (once as the synthesized `_image_analysis_combined.md`, once via `imageDescriptions`). Now de-duplicated.
+
+### Remaining audit findings (tracked, lower priority)
+- `services/gemini.js`: `String.replace` with `$`-containing replacement corrupts trimmed compilation prompt (edge: >80% trim / quota retry); `nonDocParts` slice offset wrong when image docs present on RESOURCE_EXHAUSTED retry; some `response.text` accesses unguarded.
+- `services/git.js`: renamed/copied files (`R100`/`C075` status) dropped from change detection → progress mis-assessed; root-commit diff under-reported.
+- `renderers/pdf.js`: reported `pages` count always 0 under Puppeteer v24 (Uint8Array vs Buffer); callers only use `bytes` so impact limited.
+- `renderers/html.js`: `related_tickets` injected unescaped in one spot.
+- `utils/format.js`: `fmtBytes` lacks numeric guard (latent; current callers always pass valid sizes).
+- `config.js`: package-root `.env` outranks `~/.taskexrc`, inverting documented precedence (dev-checkout only).
