@@ -1,4 +1,24 @@
-const { withRetry, parallelMap } = require('../../src/utils/retry');
+const { withRetry, parallelMap, isTransientError } = require('../../src/utils/retry');
+
+describe('isTransientError', () => {
+  const t = (msg, extra = {}) => isTransientError(Object.assign(new Error(msg), extra));
+
+  it('flags real transient errors', () => {
+    expect(t('429 Too Many Requests')).toBe(true);
+    expect(t('got status 503 Service Unavailable')).toBe(true);
+    expect(t('RESOURCE_EXHAUSTED')).toBe(true);
+    expect(t('socket hang up')).toBe(true);
+    expect(t('boom', { status: 500 })).toBe(true);
+  });
+
+  it('does not flag permanent errors that merely contain 5xx-like digits', () => {
+    // Regression: substring /500/ used to match "5000".
+    expect(t('field exceeds 5000 chars')).toBe(false);
+    expect(t('invalid id ABC-4290')).toBe(false);
+    expect(t('bad request: missing field')).toBe(false);
+    expect(t('INVALID_ARGUMENT')).toBe(false);
+  });
+});
 
 describe('withRetry', () => {
   it('resolves on first try and returns result', async () => {

@@ -21,19 +21,19 @@ const DEFAULT_BASE_DELAY_MS = 2000;
  * Known transient error patterns that should be retried.
  */
 const TRANSIENT_PATTERNS = [
-  /429/i,                       // Rate limited
+  /\b429\b/,                    // Rate limited (word-bounded so "4290" doesn't match)
   /too many requests/i,
   /quota exceeded/i,
-  /resource exhausted/i,
+  /resource[ _]exhausted/i,     // matches both "resource exhausted" and Gemini's RESOURCE_EXHAUSTED
   /ECONNRESET/i,
   /ETIMEDOUT/i,
   /ENOTFOUND/i,
   /EPIPE/i,
   /socket hang up/i,
   /network/i,
-  /503/i,                       // Service unavailable
-  /502/i,                       // Bad gateway
-  /500/i,                       // Internal server error (sometimes transient)
+  // Transient HTTP status codes as standalone tokens (word-bounded) so we don't
+  // treat "exceeds 5000 chars" or an id containing "500" as a retryable 5xx.
+  /\b(?:500|502|503|504)\b/,
   /UNAVAILABLE/i,
   /INTERNAL/i,
   /overloaded/i,
@@ -139,4 +139,4 @@ async function parallelMap(items, fn, concurrency = 3) {
   return results;
 }
 
-module.exports = { withRetry, parallelMap };
+module.exports = { withRetry, parallelMap, isTransientError };
