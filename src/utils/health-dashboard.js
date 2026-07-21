@@ -40,7 +40,9 @@ function buildHealthReport(params) {
 
   // Parse success rate
   const totalSegments = segmentReports.length;
-  const parsed = segmentReports.filter(r => r.qualityReport?.grade !== 'FAIL').length;
+  // A missing quality report counts as NOT parsed (consistent with the grade
+  // distribution below, which defaults a missing grade to FAIL).
+  const parsed = segmentReports.filter(r => r.qualityReport?.grade && r.qualityReport.grade !== 'FAIL').length;
   const parseRate = totalSegments > 0 ? (parsed / totalSegments * 100).toFixed(1) : 0;
 
   // Quality score distribution
@@ -123,9 +125,11 @@ function buildHealthReport(params) {
       wallClockMs: totalDurationMs,
     },
     compilation: compilationQuality ? {
-      score: compilationQuality.score,
-      grade: compilationQuality.grade,
-      issues: compilationQuality.issues,
+      // Doc-only / dynamic modes pass a minimal { valid } sentinel with no
+      // score/grade/issues — normalise so the dashboard printer never crashes.
+      score: compilationQuality.score ?? null,
+      grade: compilationQuality.grade || (compilationQuality.valid ? 'PASS' : 'FAIL'),
+      issues: compilationQuality.issues || [],
     } : null,
     integrityWarnings: integrityWarnings || null,
     issues: allIssues,
@@ -193,11 +197,13 @@ function printHealthDashboard(report) {
   if (comp) {
     console.log('');
     console.log('  Compilation:');
-    console.log(`    Score : ${comp.score}/100 (${comp.grade})`);
-    if (comp.issues.length > 0) {
-      console.log(`    Issues: ${comp.issues.length}`);
-      comp.issues.slice(0, 3).forEach(issue => console.log(`      • ${issue}`));
-      if (comp.issues.length > 3) console.log(`      ... +${comp.issues.length - 3} more`);
+    if (comp.score != null) console.log(`    Score : ${comp.score}/100 (${comp.grade})`);
+    else console.log(`    Status: ${comp.grade}`);
+    const compIssues = comp.issues || [];
+    if (compIssues.length > 0) {
+      console.log(`    Issues: ${compIssues.length}`);
+      compIssues.slice(0, 3).forEach(issue => console.log(`      • ${issue}`));
+      if (compIssues.length > 3) console.log(`      ... +${compIssues.length - 3} more`);
     }
   }
 

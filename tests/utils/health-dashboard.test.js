@@ -1,6 +1,6 @@
 'use strict';
 
-const { buildHealthReport } = require('../../src/utils/health-dashboard');
+const { buildHealthReport, printHealthDashboard } = require('../../src/utils/health-dashboard');
 
 function segReport(over = {}) {
   return {
@@ -80,5 +80,32 @@ describe('buildHealthReport', () => {
       compilationQuality: { score: 88, grade: 'PASS', issues: [] },
     });
     expect(report.compilation).toEqual({ score: 88, grade: 'PASS', issues: [] });
+  });
+
+  it('normalises the minimal { valid } sentinel used by doc-only/dynamic modes', () => {
+    // Regression: this used to leave issues undefined and crash printHealthDashboard.
+    const report = buildHealthReport({ compilationQuality: { valid: true } });
+    expect(report.compilation.issues).toEqual([]);
+    expect(report.compilation.grade).toBe('PASS');
+    expect(report.compilation.score).toBeNull();
+
+    const failReport = buildHealthReport({ compilationQuality: { valid: false } });
+    expect(failReport.compilation.grade).toBe('FAIL');
+  });
+});
+
+describe('printHealthDashboard', () => {
+  it('does not throw on the { valid } sentinel compilation (regression)', () => {
+    const report = buildHealthReport({
+      allSegmentAnalyses: [{ tickets: [{}] }],
+      costSummary: { totalTokens: 100, totalCost: 0.01, totalDurationMs: 10 },
+      compilationQuality: { valid: true },
+      totalDurationMs: 20,
+    });
+    expect(() => printHealthDashboard(report)).not.toThrow();
+  });
+
+  it('does not throw on a fully empty report', () => {
+    expect(() => printHealthDashboard(buildHealthReport({}))).not.toThrow();
   });
 });

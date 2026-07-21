@@ -289,14 +289,31 @@ async function generateAllDocuments(ai, topics, compiledAnalysis, options = {}) 
 function writeDeepDiveOutput(deepDiveDir, documents, meta = {}) {
   fs.mkdirSync(deepDiveDir, { recursive: true });
 
+  // Topics come from model JSON and may lack id/title/category — fill deterministic
+  // fallbacks so one malformed topic can't throw and discard every document.
+  documents.forEach((doc, i) => {
+    if (!doc.topic || typeof doc.topic !== 'object') doc.topic = {};
+    if (!doc.topic.id) doc.topic.id = `DD-${String(i + 1).padStart(2, '0')}`;
+    if (!doc.topic.title) doc.topic.title = doc.topic.id;
+    if (!doc.topic.category) doc.topic.category = 'other';
+  });
+
   const docPaths = [];
   const successful = documents.filter(d => d.markdown);
   const failed = documents.filter(d => !d.markdown);
 
   // Write individual documents
+  const usedNames = new Set();
   for (const doc of successful) {
-    const slug = slugify(doc.topic.title);
-    const fileName = `${doc.topic.id.toLowerCase()}-${slug}.md`;
+    const slug = slugify(doc.topic.title) || 'document';
+    let fileName = `${String(doc.topic.id).toLowerCase()}-${slug}.md`;
+    if (usedNames.has(fileName)) {
+      let n = 2;
+      const base = fileName.replace(/\.md$/, '');
+      while (usedNames.has(`${base}-${n}.md`)) n++;
+      fileName = `${base}-${n}.md`;
+    }
+    usedNames.add(fileName);
     const filePath = path.join(deepDiveDir, fileName);
     fs.writeFileSync(filePath, doc.markdown, 'utf8');
     docPaths.push(filePath);
@@ -352,7 +369,7 @@ function writeDeepDiveOutput(deepDiveDir, documents, meta = {}) {
     indexLines.push('');
     indexLines.push(`> ⚠ ${failed.length} document(s) failed to generate:`);
     for (const doc of failed) {
-      indexLines.push(`> - ${doc.topic.title}: ${doc.error}`);
+      indexLines.push(`> - ${doc.topic.title}: ${doc.error || 'empty output (model returned no content)'}`);
     }
   }
 
@@ -547,4 +564,5 @@ module.exports = {
   generateDocument,
   generateAllDocuments,
   writeDeepDiveOutput,
+  extractRelevantItems,
 };
