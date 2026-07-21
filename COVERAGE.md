@@ -95,9 +95,15 @@ Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly
 - [FIXED] `setup.js`: API key written with split/join so a `$` in the key isn't mangled by String.replace.
 - Added `tests/pipeline-doconly.test.js` — an offline end-to-end run of the doc-only pipeline (phaseServices → stubbed compile → renderers → health dashboard → output). Lifted `pipeline.js` coverage to ~36% and guards the whole Custom-flow document path. Overall coverage ~**50%**, **640 tests + 3 gated live**.
 
-### Remaining audit findings (tracked, lower priority)
-- `progress-updater.js`: id-field mismatch can drop a `_progress` annotation when a ticket lacks `ticket_id` (uses synthetic id).
+### Round 4 (gemini.js coverage + progress annotation fix)
+- [FIXED] `progress-updater.js` `mergeProgressIntoAnalysis`: id-field mismatch dropped a `_progress` annotation when a ticket was keyed with `id` instead of `ticket_id`. Now falls back across id fields.
+- Added `tests/services/gemini-helpers.test.js` covering `loadPrompt`, `buildDocBridgeText`, `prepareDocsForGemini` (offline paths), `analyzeImageBatches`, and `compileFinalResult` (the core compilation used by both flows). `gemini.js` 7% → ~27%. Overall coverage ~**52%**, **654 tests + 3 gated live**.
+
+### Remaining audit findings (tracked, low severity — cosmetic/design)
+- `context-manager.js` `detectBoundaryContext`: "mid-conversation" note fires broadly (prompt-note only, no crash).
+- `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
 - `setup.js`: `--silent` runs `git checkout -b` / creates sample files without confirmation (surprising for CI automation) — a design decision, left as-is.
+- Hard-to-unit-test orchestration remains lower coverage: the media `process-media` path (needs ffmpeg + real media), parts of `gemini.js` segment analysis, `init.js` interactive wizard — covered by the live smoke test and real runs.
 - `context-manager.js` `detectBoundaryContext`: "mid-conversation" note fires broadly because it sees overlap-sliced cues past the segment end (prompt-note only, no crash).
 - `gemini.js`/`context-manager.js`: VTT budget is estimated on full (unsliced) transcript, can crowd out other docs (efficiency, not correctness).
 - `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
