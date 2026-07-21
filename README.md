@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v10.6.9** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.7.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-3%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-10.3.0-brightgreen" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-423%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-10.7.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-573%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -604,6 +604,8 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.7.0** | **Flow hardening, model refresh & security** — retired the `gemini-2.5-*` models (now 404 for new API keys) and set the default to `gemini-3-flash-preview`; fixed Custom-flow confidence filter erasing `your_tasks`, boolean `--flag=value` parsing, wizard flag-skip, Markdown table newlines; hardened Dynamic mode (`writeDynamicOutput` malformed-topic crash, duplicate image context, image-only TDZ crash); repaired git progress tracking (null-byte format arg broke commit listing on Node ≥20, rename detection, root-commit diff); fixed Gemini prompt `$`-corruption and `response.text` guards; env precedence; resolved 18 dependency vulnerabilities; test suite 423 → 573 (+ opt-in live smoke test) |
+| **v10.6.10** | **Model registry → April 2026** — added `gemini-3.1-flash-lite-preview` and refreshed the model list |
 | **v10.6.9** | **JSON file support** — `.json` files now discovered and sent to Gemini as inline text context (same pipeline as `.txt`/`.md`/`.csv`); added to `DOC_EXTS`, `INLINE_TEXT_EXTS`, and all supported-format docs |
 | **v10.3.0** | **Codebase audit & hardening** — fixed batch retry crash (`const` reassignment), ZIP header validation bug, case-insensitive path matching, PDF parser API, Markdown table pipe escaping, missing Gemini retry in progress mode, ESC key handling, model name validation, confidence normalization for all item types, non-zero exit code on dynamic failures, setup error handling |
 | **v10.2.3** | **Unified feature flags** — Custom and Dynamic modes show the same 6 feature flags, removed mode-specific filtering |
