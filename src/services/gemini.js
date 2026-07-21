@@ -1275,7 +1275,13 @@ ${segmentDumps}`;
         return `=== SEGMENT ${idx + 1} OF ${allSegmentAnalyses.length} ===\n${JSON.stringify(clean, null, 2)}`;
       }).join('\n\n');
       // Use a replacer function so `$` sequences in miniDumps are not interpreted.
-      requestPayload.contents[0].parts = [{ text: compilationPrompt.replace(/SEGMENT ANALYSES:\n[\s\S]*$/, () => `SEGMENT ANALYSES:\n${miniDumps}`) }];
+      const reducedTextPart = { text: compilationPrompt.replace(/SEGMENT ANALYSES:\n[\s\S]*$/, () => `SEGMENT ANALYSES:\n${miniDumps}`) };
+      // In doc-only mode the attached documents ARE the subject matter — keep them
+      // on the retry (dropping them would analyze an empty prompt). In segment mode
+      // the docs are supplementary, so shedding them is a valid size reduction.
+      requestPayload.contents[0].parts = docOnlyMode
+        ? [reducedTextPart, ...contentParts.slice(1)]
+        : [reducedTextPart];
       try {
         response = await withRetry(
           () => ai.models.generateContent(requestPayload),
