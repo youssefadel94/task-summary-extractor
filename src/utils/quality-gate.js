@@ -404,7 +404,9 @@ function getConfidenceStats(analysis) {
   ];
 
   const total = allItems.length;
-  if (total === 0) return { total: 0, high: 0, medium: 0, low: 0, missing: 0, coverage: 1 };
+  // No items means nothing is missing confidence — coverage is 100% (a percentage),
+  // not 1. Consumers treat `coverage` as a 0–100 percent.
+  if (total === 0) return { total: 0, high: 0, medium: 0, low: 0, missing: 0, coverage: 100 };
 
   let high = 0, medium = 0, low = 0, missing = 0;
   for (const item of allItems) {

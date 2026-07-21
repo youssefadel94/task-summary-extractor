@@ -1607,4 +1607,4 @@ async function runProgressUpdate(initCtx) {
   log.close();
 }
 
-module.exports = { run, getLog, runDynamicTopics, mergeSegmentAnalysesForDynamic };
+module.exports = { run, getLog, runDynamicTopics, mergeSegmentAnalysesForDynamic, runDocOnly };

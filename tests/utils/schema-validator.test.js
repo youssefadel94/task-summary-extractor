@@ -313,6 +313,34 @@ describe('normalizeAnalysis', () => {
     expect(result.action_items).toEqual([]);
   });
 
+  it('rescues tickets keyed with id instead of ticket_id (regression: data loss)', () => {
+    const data = {
+      summary: 'x',
+      tickets: [
+        { id: 'TICKET-1', title: 'Real ticket', status: 'open' }, // ticket signal → rescued
+        { id: 'TICKET-2', status: 'in_progress' },                 // ticket signal → rescued
+      ],
+    };
+    const result = normalizeAnalysis(data);
+    expect(result.tickets).toHaveLength(2);
+    expect(result.tickets[0].ticket_id).toBe('TICKET-1');
+    expect(result.tickets[1].ticket_id).toBe('TICKET-2');
+  });
+
+  it('still drops objects with no ticket signal misplaced in tickets[]', () => {
+    const data = {
+      summary: 'x',
+      tickets: [
+        { ticket_id: 'T-1', title: 'Legit' },
+        { id: 'CR-9', what: 'a change request', how: 'somehow' }, // no ticket signal → dropped
+        { description: 'orphan with no id at all' },              // no id → dropped
+      ],
+    };
+    const result = normalizeAnalysis(data);
+    expect(result.tickets).toHaveLength(1);
+    expect(result.tickets[0].ticket_id).toBe('T-1');
+  });
+
   it('returns null/undefined data as-is', () => {
     expect(normalizeAnalysis(null)).toBe(null);
     expect(normalizeAnalysis(undefined)).toBe(undefined);
@@ -380,18 +408,21 @@ describe('normalizeAnalysis', () => {
     expect(data.action_items[1].confidence).toBe('HIGH');
   });
 
-  it('filters out tickets without ticket_id', () => {
+  it('rescues id-keyed tickets with a ticket signal, drops those without any id', () => {
     const data = {
       summary: 'Test',
       tickets: [
         { ticket_id: 'T-1', title: 'Valid' },
+        // Has an id AND ticket signals (title/status) → rescued as a ticket rather
+        // than silently dropped (the previous behavior lost real tickets).
         { id: 'CR-Q8', title: 'No ticket_id', status: 'pending_decision' },
+        // No id at all → cannot be a ticket, dropped.
         { title: 'Also missing ticket_id' },
       ],
     };
     normalizeAnalysis(data);
-    expect(data.tickets).toHaveLength(1);
-    expect(data.tickets[0].ticket_id).toBe('T-1');
+    expect(data.tickets).toHaveLength(2);
+    expect(data.tickets.map(t => t.ticket_id)).toEqual(['T-1', 'CR-Q8']);
   });
 
   it('normalizes action_items assignee → assigned_to', () => {

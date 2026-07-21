@@ -345,9 +345,21 @@ function normalizeAnalysis(data) {
 
   // Patch ticket items — fill missing required fields with defaults
   if (Array.isArray(data.tickets)) {
-    // Filter out objects that the AI incorrectly placed in tickets[]
-    // (e.g. change_requests, blockers with no ticket_id)
-    data.tickets = data.tickets.filter(t => t && typeof t === 'object' && t.ticket_id);
+    // The model often keys tickets with `id` (the dominant pattern for every other
+    // item type) instead of `ticket_id`. Rescue those by mapping id -> ticket_id
+    // when the object carries a ticket signal, then drop anything still lacking a
+    // ticket_id (genuinely misplaced change_requests/blockers). Previously ALL
+    // id-keyed tickets were silently deleted — real data loss.
+    const TICKET_SIGNALS = ['title', 'status', 'discussed_state', 'code_changes', 'reviewer', 'assignee'];
+    data.tickets = data.tickets
+      .filter(t => t && typeof t === 'object')
+      .map(t => {
+        if (!t.ticket_id && t.id && TICKET_SIGNALS.some(k => t[k] !== undefined)) {
+          return { ...t, ticket_id: t.id };
+        }
+        return t;
+      })
+      .filter(t => t.ticket_id);
     for (const ticket of data.tickets) {
       if (!ticket.confidence) ticket.confidence = 'MEDIUM';
       if (!ticket.discussed_state && ticket.discussed_state !== null) {

@@ -485,7 +485,7 @@ describe('quality-gate', () => {
       });
     });
 
-    it('returns total 0 and coverage 1 when all arrays are empty', () => {
+    it('returns total 0 and coverage 100 when all arrays are empty', () => {
       const stats = getConfidenceStats({
         tickets: [],
         action_items: [],
@@ -494,9 +494,9 @@ describe('quality-gate', () => {
         scope_changes: [],
       });
 
-      // Special case in source: total === 0 → coverage = 1
+      // No items → nothing missing confidence → 100% coverage (a percentage).
       expect(stats.total).toBe(0);
-      expect(stats.coverage).toBe(1);
+      expect(stats.coverage).toBe(100);
     });
 
     it('counts items without confidence field as missing', () => {

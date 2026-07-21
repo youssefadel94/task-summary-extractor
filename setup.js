@@ -269,7 +269,9 @@ async function setupEnvironment() {
 
   const key = await ask('  Enter your Gemini API key (or Enter to skip): ');
   if (key) {
-    content = content.replace('YOUR_GEMINI_API_KEY_HERE', key);
+    // split/join, not replace(): a `$` in the key would otherwise be interpreted
+    // as a replacement-string special sequence and corrupt the written value.
+    content = content.split('YOUR_GEMINI_API_KEY_HERE').join(key);
     pass('Gemini API key saved to .env');
   } else {
     warn('Gemini API key not set — edit .env later', 'Get key: https://aistudio.google.com/apikey');
