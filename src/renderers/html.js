@@ -615,7 +615,7 @@ function renderResultsHtml({ compiled, meta }) {
         ln('<strong>📌 To Do</strong><ul>');
         for (const item of actionableTodos) {
           const pri = priBadgeHtml(item.priority);
-          const ref = (item.related_tickets || []).length > 0 ? ` <em>(${item.related_tickets.join(', ')})</em>` : '';
+          const ref = (item.related_tickets || []).length > 0 ? ` <em>(${e(item.related_tickets.join(', '))})</em>` : '';
           const ts = item.referenced_at ? ` @ ${tsHtml(item.referenced_at, item.source_segment, item.source_video)}` : '';
           ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${ref}${ts}</li>`);
         }

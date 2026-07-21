@@ -23,6 +23,7 @@ function formatHMS(sec) {
 
 /** Format bytes → human-readable "12.3 MB" */
 function fmtBytes(bytes) {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1073741824) return `${(bytes / 1048576).toFixed(2)} MB`;

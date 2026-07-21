@@ -63,13 +63,16 @@ async function renderResultsPdf(htmlContent, outputPath, options = {}) {
       `,
     });
 
-    // Get page count from the buffer metadata
-    const pages = pdfBuffer.toString('ascii').match(/\/Type\s*\/Page\b/g)?.length || 0;
+    // Get page count from the buffer metadata. puppeteer v24's page.pdf() resolves
+    // to a Uint8Array, and Uint8Array.toString(enc) ignores the encoding and yields
+    // comma-joined byte codes — normalise to a Buffer first so the regex can match.
+    const pdfBytes = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    const pages = pdfBytes.toString('latin1').match(/\/Type\s*\/Page\b/g)?.length || 0;
 
     return {
       path: outputPath,
       pages,
-      bytes: pdfBuffer.length,
+      bytes: pdfBytes.length,
     };
   } catch (err) {
     if (err.code === 'MODULE_NOT_FOUND') {

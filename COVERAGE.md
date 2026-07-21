@@ -56,10 +56,14 @@ Findings from the audit pass are tracked here as they're confirmed and fixed.
 - [FIXED] `dynamic-mode.js` `writeDynamicOutput`: a topic missing `id`/`title` threw and discarded ALL generated docs. Now fills deterministic fallbacks, disambiguates filename collisions, and shows a real reason for empty-output failures.
 - [FIXED] `pipeline.js` `runDynamicTopics`: image-analysis context was embedded twice in `docSnippets` (once as the synthesized `_image_analysis_combined.md`, once via `imageDescriptions`). Now de-duplicated.
 
+- [FIXED] `services/git.js` `getCommitsSince`: field separator was a null byte, which Node ≥20 rejects as a spawn argument (`ERR_INVALID_ARG_VALUE`) — the function silently returned `[]` on every call, disabling commit-based progress tracking and `getDiffSummary`. Switched to git's `%x1f` unit separator.
+- [FIXED] `services/git.js` `getChangedFilesSince`: renamed/copied files (`R100`/`C075` status, two tab-separated paths) were dropped by the single-letter regex. Now parsed by status letter with the destination path taken for renames/copies.
+- [FIXED] `services/git.js` `getDiffSummary`: root-commit changes under-reported when the oldest commit has no parent. Now diffs against git's empty-tree sentinel.
+- [FIXED] `services/gemini.js`: `String.replace` with `$`-containing replacement corrupted the trimmed/reduced compilation prompt (split/join + replacer fn now); `nonDocParts` slice offset was wrong when image docs are present on RESOURCE_EXHAUSTED retry (counts actual parts now); all `response.text` accesses guarded.
+- [FIXED] `renderers/pdf.js`: reported `pages` count was always 0 under Puppeteer v24 (Uint8Array vs Buffer). Normalised to a Buffer before scanning.
+- [FIXED] `renderers/html.js`: `related_tickets` injected unescaped in the person To-Do list. Now HTML-escaped.
+- [FIXED] `utils/format.js` `fmtBytes`: added numeric guard (NaN/undefined/null/negative → "0 B").
+
 ### Remaining audit findings (tracked, lower priority)
-- `services/gemini.js`: `String.replace` with `$`-containing replacement corrupts trimmed compilation prompt (edge: >80% trim / quota retry); `nonDocParts` slice offset wrong when image docs present on RESOURCE_EXHAUSTED retry; some `response.text` accesses unguarded.
-- `services/git.js`: renamed/copied files (`R100`/`C075` status) dropped from change detection → progress mis-assessed; root-commit diff under-reported.
-- `renderers/pdf.js`: reported `pages` count always 0 under Puppeteer v24 (Uint8Array vs Buffer); callers only use `bytes` so impact limited.
-- `renderers/html.js`: `related_tickets` injected unescaped in one spot.
-- `utils/format.js`: `fmtBytes` lacks numeric guard (latent; current callers always pass valid sizes).
 - `config.js`: package-root `.env` outranks `~/.taskexrc`, inverting documented precedence (dev-checkout only).
+- `progress-updater.js`: id-field mismatch can drop a `_progress` annotation when a ticket lacks `ticket_id` (uses synthetic id).

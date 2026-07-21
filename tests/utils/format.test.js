@@ -57,3 +57,17 @@ describe('fmtBytes', () => {
     expect(fmtBytes(1073741824)).toBe('1.00 GB');
   });
 });
+
+describe('fmtBytes — invalid input guard (regression)', () => {
+  it('returns "0 B" for NaN, undefined, null, and negative', () => {
+    expect(fmtBytes(NaN)).toBe('0 B');
+    expect(fmtBytes(undefined)).toBe('0 B');
+    expect(fmtBytes(null)).toBe('0 B');
+    expect(fmtBytes(-5)).toBe('0 B');
+    expect(fmtBytes(Infinity)).toBe('0 B');
+  });
+  it('still formats valid sizes', () => {
+    expect(fmtBytes(0)).toBe('0 B');
+    expect(fmtBytes(512)).toBe('512 B');
+  });
+});

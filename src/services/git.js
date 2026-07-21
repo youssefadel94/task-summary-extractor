@@ -131,8 +131,13 @@ function initRepo(dir) {
  * @returns {Array<{hash: string, author: string, date: string, message: string}>}
  */
 function getCommitsSince(repoPath, sinceISO, maxCount = 100) {
-  const SEP = '\x00'; // null byte separator — won't appear in messages
-  const format = `%H${SEP}%an${SEP}%aI${SEP}%s`;
+  // Unit separator (0x1f) between fields. It won't appear in commit metadata and,
+  // unlike a null byte, is a valid child_process argument — Node >= 20 throws
+  // ERR_INVALID_ARG_VALUE for any spawn arg containing \x00, which previously made
+  // this function silently return [] on every call (breaking commit-based tracking).
+  // %x1f is expanded by git itself, so the format arg stays free of control bytes.
+  const SEP = '\x1f';
+  const format = '%H%x1f%an%x1f%aI%x1f%s';
 
   const output = execGit(
     ['log', `--since=${sinceISO}`, `--format=${format}`, `--max-count=${maxCount}`],
@@ -215,17 +220,21 @@ function getChangedFilesSince(repoPath, sinceISO) {
   for (const line of output.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const match = trimmed.match(/^([AMDRC])\t(.+)$/);
-    if (match) {
-      const status = match[1];
-      const filePath = normPath(match[2]);
-      const existing = fileMap.get(filePath);
-      if (existing) {
-        existing.changes++;
-        existing.status = status; // latest status wins
-      } else {
-        fileMap.set(filePath, { path: filePath, status, changes: 1 });
-      }
+    // --name-status lines: "A\tpath", "M\tpath", "D\tpath", "T\tpath", and for
+    // renames/copies "R100\told\tnew" / "C075\told\tnew" (status has a similarity
+    // score and TWO tab-separated paths). Git enables rename detection by default,
+    // so a single-letter regex would silently drop every renamed file.
+    const parts = trimmed.split('\t');
+    const statusLetter = parts[0][0];
+    if (!'AMDRCT'.includes(statusLetter) || parts.length < 2) continue;
+    // Rename (R) / copy (C) → the destination (new) path is the changed file.
+    const filePath = normPath(parts[parts.length - 1]);
+    const existing = fileMap.get(filePath);
+    if (existing) {
+      existing.changes++;
+      existing.status = statusLetter; // latest status wins
+    } else {
+      fileMap.set(filePath, { path: filePath, status: statusLetter, changes: 1 });
     }
   }
 
@@ -249,7 +258,11 @@ function getDiffSummary(repoPath, sinceISO) {
   // Try parent..HEAD first
   let output = execGit(['diff', '--shortstat', `${oldestHash}~1`, 'HEAD'], repoPath);
   if (!output) {
-    output = execGit(['diff', '--shortstat', oldestHash, 'HEAD'], repoPath);
+    // Oldest commit is the repo root (no parent). Diff against git's empty-tree
+    // sentinel so the root commit's OWN changes are included (diffing
+    // oldestHash..HEAD would omit them, under-reporting the range).
+    const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+    output = execGit(['diff', '--shortstat', EMPTY_TREE, 'HEAD'], repoPath);
   }
   return output || 'No stat available';
 }

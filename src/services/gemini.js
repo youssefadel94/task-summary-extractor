@@ -657,8 +657,12 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
             reducedParts.push({ inlineData: { mimeType: doc.mimeType, data: doc.data } });
           }
         }
-        // Re-add prompt/context parts (last 3-5 parts are prompt, focus, etc.)
-        const nonDocParts = contentParts.slice(1 + selectedDocs.length);
+        // Re-add prompt/context parts (last 3-5 parts are prompt, focus, etc.).
+        // Each image (inlineData) doc contributed TWO parts (a label + the image),
+        // every other doc contributed one — count actual parts, not doc count, or
+        // the slice starts inside the doc block and drags an orphan image part along.
+        const docPartCount = selectedDocs.reduce((n, d) => n + (d.type === 'inlineData' ? 2 : 1), 0);
+        const nonDocParts = contentParts.slice(1 + docPartCount);
         reducedParts.push(...nonDocParts);
         requestPayload.contents[0].parts = reducedParts;
         console.log(`    Reduced to ${reducedDocs.length} docs (budget: ${(reducedBudget / 1000).toFixed(0)}K tokens)`);
@@ -688,7 +692,8 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   }
   const durationMs = Date.now() - t0;
 
-  let rawText = response.text;
+  let rawText;
+  try { rawText = response.text; } catch { rawText = ''; }
 
   // 6. Extract token usage
   const usage = response.usageMetadata || {};
@@ -730,7 +735,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       if (retryOutput > 0) {
         // Use retry result
         response = retryResponse;
-        rawText = retryResponse.text;
+        try { rawText = retryResponse.text; } catch { rawText = ''; }
         tokenUsage.outputTokens = retryOutput;
         tokenUsage.thoughtTokens = retryUsage.thoughtsTokenCount || 0;
         tokenUsage.totalTokens = retryUsage.totalTokenCount || 0;
@@ -959,7 +964,8 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   );
   const durationMs = Date.now() - t0;
 
-  let rawText = response.text;
+  let rawText;
+  try { rawText = response.text; } catch { rawText = ''; }
 
   // Token usage
   const usage = response.usageMetadata || {};
@@ -999,7 +1005,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
       const retryOutput = retryUsage.candidatesTokenCount || 0;
       console.log(`    ✓ No-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
       if (retryOutput > 0) {
-        rawText = retryResponse.text;
+        try { rawText = retryResponse.text; } catch { rawText = ''; }
         tokenUsage.outputTokens = retryOutput;
         tokenUsage.thoughtTokens = retryUsage.thoughtsTokenCount || 0;
         tokenUsage.totalTokens = retryUsage.totalTokenCount || 0;
@@ -1220,7 +1226,10 @@ ${segmentDumps}`;
       }
       return `=== SEGMENT ${idx + 1} OF ${allSegmentAnalyses.length} ===\n${JSON.stringify(clean, null, 2)}`;
     }).join('\n\n');
-    contentParts[0] = { text: compilationPrompt.replace(segmentDumps, trimmedDumps) };
+    // split/join, not String.replace: the replacement (JSON of segment analyses)
+    // routinely contains `$&`, `$1`, `$'` etc. which String.replace would treat as
+    // special replacement patterns and corrupt the prompt.
+    contentParts[0] = { text: compilationPrompt.split(segmentDumps).join(trimmedDumps) };
     const newEstimate = estimateTokens(contentParts[0].text);
     console.log(`  Trimmed compilation input to ~${(newEstimate / 1000).toFixed(0)}K tokens`);
   }
@@ -1265,7 +1274,8 @@ ${segmentDumps}`;
         };
         return `=== SEGMENT ${idx + 1} OF ${allSegmentAnalyses.length} ===\n${JSON.stringify(clean, null, 2)}`;
       }).join('\n\n');
-      requestPayload.contents[0].parts = [{ text: compilationPrompt.replace(/SEGMENT ANALYSES:\n[\s\S]*$/, `SEGMENT ANALYSES:\n${miniDumps}`) }];
+      // Use a replacer function so `$` sequences in miniDumps are not interpreted.
+      requestPayload.contents[0].parts = [{ text: compilationPrompt.replace(/SEGMENT ANALYSES:\n[\s\S]*$/, () => `SEGMENT ANALYSES:\n${miniDumps}`) }];
       try {
         response = await withRetry(
           () => ai.models.generateContent(requestPayload),
@@ -1281,7 +1291,9 @@ ${segmentDumps}`;
     }
   }
   const durationMs = Date.now() - t0;
-  let rawText = response.text;
+  // response.text is a getter that can throw on a blocked/empty candidate — guard it.
+  let rawText;
+  try { rawText = response.text; } catch { rawText = ''; }
 
   // Token usage
   const usage = response.usageMetadata || {};
@@ -1315,7 +1327,7 @@ ${segmentDumps}`;
       console.log(`  ✓ No-thinking retry: ${retryOutput.toLocaleString()} output tokens (thinking: ${(retryUsage.thoughtsTokenCount || 0).toLocaleString()})`);
       if (retryOutput > 0) {
         response = retryResponse;
-        rawText = retryResponse.text;
+        try { rawText = retryResponse.text; } catch { rawText = ''; }
         tokenUsage.outputTokens = retryOutput;
         tokenUsage.thoughtTokens = retryUsage.thoughtsTokenCount || 0;
         tokenUsage.totalTokens = retryUsage.totalTokenCount || 0;
@@ -1448,7 +1460,9 @@ FORMAT:
   );
   const durationMs = Date.now() - t0;
 
-  const summary = (response.text || '').trim();
+  let summaryText;
+  try { summaryText = response.text; } catch { summaryText = ''; }
+  const summary = (summaryText || '').trim();
 
   // Cleanup: delete uploaded file from Gemini File API
   try {

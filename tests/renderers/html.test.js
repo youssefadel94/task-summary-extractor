@@ -120,3 +120,22 @@ describe('renderResultsHtml', () => {
     expect(html).toContain('Call Analysis — Unknown');
   });
 });
+
+// ─── HTML escaping of related_tickets (regression) ────────────────────────────
+
+describe('renderResultsHtml — related_tickets are HTML-escaped', () => {
+  function loadCompiled2() { return JSON.parse(JSON.stringify(require('../fixtures/sample-compilation.json'))); }
+  it('escapes angle brackets in related_tickets of a person To Do item', () => {
+    const compiled = loadCompiled2();
+    compiled.action_items = [{
+      id: 'AI-X',
+      description: 'A task for someone',
+      assigned_to: 'Somebody Else',
+      status: 'todo',
+      related_tickets: ['<script>x</script>'],
+    }];
+    const html = renderResultsHtml({ compiled, meta: baseMeta() });
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
+  });
+});
