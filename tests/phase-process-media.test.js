@@ -120,6 +120,39 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
     }
   }, 120000);
 
+  it('low-quality response triggers quality-gate retry + focused re-analysis', async () => {
+    const fdir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmf-'));
+    const callName = path.basename(fdir);
+    try {
+      const clipf = makeClip(fdir, 'meeting.mp4', 2);
+      // A "weak but not sparse" analysis (4 bare tickets, no actions/blockers/
+      // scopes) scores <60 with ≥2 weak areas → identifyWeaknesses.shouldReanalyze
+      // is true → the runFocusedPass integration fires. The focused follow-up
+      // returns the rich fixture, which mergeFocusedResults folds back in.
+      const WEAK = JSON.stringify({
+        summary: 'Sparse.', tickets: [1, 2, 3, 4].map(i => ({ ticket_id: 'T' + i, status: 'open' })),
+        action_items: [], change_requests: [], blockers: [], scope_changes: [],
+        file_references: [], your_tasks: {},
+      });
+      let n = 0;
+      const ctx = makeCtx(fdir, clipf, {
+        skipGemini: false, skipUpload: true, noBatch: true,
+        disableFocusedPass: false, noStorageUrl: true,
+      });
+      ctx.ai = makeVideoMockAI(() => { n++; return n === 1 ? WEAK : SEGMENT_ANALYSIS; });
+
+      // Must complete without crashing through the focused-pass branch.
+      const { fileResult, segmentAnalyses } = await phaseProcessVideo(ctx, clipf, 0);
+      expect(fileResult.segments.length).toBe(1);
+      expect(segmentAnalyses.length).toBe(1);
+      // The focused pass fired → a second AI call was made and merged in.
+      expect(ctx.ai.callCount).toBeGreaterThan(1);
+    } finally {
+      fs.rmSync(fdir, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
+    }
+  }, 120000);
+
   it('multi-segment batching path runs processSegmentBatch for real', async () => {
     const bdir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmb-'));
     const callName = path.basename(bdir);
