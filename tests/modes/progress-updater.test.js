@@ -161,6 +161,17 @@ describe('mergeProgressIntoAnalysis', () => {
     const result = mergeProgressIntoAnalysis(analysis, [{ item_id: 'X', status: 'DONE' }]);
     expect(result).toEqual({});
   });
+
+  it('annotates a ticket keyed with id (not ticket_id) via id fallback (regression)', () => {
+    const analysis = {
+      tickets: [{ id: 'TICKET-9', title: 'Keyed with id' }], // no ticket_id
+      change_requests: [], action_items: [], blockers: [], scope_changes: [],
+    };
+    const assessments = [{ item_id: 'TICKET-9', status: 'DONE', confidence: 'HIGH', evidence: [], notes: '' }];
+    const result = mergeProgressIntoAnalysis(analysis, assessments);
+    expect(result.tickets[0]._progress).toBeDefined();
+    expect(result.tickets[0]._progress.status).toBe('DONE');
+  });
 });
 
 // ─── renderProgressMarkdown ──────────────────────────────────────────────────

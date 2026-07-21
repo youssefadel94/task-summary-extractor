@@ -286,7 +286,11 @@ function mergeProgressIntoAnalysis(analysis, assessments) {
 
   for (const { key, idField } of sections) {
     for (const item of (analysis[key] || [])) {
-      const itemId = item[idField];
+      // Fall back across id fields — extractTrackableItems derives item_id as
+      // `ticket_id || id`, so a ticket keyed only with `id` (or an item whose
+      // primary field is absent) would otherwise never match its assessment and
+      // silently lose its _progress annotation.
+      const itemId = item[idField] || item.id || item.ticket_id;
       const assessment = assessMap.get(itemId);
       if (assessment) {
         item._progress = {
