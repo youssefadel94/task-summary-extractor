@@ -40,3 +40,5 @@ Thumbs.db
 *.swp
 .vscode/settings.json
 message */
+# Test coverage output
+coverage/

@@ -21,7 +21,9 @@ const {
 } = require('./shared');
 
 /** Escape pipe characters in Markdown table cells to prevent column corruption. */
-const esc = s => (s == null ? '' : String(s).replace(/\|/g, '\\|'));
+// Escape a value for use inside a Markdown table cell: escape pipes AND collapse
+// newlines to spaces (a raw \n splits the cell across rows and corrupts the table).
+const esc = s => (s == null ? '' : String(s).replace(/\s*[\r\n]+\s*/g, ' ').replace(/\|/g, '\\|'));
 
 /**
  * Render the final compiled analysis into a comprehensive Markdown report.

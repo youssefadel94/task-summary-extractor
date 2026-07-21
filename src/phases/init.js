@@ -89,7 +89,15 @@ async function phaseInit() {
   };
 
   // --- Determine if user provided enough flags to skip interactive mode ---
-  const hasExplicitMode = opts.model || opts.updateProgress || opts.dynamic || flags['no-focused-pass'] || flags['no-learning'] || flags['no-diff'] || opts.format;
+  // Any flag the interactive wizard would otherwise configure (run mode, model,
+  // formats, confidence, or a feature toggle) counts as an explicit choice, so
+  // we honour it and skip the prompts — matching the documented behavior that
+  // "when flags are provided, interactive prompts are skipped automatically."
+  const hasExplicitMode = opts.model || opts.updateProgress || opts.dynamic
+    || flags['no-focused-pass'] || flags['no-learning'] || flags['no-diff']
+    || flags['no-html'] || flags['no-batch'] || flags['no-progress']
+    || flags['deep-summary'] || flags['deep-dive']
+    || opts.format || opts.minConfidence;
   const isNonInteractive = !process.stdin.isTTY;
 
   // --- Interactive Run-Mode selector (only when TTY and no explicit flags) ---

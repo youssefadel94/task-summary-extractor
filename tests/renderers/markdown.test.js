@@ -189,3 +189,27 @@ describe('renderResultsMarkdown', () => {
     expect(md).toContain('TestPerson');
   });
 });
+
+// ─── Table-cell newline escaping (regression) ─────────────────────────────────
+
+describe('renderResultsMarkdown — multi-line cell values do not corrupt tables', () => {
+  it('collapses newlines in action-item descriptions to keep the table intact', () => {
+    const compiled = loadCompiled();
+    compiled.action_items = [{
+      id: 'AI-NL',
+      description: 'First line of the task\nSecond line that must not break the row',
+      assigned_to: 'Alice',
+      status: 'open',
+      confidence: 'HIGH',
+    }];
+    const md = renderResultsMarkdown({ compiled, meta: baseMeta() });
+
+    // Locate the row containing our action item and verify it is a single table row.
+    const row = md.split('\n').find(l => l.includes('AI-NL'));
+    expect(row).toBeTruthy();
+    expect(row.startsWith('|')).toBe(true);
+    expect(row).toContain('First line of the task Second line');
+    // The description text must not have leaked onto its own physical line.
+    expect(md).not.toContain('\nSecond line that must not break the row');
+  });
+});

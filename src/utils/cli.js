@@ -49,7 +49,15 @@ function parseArgs(argv) {
       if (eqIdx !== -1) {
         // --key=value
         const key = arg.slice(2, eqIdx);
-        flags[key] = arg.slice(eqIdx + 1);
+        const rawVal = arg.slice(eqIdx + 1);
+        // Boolean flags with an explicit =value must be coerced, not left as a
+        // truthy string (e.g. --dry-run=false must mean OFF, not `!!'false'` === true).
+        if (BOOLEAN_FLAGS.has(key)) {
+          const v = rawVal.trim().toLowerCase();
+          flags[key] = !(v === 'false' || v === '0' || v === 'no' || v === 'off' || v === '');
+        } else {
+          flags[key] = rawVal;
+        }
       } else {
         const key = arg.slice(2);
         // Boolean flags never consume the next argument

@@ -1020,6 +1020,9 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
   // Build context from compiled analysis (replaces the old video-by-video File API approach)
   const videoSummaries = compiledToVideoSummaries(compiledAnalysis);
 
+  // Thinking budget — declared before any use (on-the-fly image analysis below references it).
+  const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
+
   // Build doc snippets from context docs (if available in fullCtx)
   const contextDocs = fullCtx.contextDocs || [];
   const INLINE_EXTS = ['.vtt', '.srt', '.txt', '.md', '.csv', '.json', '.xml'];
@@ -1089,8 +1092,6 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
       } catch { /* skip unreadable */ }
     }
   }
-
-  const thinkingBudget = opts.thinkingBudget || THINKING_BUDGET;
 
   console.log(`  Context: ${c.highlight(videoSummaries.length ? 'compiled analysis' : 'documents only')} + ${c.highlight(docSnippets.length)} doc snippet(s)`);
   console.log(`  Output:  ${c.cyan(opts.dynamicOutputMode === 'unified' ? 'Unified document' : 'Topic-split documents')}`);
@@ -1597,4 +1598,4 @@ async function runProgressUpdate(initCtx) {
   log.close();
 }
 
-module.exports = { run, getLog };
+module.exports = { run, getLog, runDynamicTopics, mergeSegmentAnalysesForDynamic };

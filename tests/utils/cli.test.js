@@ -378,3 +378,32 @@ describe('FEATURE_FLAGS', () => {
     expect(progressFlag.default).toBe(true);
   });
 });
+
+// ─── Boolean flags with explicit =value (regression) ──────────────────────────
+
+describe('parseArgs — boolean flags with =value', () => {
+  it('coerces --dry-run=false to false (not truthy string)', () => {
+    const { flags } = parseArgs(['--dry-run=false', 'call 1']);
+    expect(flags['dry-run']).toBe(false);
+  });
+
+  it('treats --dry-run=true as true', () => {
+    const { flags } = parseArgs(['--dry-run=true']);
+    expect(flags['dry-run']).toBe(true);
+  });
+
+  it.each(['false', '0', 'no', 'off', ''])('coerces --skip-gemini=%s to false', (v) => {
+    const { flags } = parseArgs([`--skip-gemini=${v}`]);
+    expect(flags['skip-gemini']).toBe(false);
+  });
+
+  it('leaves value flags as strings with =value', () => {
+    const { flags } = parseArgs(['--format=md,html']);
+    expect(flags.format).toBe('md,html');
+  });
+
+  it('keeps --resume=false off', () => {
+    const { flags } = parseArgs(['--resume=false']);
+    expect(flags.resume).toBe(false);
+  });
+});

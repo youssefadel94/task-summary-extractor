@@ -87,6 +87,16 @@ function filterByConfidence(compiled, minLevel = 'LOW') {
   const filterArr = (items) =>
     (items || []).filter(item => (LEVELS[item.confidence] || 1) >= threshold);
 
+  // Filter that PRESERVES items carrying no confidence signal. Used for your_tasks,
+  // whose sub-items are not confidence-scored in the schema — treating a missing
+  // field as LOW there would wrongly erase the user's own To Do / Waiting /
+  // Decisions. Items that DO carry a confidence field are still honoured.
+  const filterArrPreserveUnscored = (items) =>
+    (items || []).filter(item => {
+      if (!item || typeof item !== 'object' || !('confidence' in item)) return true;
+      return (LEVELS[item.confidence] || 1) >= threshold;
+    });
+
   const filtered = {
     ...compiled,
     tickets: filterArr(compiled.tickets),
@@ -96,14 +106,18 @@ function filterByConfidence(compiled, minLevel = 'LOW') {
     scope_changes: filterArr(compiled.scope_changes),
   };
 
-  // Filter your_tasks sub-arrays if present
+  // your_tasks sub-items are the user's own tasks. In the schema they carry no
+  // `confidence` field, so they must survive any threshold (using the plain
+  // filterArr here would erase every To Do / Waiting / Decision under
+  // --min-confidence medium/high). We still honour an explicit confidence field
+  // if one happens to be present.
   if (compiled.your_tasks && typeof compiled.your_tasks === 'object') {
     filtered.your_tasks = {
       ...compiled.your_tasks,
-      tasks_todo: filterArr(compiled.your_tasks.tasks_todo),
-      tasks_waiting_on_others: filterArr(compiled.your_tasks.tasks_waiting_on_others),
-      decisions_needed: filterArr(compiled.your_tasks.decisions_needed),
-      // completed_in_call items are plain strings (no confidence field) — preserve unconditionally
+      tasks_todo: filterArrPreserveUnscored(compiled.your_tasks.tasks_todo),
+      tasks_waiting_on_others: filterArrPreserveUnscored(compiled.your_tasks.tasks_waiting_on_others),
+      decisions_needed: filterArrPreserveUnscored(compiled.your_tasks.decisions_needed),
+      // completed_in_call items are plain strings — preserve unconditionally.
       completed_in_call: compiled.your_tasks.completed_in_call || [],
     };
   }

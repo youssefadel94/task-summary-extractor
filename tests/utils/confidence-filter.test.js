@@ -246,3 +246,39 @@ describe('validateConfidenceLevel', () => {
     expect(r.valid).toBe(false);
   });
 });
+
+// ======================== your_tasks PRESERVATION (regression) ========================
+
+describe('filterByConfidence — your_tasks are never confidence-filtered', () => {
+  // your_tasks sub-items carry no `confidence` field (per the compiled schema).
+  // A confidence threshold must NOT erase them, or the entire To Do / Waiting /
+  // Decisions sections would vanish under --min-confidence medium/high.
+  const withTasks = {
+    summary: 'x',
+    tickets: [{ ticket_id: 'T-1', confidence: 'HIGH' }, { ticket_id: 'T-2', confidence: 'LOW' }],
+    your_tasks: {
+      user_name: 'Me',
+      tasks_todo: [{ description: 'do A' }, { description: 'do B' }],
+      tasks_waiting_on_others: [{ description: 'wait C', waiting_on: 'Bob' }],
+      decisions_needed: [{ description: 'decide D', from_whom: 'Alice' }],
+      completed_in_call: ['finished E'],
+    },
+  };
+
+  for (const level of ['MEDIUM', 'HIGH']) {
+    it(`keeps all your_tasks items under ${level}`, () => {
+      const out = filterByConfidence(withTasks, level);
+      expect(out.your_tasks.tasks_todo).toHaveLength(2);
+      expect(out.your_tasks.tasks_waiting_on_others).toHaveLength(1);
+      expect(out.your_tasks.decisions_needed).toHaveLength(1);
+      expect(out.your_tasks.completed_in_call).toHaveLength(1);
+    });
+  }
+
+  it('still filters confidence-scored top-level arrays under HIGH', () => {
+    const out = filterByConfidence(withTasks, 'HIGH');
+    // Only the HIGH ticket survives; the LOW one is dropped.
+    expect(out.tickets).toHaveLength(1);
+    expect(out.tickets[0].ticket_id).toBe('T-1');
+  });
+});
