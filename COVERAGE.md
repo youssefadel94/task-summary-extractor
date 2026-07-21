@@ -103,6 +103,10 @@ Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly
 - [FIXED] `retry.js` `isTransientError`: word-bounded the 5xx/429 status patterns so permanent errors like "exceeds 5000 chars" or ids containing "500"/"4290" aren't retried; also matches Gemini's `RESOURCE_EXHAUSTED` (underscore) form.
 - Added `tests/services/video.test.js`: generates tiny synthetic clips with real ffmpeg and exercises `findBin`, `probe`, `probeFormat`, `verifySegment`, `compressAndSegment`, `splitOnly` (gated on ffmpeg). `video.js` 0 → ~42%. Overall coverage ~**53%**, **662 tests + 3 gated live**.
 
+### Round 6 (media AI-loop harness — found a real crash)
+- [FIXED] `process-media.js` `tagSeg`: assumed every array element is an object, but ticket `comments`/`code_changes` legitimately contain plain strings — `item.source_segment = …` threw and crashed the whole segment tagging step on realistic AI output. Now skips non-objects.
+- Added the full AI-analysis-loop test: drives the REAL `processWithGemini` with a mock `ai` (stubbed File API) + a real ffmpeg segment + a realistic fixture response, through upload → generateContent → parse → quality gate → schema → tag → collect. `process-media.js` 21 → 38%, `gemini.js` 27 → 36%, overall ~**55%**, **665 tests + 3 gated live**.
+
 ### Remaining (tracked, low severity — cosmetic/design; intentionally not fixed)
 - `context-manager.js` `detectBoundaryContext`: "mid-conversation" prompt note fires broadly. The semantics are tangled with overlap-slicing (a tighter bound would suppress the legitimate "continues next segment" case) and it only affects a prompt hint, not output — left as-is.
 - `setup.js`: `--silent` runs `git checkout -b` / creates sample files without confirmation (surprising for CI automation) — a design decision, left as-is.
