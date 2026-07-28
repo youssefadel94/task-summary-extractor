@@ -260,14 +260,22 @@ async function run() {
       return sum + 258 + Math.ceil(payloadBytes / 4);
     }, 0);
     const combinedTokens = totalTokensEstimate + imageTokensEstimate;
-    // Only offer when context is large enough to benefit (>100K tokens)
-    if (combinedTokens > 100000) {
+
+    // Only offer when the documents actually threaten the per-segment budget.
+    // That budget is the context window minus the reserve for video, prompt and
+    // thinking — the same figure printed as "Reference docs budget". On a 1M
+    // model it is ~700K, so 118K of docs fit whole: summarizing them would cost
+    // time and tokens, risk detail, and change nothing about what gets sent.
+    const docBudget = Math.max(100000, config.GEMINI_CONTEXT_WINDOW - 350000);
+    const pressure = combinedTokens / docBudget;
+
+    if (pressure > 0.5) {
       const deepSumChoice = await selectOne({
         title: c.bold('📦 Deep Summary'),
         items: [
           {
             label: `✅ ${c.bold('Yes')}`,
-            hint: `Condense ${inlineDocs.length} docs (~${(combinedTokens / 1000).toFixed(0)}K tokens) — saves 60-80% cost`,
+            hint: `Condense ${inlineDocs.length} docs (~${(combinedTokens / 1000).toFixed(0)}K tokens) — they exceed ${(docBudget / 1000).toFixed(0)}K of per-segment room`,
             value: true,
           },
           {
@@ -282,6 +290,10 @@ async function run() {
       if (deepSumChoice.value) {
         fullCtx.opts.deepSummary = true;
       }
+    } else if (combinedTokens > 100000) {
+      // Large, but comfortably within budget — say so, since the old build
+      // offered to summarize here and the offer was never worth taking.
+      console.log(`  ${c.dim(`Context: ~${(combinedTokens / 1000).toFixed(0)}K tokens of documents fit inside the ${(docBudget / 1000).toFixed(0)}K per-segment budget — sending them in full (no summarization needed).`)}`);
     }
   }
 
@@ -358,7 +370,10 @@ async function run() {
       if (isShuttingDown()) return { skipped: true, videoPath: mediaFile, videoIndex: i };
       try {
         const prep = await phasePrepareMedia(fullCtx, mediaFile, i);
-        bar.tick(`Prepared ${path.basename(mediaFile)}`);
+        // Only advance the bar while it is still showing Compress. Prep runs
+        // ahead of analysis, so once the Analyze phase owns the bar these ticks
+        // would inflate its counter past the total ("Analyze 7/4").
+        if (bar.phaseKey === 'compress') bar.tick(`Prepared ${path.basename(mediaFile)}`);
         return prep;
       } catch (err) {
         // Never reject: a file that cannot be prepared must not take down the

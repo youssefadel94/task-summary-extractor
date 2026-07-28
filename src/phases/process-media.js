@@ -19,7 +19,7 @@ const { parallelMap } = require('../utils/retry');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('../utils/quality-gate');
 const { validateAnalysis, formatSchemaLine, schemaScore, normalizeAnalysis } = require('../utils/schema-validator');
 const { calculateThinkingBudget } = require('../utils/adaptive-budget');
-const { detectBoundaryContext, sliceVttForSegment, planSegmentBatches, estimateTokens, buildProgressiveContext } = require('../utils/context-manager');
+const { detectBoundaryContext, sliceVttForSegment, planSegmentBatches, estimateTokens, buildProgressiveContext, partitionTranscripts } = require('../utils/context-manager');
 
 // --- Modes ---
 const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('../modes/focused-reanalysis');
@@ -27,6 +27,72 @@ const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('../
 // --- Shared state ---
 const { c } = require('../utils/colors');
 const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT, uploadSkipReason } = require('./_shared');
+
+// ======================== SEGMENT CACHE VALIDITY ========================
+
+/** Sidecar recording the settings a segment folder was produced with. */
+const SEGMENT_MANIFEST = '.segment-params.json';
+
+/** The settings and source facts that determine whether segments are reusable. */
+function segmentParams(videoPath, videoOpts, opts) {
+  let size = null;
+  let mtimeMs = null;
+  try {
+    const st = fs.statSync(videoPath);
+    size = st.size;
+    mtimeMs = Math.floor(st.mtimeMs);
+  } catch { /* source unreadable — treated as unknown below */ }
+
+  return {
+    speed: opts.noCompress ? 1 : (videoOpts.speed ?? SPEED),
+    segTime: videoOpts.segTime ?? null,
+    noCompress: !!opts.noCompress,
+    sourceSize: size,
+    sourceMtimeMs: mtimeMs,
+  };
+}
+
+/**
+ * Why the cached segments cannot be trusted — or null when they can.
+ *
+ * A folder with no manifest predates this check: those are reused as before and
+ * a manifest is written for next time, so nobody is forced into a re-encode by
+ * the upgrade itself.
+ */
+function segmentCacheStaleReason(segmentDir, videoPath, videoOpts, opts) {
+  const manifestPath = path.join(segmentDir, SEGMENT_MANIFEST);
+  const current = segmentParams(videoPath, videoOpts, opts);
+
+  let saved;
+  try {
+    saved = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    writeSegmentManifest(segmentDir, current); // adopt existing segments once
+    return null;
+  }
+
+  if (saved.noCompress !== current.noCompress) {
+    return saved.noCompress ? 'made with --no-compress' : 'made with compression';
+  }
+  if (!current.noCompress && saved.speed !== current.speed) {
+    return `speed changed ${saved.speed}x → ${current.speed}x`;
+  }
+  if (!current.noCompress && saved.segTime !== current.segTime) {
+    return `segment time changed ${saved.segTime ?? 'default'} → ${current.segTime ?? 'default'}`;
+  }
+  if (saved.sourceSize != null && current.sourceSize != null && saved.sourceSize !== current.sourceSize) {
+    return 'source recording changed on disk';
+  }
+  return null;
+}
+
+/** Record the settings used, so a later run can tell whether they still apply. */
+function writeSegmentManifest(segmentDir, params) {
+  try {
+    fs.mkdirSync(segmentDir, { recursive: true });
+    fs.writeFileSync(path.join(segmentDir, SEGMENT_MANIFEST), JSON.stringify(params, null, 2));
+  } catch { /* cache metadata is best-effort */ }
+}
 
 // ======================== PHASE: PREPARE MEDIA ========================
 
@@ -73,6 +139,18 @@ async function phasePrepareMedia(ctx, videoPath, videoIndex) {
   if (!opts.noCompress && opts.segmentTime) videoOpts.segTime = opts.segmentTime;
   if (!opts.noCompress && opts.speed) videoOpts.speed = opts.speed;
 
+  // Cached segments are only valid for the settings and source they were made
+  // from. Reusing 1.6x segments after --speed 2 (or after the recording was
+  // re-downloaded) silently produces analysis with wrong timings.
+  const staleReason = existingSegments.length > 0
+    ? segmentCacheStaleReason(segmentDir, videoPath, videoOpts, opts)
+    : null;
+  if (staleReason) {
+    console.log(`  ${c.warn(`Existing segments are stale (${staleReason}) — re-encoding.`)}`);
+    log.step(`Segment cache invalidated for ${baseName}: ${staleReason}`);
+    existingSegments.length = 0;
+  }
+
   if (opts.skipCompression || opts.dryRun) {
     if (existingSegments.length > 0) {
       segments = existingSegments.map(f => path.join(segmentDir, f));
@@ -104,6 +182,10 @@ async function phasePrepareMedia(ctx, videoPath, videoIndex) {
     log.step(`Compressed → ${segments.length} segment(s)`);
     console.log(`  \u2192 ${c.highlight(segments.length)} segment(s) created`);
   }
+
+  // Stamp the folder so a later run can tell whether these segments still match
+  // the requested settings and the source file.
+  writeSegmentManifest(segmentDir, segmentParams(videoPath, videoOpts, opts));
 
   progress.markCompressed(baseName, segments.length);
   const origSize = fs.statSync(videoPath).size;
@@ -249,10 +331,29 @@ async function phasePrepareMedia(ctx, videoPath, videoIndex) {
 async function phaseAnalyzeMedia(ctx, prep) {
   const log = getLog();
   const {
-    opts, callName, ai, contextDocs,
+    opts, callName, ai,
     progress, costTracker, userName,
   } = ctx;
   const { videoPath, baseName, segments, segmentMeta, fileResult } = prep;
+
+  // A folder can hold several recordings but a transcript for only one of them.
+  // Keep this recording's transcript and drop the others: slicing a foreign
+  // transcript by this video's timestamps invents speakers, quotes and times.
+  const allMediaPaths = [...(ctx.videoFiles || []), ...(ctx.audioFiles || [])];
+  const { transcript: ownTranscript, docs: contextDocs, dropped: foreignTranscripts } =
+    partitionTranscripts(videoPath, ctx.contextDocs, allMediaPaths);
+
+  if (foreignTranscripts.length > 0) {
+    const names = foreignTranscripts.map(d => d.fileName).join(', ');
+    console.log(`  ${c.dim(`Transcript(s) belonging to other recordings excluded: ${names}`)}`);
+    log.step(`Excluded ${foreignTranscripts.length} foreign transcript(s) for ${baseName}: ${names}`);
+  }
+  if (ownTranscript) {
+    log.step(`Transcript for ${baseName}: ${ownTranscript.fileName}`);
+  } else if (ctx.contextDocs.some(d => /\.(vtt|srt)$/i.test(d.fileName || ''))) {
+    console.log(`  ${c.dim('No transcript matches this recording — analyzing from audio/video only.')}`);
+    log.step(`No transcript matched ${baseName}`);
+  }
 
   console.log('');
   log.step(`Analyzing "${path.basename(videoPath)}" — ${segments.length} segment(s)`);
@@ -768,17 +869,13 @@ async function phaseAnalyzeMedia(ctx, prep) {
       }
 
       // === ADAPTIVE THINKING BUDGET ===
-      // Find VTT content for this segment for complexity analysis
+      // Transcript text for this segment — only ever this recording's own
+      // transcript, sliced to the segment's time range.
       let vttContentForAnalysis = '';
-      for (const doc of contextDocs) {
-        if (doc.type === 'inlineText' && (doc.fileName.endsWith('.vtt') || doc.fileName.endsWith('.srt'))) {
-          if (segmentMeta[j].startTimeSec != null && segmentMeta[j].endTimeSec != null) {
-            vttContentForAnalysis = sliceVttForSegment(doc.content, segmentMeta[j].startTimeSec, segmentMeta[j].endTimeSec);
-          } else {
-            vttContentForAnalysis = doc.content;
-          }
-          break;
-        }
+      if (ownTranscript && ownTranscript.content) {
+        vttContentForAnalysis = (segmentMeta[j].startTimeSec != null && segmentMeta[j].endTimeSec != null)
+          ? sliceVttForSegment(ownTranscript.content, segmentMeta[j].startTimeSec, segmentMeta[j].endTimeSec)
+          : ownTranscript.content;
       }
 
       const budgetResult = calculateThinkingBudget({
@@ -1173,3 +1270,6 @@ module.exports.phasePrepareMedia = phasePrepareMedia;
 module.exports.phaseAnalyzeMedia = phaseAnalyzeMedia;
 module.exports.phaseProcessVideo = phaseProcessVideo;
 module.exports.promptReanalyzeCached = promptReanalyzeCached;
+module.exports.segmentCacheStaleReason = segmentCacheStaleReason;
+module.exports.writeSegmentManifest = writeSegmentManifest;
+module.exports.segmentParams = segmentParams;

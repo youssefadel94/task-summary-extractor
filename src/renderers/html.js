@@ -380,7 +380,8 @@ function renderResultsHtml({ compiled, meta }) {
         const source = item.source ? ` <em>(${e(item.source)})</em>` : '';
         const ts = item.referenced_at ? ` @ ${tsHtml(item.referenced_at, item.source_segment, item.source_video)}` : '';
         const blocker = item.blocked_by ? `<br>&nbsp;&nbsp;⛔ <strong>Blocked by</strong>: ${e(item.blocked_by)}` : '';
-        ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${conf}${source}${ts}${blocker}</li>`);
+        const effort = item.estimated_effort ? ` <code>⏱ ${e(item.estimated_effort)}</code>` : '';
+        ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${effort}${conf}${source}${ts}${blocker}</li>`);
       }
       ln('</ul>');
     }
@@ -464,7 +465,8 @@ function renderResultsHtml({ compiled, meta }) {
 
       ln('<div class="card">');
       ln(`<h3>${e(t.ticket_id || t.id || 'Unknown')} — ${e(t.title || 'Untitled')}${tConf}</h3>`);
-      ln(`<blockquote><strong>Status</strong>: ${e(status)} | <strong>Assignee</strong>: ${e(assignee)}${reviewer ? ` | <strong>Reviewer</strong>: ${e(reviewer)}` : ''}</blockquote>`);
+      const effort = t.estimated_effort ? ` | <strong>Effort</strong>: ${e(t.estimated_effort)}` : '';
+      ln(`<blockquote><strong>Status</strong>: ${e(status)} | <strong>Assignee</strong>: ${e(assignee)}${reviewer ? ` | <strong>Reviewer</strong>: ${e(reviewer)}` : ''}${effort}</blockquote>`);
 
       // Documented state
       const ds = t.documented_state;
@@ -579,7 +581,7 @@ function renderResultsHtml({ compiled, meta }) {
   // ══════════════════════════════════════════════════════
   if (allActions.length > 0) {
     ln('<h2>📋 All Action Items</h2>');
-    ln('<table><tr><th>ID</th><th>Description</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Conf</th><th>Ref</th><th>Timestamp</th></tr>');
+    ln('<table><tr><th>ID</th><th>Description</th><th>Assigned To</th><th>Status</th><th>Priority</th><th>Effort</th><th>Conf</th><th>Ref</th><th>Timestamp</th></tr>');
     for (const ai of allActions) {
       const assignee = (ai.assigned_to || ai.assignee) ? resolve(ai.assigned_to || ai.assignee, clusterMap) : '-';
       const status = (ai.status || '?').replace(/_/g, ' ');
@@ -587,7 +589,7 @@ function renderResultsHtml({ compiled, meta }) {
       const conf = confBadgeHtml(ai.confidence);
       const ref = [...(ai.related_tickets || []), ...(ai.related_changes || [])].join(', ') || '-';
       const ts = ai.referenced_at ? tsHtml(ai.referenced_at, ai.source_segment, ai.source_video) : '-';
-      ln(`<tr><td>${e(ai.id)}</td><td>${e(ai.description)}</td><td>${e(assignee)}</td><td>${e(status)}</td><td>${pri || '-'}</td><td>${conf || '-'}</td><td>${e(ref)}</td><td>${ts}</td></tr>`);
+      ln(`<tr><td>${e(ai.id)}</td><td>${e(ai.description)}</td><td>${e(assignee)}</td><td>${e(status)}</td><td>${pri || '-'}</td><td>${e(ai.estimated_effort || '-')}</td><td>${conf || '-'}</td><td>${e(ref)}</td><td>${ts}</td></tr>`);
     }
     ln('</table>');
   }

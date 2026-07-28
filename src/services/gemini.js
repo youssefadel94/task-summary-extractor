@@ -50,6 +50,33 @@ async function initGemini() {
 // ======================== DOCUMENT PREPARATION ========================
 
 /**
+ * Make a filename safe to send as a File API display name.
+ *
+ * The SDK puts displayName in an HTTP header, and headers are ByteStrings: a
+ * single non-Latin character throws "Cannot convert argument to a ByteString",
+ * the upload fails, and the document is silently dropped from the analysis.
+ * Real case: "__1تطبيق الاعمال 1.pdf" never reached the model.
+ *
+ * Only the label is transliterated — file content is unaffected.
+ */
+function asciiDisplayName(name) {
+  const cleaned = String(name || '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\x20-\x7E]/g, '_')   // any non-ASCII byte becomes an underscore
+    .replace(/_{2,}/g, '_')
+    .trim();
+
+  // A name that was entirely non-ASCII collapses to punctuation. Judge the stem
+  // only — a surviving ".pdf" says nothing about which document this is — and
+  // keep the extension so the label still states the file type.
+  const ext = (cleaned.match(/\.[A-Za-z0-9]+$/) || [''])[0];
+  const stem = ext ? cleaned.slice(0, -ext.length) : cleaned;
+  if (!/[A-Za-z0-9]/.test(stem)) return `document${ext}`;
+
+  return cleaned.slice(0, 200);
+}
+
+/**
  * Prepare documents for Gemini context — inline text files, upload PDFs via File API, skip unsupported.
  * Accepts array of { absPath, relPath } from findDocsRecursive.
  */
@@ -103,7 +130,7 @@ async function prepareDocsForGemini(ai, docFileList) {
         let file = await withRetry(
           () => ai.files.upload({
             file: docPath,
-            config: { mimeType: mime, displayName: name },
+            config: { mimeType: mime, displayName: asciiDisplayName(name) },
           }),
           { label: `Gemini doc upload (${name})`, maxRetries: 3 }
         );
@@ -446,7 +473,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
     let uploaded = await withRetry(
       () => ai.files.upload({
         file: filePath,
-        config: { mimeType: 'video/mp4', displayName },
+        config: { mimeType: 'video/mp4', displayName: asciiDisplayName(displayName) },
       }),
       { label: `Gemini file upload (${displayName})`, maxRetries: 3 }
     );
@@ -1550,6 +1577,7 @@ async function cleanupGeminiFiles(ai, geminiFileName, contextDocs = []) {
 
 module.exports = {
   initGemini,
+  asciiDisplayName,
   prepareDocsForGemini,
   analyzeImageBatches,
   loadPrompt,

@@ -187,6 +187,116 @@ function parseVttCues(vttContent) {
   return cues;
 }
 
+// ======================== TRANSCRIPT ↔ MEDIA MATCHING ========================
+
+/** Words too generic to establish that a transcript belongs to a recording. */
+const NAME_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'with', 'for', 'of', 'to', 'on', 'in',
+  'meeting', 'recording', 'record', 'video', 'audio', 'transcript', 'copy', 'final',
+]);
+
+/**
+ * Reduce a media/transcript filename to identifying words.
+ * Drops the extension, punctuation, long digit runs (export timestamps like
+ * 20260728_113242) and generic words, so "Call with Huda Ibrahim.vtt" and
+ * "Call with Huda Ibrahim-20260728_113242-Meeting Recording.mp4" reduce to the
+ * same identifying set.
+ */
+function nameTokens(fileName) {
+  const base = String(fileName || '').replace(/\.[^./\\]+$/, '');
+  return new Set(
+    base
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .split(/\s+/)
+      .filter(w => w && w.length > 1 && !/^\d{3,}$/.test(w) && !NAME_STOPWORDS.has(w))
+  );
+}
+
+/**
+ * Pick the transcript that belongs to a given recording.
+ *
+ * A folder often holds several recordings but a transcript for only one of
+ * them. Feeding call A's transcript to call B — and slicing it by B's segment
+ * timestamps — makes the model describe a meeting that never happened in that
+ * video: wrong speakers, wrong quotes, wrong timestamps. Better no transcript
+ * than someone else's.
+ *
+ * @param {string} mediaPath - The recording being analyzed
+ * @param {Array<{fileName: string}>} transcripts - Candidate transcript docs
+ * @param {string[]} [allMediaPaths] - Every recording in the run
+ * @returns {object|null} The matching transcript doc, or null
+ */
+function matchTranscriptToMedia(mediaPath, transcripts, allMediaPaths = []) {
+  if (!transcripts || transcripts.length === 0) return null;
+
+  // One recording, one transcript — they belong together whatever they are called.
+  if (transcripts.length === 1 && allMediaPaths.length <= 1) return transcripts[0];
+
+  const mediaWords = nameTokens(mediaPath);
+  let best = null;
+  let bestScore = 0;
+
+  for (const doc of transcripts) {
+    const docWords = nameTokens(doc.fileName);
+    if (docWords.size === 0) continue;
+
+    let shared = 0;
+    for (const w of docWords) if (mediaWords.has(w)) shared++;
+
+    // Every identifying word of the transcript must appear in the recording's
+    // name, and a single shared word is too weak to claim a match.
+    if (shared === docWords.size && shared >= 2 && shared > bestScore) {
+      best = doc;
+      bestScore = shared;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Split transcript docs into the one for this recording and those belonging to
+ * other recordings in the same folder.
+ *
+ * Other recordings' transcripts are dropped from the segment context entirely:
+ * as reference material they add nothing the analysis needs, and as apparent
+ * transcripts they actively mislead.
+ */
+function partitionTranscripts(mediaPath, contextDocs = [], allMediaPaths = []) {
+  const isTranscript = d => d && d.type === 'inlineText' && typeof d.fileName === 'string'
+    && (d.fileName.toLowerCase().endsWith('.vtt') || d.fileName.toLowerCase().endsWith('.srt'));
+
+  const transcripts = contextDocs.filter(isTranscript);
+  if (transcripts.length === 0) {
+    return { transcript: null, docs: contextDocs, dropped: [] };
+  }
+
+  const mine = matchTranscriptToMedia(mediaPath, transcripts, allMediaPaths);
+
+  // A transcript claimed by some other recording is foreign to this one.
+  const dropped = transcripts.filter(t =>
+    t !== mine && matchTranscriptToMedia_ownedByAnother(t, mediaPath, allMediaPaths)
+  );
+  const droppedSet = new Set(dropped);
+
+  return {
+    transcript: mine,
+    docs: contextDocs.filter(d => !droppedSet.has(d)),
+    dropped,
+  };
+}
+
+/** True when `transcript` names a different recording than `mediaPath`. */
+function matchTranscriptToMedia_ownedByAnother(transcript, mediaPath, allMediaPaths = []) {
+  for (const other of allMediaPaths) {
+    if (other === mediaPath) continue;
+    if (matchTranscriptToMedia(other, [transcript], allMediaPaths) === transcript) return true;
+  }
+  // Unclaimed transcripts (no recording matches) stay available as context.
+  return false;
+}
+
 /**
  * Slice VTT content to only include cues within a time range.
  * Used to give each segment ONLY the relevant portion of the transcript.
@@ -698,6 +808,9 @@ module.exports = {
   estimateDocTokens,
   selectDocsByBudget,
   sliceVttForSegment,
+  matchTranscriptToMedia,
+  partitionTranscripts,
+  nameTokens,
   buildProgressiveContext,
   buildSegmentFocus,
   buildBatchSegmentFocus,

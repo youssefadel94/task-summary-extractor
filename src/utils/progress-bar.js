@@ -188,6 +188,14 @@ class ProgressBar {
     if (this.enabled) this._clearLine();
   }
 
+  /**
+   * Erase the bar's line without stopping it.
+   * Used before another writer prints, so the two do not splice together.
+   */
+  clearLine() {
+    if (this.enabled) this._clearLine();
+  }
+
   /** Resume drawing after a prompt. */
   resume() {
     if (!this._paused) return;
@@ -314,6 +322,11 @@ function createProgressBar(opts = {}) {
   return _activeBar;
 }
 
+/** The bar driving the current run, if any. */
+function activeBar() {
+  return _activeBar;
+}
+
 /** Silence the active bar for the duration of an interactive prompt. */
 function pauseActiveBar() {
   if (_activeBar) _activeBar.pause();
@@ -327,6 +340,7 @@ function resumeActiveBar() {
 module.exports = {
   ProgressBar,
   createProgressBar,
+  activeBar,
   pauseActiveBar,
   resumeActiveBar,
   PHASES,

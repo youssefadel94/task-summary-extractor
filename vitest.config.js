@@ -13,9 +13,10 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.js'],
       exclude: ['src/services/firebase.js'],
-      // Ratchet thresholds: set just below current coverage (~58%) so the suite
-      // guards against regressions. Raise these as coverage climbs.
-      thresholds: { lines: 55, functions: 55, branches: 45 },
+      // Ratchet thresholds: set just below current coverage (lines ~59%,
+      // functions ~65%, branches ~51%) so the suite guards against regressions.
+      // Raise these as coverage climbs.
+      thresholds: { lines: 57, functions: 62, branches: 49 },
     },
   },
 });

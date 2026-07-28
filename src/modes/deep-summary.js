@@ -52,8 +52,21 @@ function isTranscriptFile(fileName) {
  */
 const SUMMARY_MAX_OUTPUT = 65536;
 
-/** Max input chars to send in one summarization batch (~200K tokens @ 0.3 tok/char) */
-const BATCH_MAX_CHARS = 600000;
+/**
+ * Max input chars per summarization batch.
+ *
+ * Sized by what the model can EMIT, not by what it can read. Summaries must
+ * retain most of the original (see MIN_SUMMARY_FIDELITY), so a batch's output
+ * is roughly 0.7x its input. SUMMARY_MAX_OUTPUT is 65,536 tokens and thinking
+ * comes out of the same allowance, leaving ~50K usable:
+ *
+ *   50,000 output tokens / 0.7 retention / 0.3 tokens-per-char ≈ 238,000 chars
+ *
+ * The old 600,000 asked for ~126K output tokens — twice the ceiling. A real run
+ * sent 29 docs (~118K tokens) in one batch, ran 300s and died with "fetch
+ * failed", then only succeeded once it was split in half.
+ */
+const BATCH_MAX_CHARS = 230000;
 
 /** Minimum content length (chars) to bother summarizing — below this, keep full */
 const MIN_SUMMARIZE_LENGTH = 500;

@@ -130,12 +130,15 @@ class Logger {
     }
   }
 
+  // eslint-disable-next-line no-unused-vars
   _flush(sync = false) {
-    const writeFn = sync
-      ? (p, d) => fs.appendFileSync(p, d, 'utf8')
-      : (p, d) => fs.appendFile(p, d, 'utf8', (err) => {
-        if (err) this._onWriteError(err);
-      });
+    // Always synchronous. Interval flushes used fs.appendFile while close()
+    // used fs.appendFileSync, so an in-flight async append could still be
+    // queued when the sync one ran — two writers on one handle, with the tail
+    // of a run occasionally lost or the file read before it landed. (This
+    // surfaced as an intermittent logger test failure under parallel load.)
+    // Log volume is a few KB per flush; blocking on it costs nothing.
+    const writeFn = (p, d) => fs.appendFileSync(p, d, 'utf8');
 
     if (this._detailedBuffer.length > 0) {
       const data = this._detailedBuffer.join('');
@@ -306,18 +309,30 @@ class Logger {
     this._origError = console.error.bind(console);
     const self = this;
 
-    console.log = function (...args) {
+    // The progress bar parks the cursor on its own line. Writing over it leaves
+    // the two spliced together ("Processi    Processing complete."), which got
+    // worse once media prep started redrawing from the background. Clear the
+    // bar's line first, let the message land, then put the bar back.
+    const withClearBar = (write) => (...args) => {
+      let bar = null;
+      try { bar = require('./utils/progress-bar').activeBar(); } catch { /* bar optional */ }
+      if (bar) bar.clearLine();
+      write(...args);
+      if (bar) bar.render();
+    };
+
+    console.log = withClearBar(function (...args) {
       self._origLog(...args);
       try { self.info(args.map(String).join(' ')); } catch { /* ignore */ }
-    };
-    console.warn = function (...args) {
+    });
+    console.warn = withClearBar(function (...args) {
       self._origWarn(...args);
       try { self.warn(args.map(String).join(' ')); } catch { /* ignore */ }
-    };
-    console.error = function (...args) {
+    });
+    console.error = withClearBar(function (...args) {
       self._origError(...args);
       try { self.error(args.map(String).join(' ')); } catch { /* ignore */ }
-    };
+    });
   }
 
   /** Restore original console methods */

@@ -110,6 +110,19 @@ Coverage after round 2: **~48%** statements, **636 tests + 3 gated live**. Newly
 ### Round 7 (media branches: batching + focused re-analysis)
 - Covered the multi-segment **batching path** (`processSegmentBatch`) by pre-splitting a real clip into the segment dir phaseProcessVideo reuses, and the **focused re-analysis** integration (`identifyWeaknesses` → `runFocusedPass` → `mergeFocusedResults`) by feeding a "weak but not sparse" analysis. Both passed clean (no new bug). `process-media.js` 38 → 62%, `gemini.js` 36 → 48%, overall ~**58%**, **667 tests + 3 gated live**.
 
+### Round 8 (accuracy + pipeline staging — driven by real-run failures)
+Bugs found by auditing an actual run's logs and output, each with a regression test:
+- **Foreign transcript fed to every recording** (`context-manager.js`): the first VTT in context was sliced by *every* video's segment timestamps. In a folder with one transcript and four recordings, 6 of 7 segments were analyzed against a meeting that was not in the video. Fixed with `matchTranscriptToMedia`/`partitionTranscripts` (name-token matching; a foreign transcript is dropped rather than reused).
+- **Compilation silently dropped extracted items** (`compilation-backfill.js`): 8 distinct action items became 3, 7 blockers became 3. The merge output is now reconciled against the segments and missing items restored, with word-containment suppression so re-phrasings do not duplicate.
+- **Deep Summary destroyed detail** (`deep-summary.js`): 87K tokens of specs compressed to 1.5K (98.3%). Added `MIN_SUMMARY_FIDELITY` — a summary below the floor is rejected and the original used. Batch size is now derived from the output ceiling (600K → 230K chars) after a 29-doc batch ran 300s and died with `fetch failed`.
+- **Non-ASCII filenames dropped documents** (`gemini.js` `asciiDisplayName`): an Arabic PDF failed with "Cannot convert argument to a ByteString" and vanished from the context (67 docs → 66 ready).
+- **Stale segment cache** (`process-media.js`): segments were reused after `--speed`/`--segment-time` changed or the source was re-downloaded. A `.segment-params.json` manifest now invalidates them; folders without a manifest are adopted once.
+- **Logger lost writes under load** (`logger.js`): interval flushes used `fs.appendFile` while `close()` used `fs.appendFileSync` — two writers on one handle. Now always synchronous; this was the intermittent logger test failure.
+- **Prompt/stdin could stall a run** (`input-policy.js`): a per-file prompt buried under background output parked a real run for 690s. Prompts are now hoisted before work starts, time-bounded per regime, and `--no-input` takes every default.
+- Schema gap: no effort field existed anywhere, so "8 working hours" had nowhere to go. `estimated_effort` added to tickets, action items and `your_tasks.tasks_todo`, rendered in md/html/docx.
+
+Overall ~**59%** lines / 65% functions / 51% branches, **729 tests + 3 gated live**. Thresholds ratcheted to 57/62/49.
+
 ### Remaining (tracked, low severity — cosmetic/design; intentionally not fixed)
 - `context-manager.js` `detectBoundaryContext`: "mid-conversation" prompt note fires broadly. The semantics are tangled with overlap-slicing (a tighter bound would suppress the legitimate "continues next segment" case) and it only affects a prompt hint, not output — left as-is.
 - `setup.js`: `--silent` runs `git checkout -b` / creates sample files without confirmation (surprising for CI automation) — a design decision, left as-is.

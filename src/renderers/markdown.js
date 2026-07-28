@@ -316,7 +316,8 @@ function renderResultsMarkdown({ compiled, meta }) {
         const blocker = item.blocked_by ? `\n  - ⛔ **Blocked by**: ${item.blocked_by}` : '';
         const relTickets = (item.related_tickets || []).length > 0 ? `\n  - Tickets: ${item.related_tickets.join(', ')}` : '';
         const relChanges = (item.related_changes || []).length > 0 ? `\n  - Changes: ${item.related_changes.join(', ')}` : '';
-        ln(`- [ ] ${item.description}${pri}${conf}${source}${ts}${blocker}${relTickets}${relChanges}`);
+        const effort = item.estimated_effort ? ` ⏱ \`${item.estimated_effort}\`` : '';
+        ln(`- [ ] ${item.description}${pri}${effort}${conf}${source}${ts}${blocker}${relTickets}${relChanges}`);
       }
       ln('');
     }
@@ -412,7 +413,8 @@ function renderResultsMarkdown({ compiled, meta }) {
       const tConf = confBadge(t.confidence);
       ln(`### ${t.ticket_id || t.id || 'Unknown'} — ${t.title || 'Untitled'}${tConf}`);
       ln('');
-      ln(`> **Status**: ${status} | **Assignee**: ${assignee}${reviewer ? ` | **Reviewer**: ${reviewer}` : ''}`);
+      const effort = t.estimated_effort ? ` | **Effort**: ${t.estimated_effort}` : '';
+      ln(`> **Status**: ${status} | **Assignee**: ${assignee}${reviewer ? ` | **Reviewer**: ${reviewer}` : ''}${effort}`);
       if (t.confidence_reason) ln(`> **Confidence**: ${t.confidence} — ${t.confidence_reason}`);
       ln('');
 
@@ -552,8 +554,8 @@ function renderResultsMarkdown({ compiled, meta }) {
   if (allActions.length > 0) {
     ln('## 📋 All Action Items');
     ln('');
-    ln('| ID | Description | Assigned To | Status | Priority | Conf | Ref | Timestamp |');
-    ln('| --- | --- | --- | --- | --- | --- | --- | --- |');
+    ln('| ID | Description | Assigned To | Status | Priority | Effort | Conf | Ref | Timestamp |');
+    ln('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
     for (const ai of allActions) {
       const assignee = (ai.assigned_to || ai.assignee) ? resolve(ai.assigned_to || ai.assignee, clusterMap) : '-';
       const status = (ai.status || '?').replace(/_/g, ' ');
@@ -565,7 +567,8 @@ function renderResultsMarkdown({ compiled, meta }) {
       const seg = ai.source_segment ? `Seg ${ai.source_segment}` : '';
       const dep = ai.depends_on ? ` ⛔ ${ai.depends_on}` : '';
       const check = ai.checklist_match ? ` ✓${ai.checklist_match}` : '';
-      ln(`| ${esc(ai.id)} | ${esc(ai.description)}${esc(dep)}${esc(check)} | ${esc(assignee)} | ${status} | ${pri} | ${confIcon}${conf} | ${esc(ref)} | ${ts} ${seg} |`);
+      const effort = ai.estimated_effort || '-';
+      ln(`| ${esc(ai.id)} | ${esc(ai.description)}${esc(dep)}${esc(check)} | ${esc(assignee)} | ${status} | ${pri} | ${esc(effort)} | ${confIcon}${conf} | ${esc(ref)} | ${ts} ${seg} |`);
     }
     ln('');
   }

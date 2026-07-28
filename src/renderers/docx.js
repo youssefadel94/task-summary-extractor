@@ -235,9 +235,10 @@ function renderTickets(tickets, clusterMap) {
     t.status ? t.status.replace(/_/g, ' ') : '—',
     t.priority || '—',
     t.assignee ? resolve(t.assignee, clusterMap) : '—',
+    t.estimated_effort || '—',
     t.confidence || '—',
   ]);
-  elements.push(buildTable(['ID', 'Title', 'Status', 'Priority', 'Assignee', 'Conf.'], rows));
+  elements.push(buildTable(['ID', 'Title', 'Status', 'Priority', 'Assignee', 'Effort', 'Conf.'], rows));
   return elements;
 }
 
@@ -248,10 +249,11 @@ function renderActions(actions, clusterMap) {
     ai.description || ai.action || '',
     ai.assigned_to ? resolve(ai.assigned_to, clusterMap) : '—',
     ai.deadline || '—',
+    ai.estimated_effort || '—',
     ai.priority || '—',
     ai.confidence || '—',
   ]);
-  elements.push(buildTable(['Action', 'Assigned To', 'Deadline', 'Priority', 'Conf.'], rows));
+  elements.push(buildTable(['Action', 'Assigned To', 'Deadline', 'Effort', 'Priority', 'Conf.'], rows));
   return elements;
 }
 
