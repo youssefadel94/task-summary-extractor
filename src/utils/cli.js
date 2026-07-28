@@ -39,6 +39,7 @@ function parseArgs(argv) {
     'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
     'no-html', 'no-batch', 'batch', 'no-progress',
+    'no-input', 'yes',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -343,6 +344,7 @@ ${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (defau
 ${f('--no-focused-pass', 'Disable focused re-analysis')}
 ${f('--no-learning', 'Disable learning loop')}
 ${f('--no-diff', 'Disable diff comparison')}
+${f('--no-input, --yes', 'Never prompt — take every default (unattended runs)')}
 ${f('--batch', 'Group segments into one call — cheaper, less per-segment detail')}
 ${f2('Off by default: batching merges several segments into one analysis.')}
 ${f('--no-html', 'Skip HTML output (Markdown only)')}
@@ -406,29 +408,77 @@ module.exports = {
 
 // ======================== INTERACTIVE PROMPTS ========================
 
-/** Prompt user for a yes/no question on stdin. Returns true for yes. */
-function promptUser(question) {
+/**
+ * Ask a question on stdin with the progress bar silenced.
+ *
+ * Media prep runs ahead of analysis, so the bar can redraw at any moment. If it
+ * repaints over a question the run looks frozen while it is really waiting on
+ * input nobody can see — so the bar is stopped for the duration of the prompt.
+ */
+function askOnStdin(question, { defaultAnswer = '', defaultLabel = '' } = {}) {
+  const { pauseActiveBar, resumeActiveBar } = require('./progress-bar');
+  const { isInputDisabled, promptTimeoutMs } = require('./input-policy');
   const readline = require('readline');
+
+  const describe = () => defaultLabel || (defaultAnswer ? `"${defaultAnswer}"` : 'the default');
+
+  // No console to ask on, or input switched off — never block, just proceed.
+  if (isInputDisabled()) {
+    console.log(`  ${c.dim(`${question.trim()} → ${describe()} (no input available)`)}`);
+    return Promise.resolve(defaultAnswer);
+  }
+
+  const timeoutMs = promptTimeoutMs();
+
+  pauseActiveBar();
+  // Unmistakable marker: if the run ever stalls WITHOUT this line on screen,
+  // it is not waiting on you — check the terminal (on Windows, clicking in the
+  // window enables QuickEdit selection, which freezes output until a keypress).
+  process.stdout.write('\n');
+  console.log(`  ${c.yellow('⌨  Waiting for your input')} ${c.dim(`(continues with ${describe()} in ${Math.round(timeoutMs / 1000)}s)`)}`);
+
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => {
-    rl.question(question, answer => {
-      rl.close();
-      const a = (answer || '').trim().toLowerCase();
-      resolve(a === 'y' || a === 'yes');
-    });
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { rl.close(); } catch { /* already closed */ }
+      // readline leaves stdin flowing; release it so nothing downstream sits
+      // half-connected to the console.
+      try { process.stdin.pause(); } catch { /* not a TTY */ }
+      resumeActiveBar();
+      resolve(value);
+    };
+
+    // The hard guarantee: an unanswered question can never hold up the run.
+    const timer = setTimeout(() => {
+      console.log('');
+      console.log(`  ${c.dim(`No answer in ${Math.round(timeoutMs / 1000)}s — continuing with ${describe()}.`)}`);
+      finish(defaultAnswer);
+    }, timeoutMs);
+    if (timer.unref) timer.unref();
+
+    rl.question(question, answer => finish((answer || '').trim()));
   });
 }
 
+/**
+ * Yes/no question. Returns true only for an explicit yes.
+ * @param {{ defaultYes?: boolean }} [opts] - what an unanswered prompt means
+ */
+async function promptUser(question, { defaultYes = false } = {}) {
+  const a = (await askOnStdin(question, {
+    defaultAnswer: defaultYes ? 'y' : 'n',
+    defaultLabel: defaultYes ? 'yes' : 'no',
+  })).toLowerCase();
+  return a === 'y' || a === 'yes';
+}
+
 /** Prompt user for free text input. Returns trimmed string. */
-function promptUserText(question) {
-  const readline = require('readline');
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => {
-    rl.question(question, answer => {
-      rl.close();
-      resolve((answer || '').trim());
-    });
-  });
+function promptUserText(question, { defaultText = '' } = {}) {
+  return askOnStdin(question, { defaultAnswer: defaultText, defaultLabel: defaultText ? `"${defaultText}"` : 'no answer' });
 }
 
 // ======================== RUN MODE SELECTOR ========================

@@ -39,7 +39,7 @@ const phaseInit        = require('./phases/init');
 const phaseDiscover    = require('./phases/discover');
 const { phaseServices, phaseDeepSummary } = require('./phases/services');
 const phaseProcessVideo = require('./phases/process-media');
-const { phasePrepareMedia, phaseAnalyzeMedia } = require('./phases/process-media');
+const { phasePrepareMedia, phaseAnalyzeMedia, promptReanalyzeCached } = require('./phases/process-media');
 const phaseCompile     = require('./phases/compile');
 const phaseOutput      = require('./phases/output');
 const phaseSummary     = require('./phases/summary');
@@ -53,6 +53,7 @@ const phaseDeepDive    = require('./phases/deep-dive');
 const { c } = require('./utils/colors');
 const { findDocsRecursive, dedupeFormatTwins } = require('./utils/fs');
 const { promptUser, promptUserText, selectDocsToExclude } = require('./utils/cli');
+const { setInputMode } = require('./utils/input-policy');
 const { selectOne } = require('./utils/interactive');
 const { createProgressBar } = require('./utils/progress-bar');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
@@ -90,10 +91,11 @@ async function handlePrepFailure(prep, mediaFiles, index) {
     return 'skip';
   }
 
-  // promptUser() treats a bare Enter as "no"; here the safe default is to keep
-  // going with the files that did prepare, so read the answer directly.
+  // Unanswered means keep going with the files that did prepare — stopping the
+  // run because nobody was at the keyboard would be the worse failure.
   const answer = (await promptUserText(
-    `  Continue analyzing the remaining ${remaining} file(s)? (Y/n): `
+    `  Continue analyzing the remaining ${remaining} file(s)? (Y/n): `,
+    { defaultText: 'y' }
   )).toLowerCase();
   console.log('');
   return (answer === 'n' || answer === 'no') ? 'abort' : 'skip';
@@ -334,6 +336,17 @@ async function run() {
   //  works on file N (network-bound), ffmpeg is already encoding file N+1
   //  (CPU-bound), instead of the two taking turns.
   // ════════════════════════════════════════════════════════════
+  // Every interactive question is asked HERE, before prep is queued. Once the
+  // background prep chain starts, its console output and the progress bar make
+  // any later prompt unreadable — the run then looks hung while it waits on
+  // input the user cannot see.
+  await promptReanalyzeCached(fullCtx, mediaFiles);
+
+  // Setup is over. From here on nothing may block on the keyboard: any prompt
+  // still to come (only a prepare failure) auto-continues with its default, and
+  // full-screen pickers fall back instead of opening.
+  setInputMode('running');
+
   fullCtx.progress.setPhase('compress');
   bar.setPhase('compress', mediaFiles.length);
   if (log && log.phaseStart) log.phaseStart('prepare_media');

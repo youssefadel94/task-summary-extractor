@@ -175,8 +175,28 @@ class ProgressBar {
   /**
    * Render the progress bar to the stream.
    */
+  /**
+   * Stop drawing and clear the current bar line.
+   *
+   * Required around interactive prompts: the bar redraws from background work
+   * (media prep runs ahead of analysis) and would paint over the question,
+   * leaving the run apparently hung while it waits on invisible input.
+   */
+  pause() {
+    if (this._paused) return;
+    this._paused = true;
+    if (this.enabled) this._clearLine();
+  }
+
+  /** Resume drawing after a prompt. */
+  resume() {
+    if (!this._paused) return;
+    this._paused = false;
+    if (this.enabled) this.render();
+  }
+
   render() {
-    if (!this.enabled) return;
+    if (!this.enabled || this._paused) return;
 
     const pct = this.total > 0 ? Math.min(100, Math.round((this.current / this.total) * 100)) : 0;
     const filledWidth = this.total > 0
@@ -280,8 +300,35 @@ class ProgressBar {
  * @param {object} [opts] - Same as ProgressBar constructor
  * @returns {ProgressBar}
  */
+/**
+ * The bar currently driving the run.
+ *
+ * Prompts live in utils/cli.js, which has no handle on the pipeline's bar.
+ * Registering the active instance lets any prompt silence it without threading
+ * the object through every call site.
+ */
+let _activeBar = null;
+
 function createProgressBar(opts = {}) {
-  return new ProgressBar(opts);
+  _activeBar = new ProgressBar(opts);
+  return _activeBar;
 }
 
-module.exports = { ProgressBar, createProgressBar, PHASES, PHASE_MAP };
+/** Silence the active bar for the duration of an interactive prompt. */
+function pauseActiveBar() {
+  if (_activeBar) _activeBar.pause();
+}
+
+/** Let the active bar draw again once the prompt is answered. */
+function resumeActiveBar() {
+  if (_activeBar) _activeBar.resume();
+}
+
+module.exports = {
+  ProgressBar,
+  createProgressBar,
+  pauseActiveBar,
+  resumeActiveBar,
+  PHASES,
+  PHASE_MAP,
+};

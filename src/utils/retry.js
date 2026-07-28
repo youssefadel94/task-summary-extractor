@@ -84,7 +84,11 @@ async function withRetry(fn, opts = {}) {
       throw lastError || new Error('Aborted: process shutting down');
     }
     try {
-      return await fn();
+      // Long calls (a segment analysis runs 25s+) print nothing while in
+      // flight. The heartbeat proves the pipeline is alive, and its absence
+      // during a stall points at the terminal rather than the run.
+      const { withHeartbeat } = require('./heartbeat');
+      return await withHeartbeat(label, fn);
     } catch (err) {
       lastError = err;
 

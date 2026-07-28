@@ -79,7 +79,11 @@ function runFFmpeg(args, { label = 'ffmpeg', heartbeat = true } = {}) {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(getFFmpeg(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      // stdin ignored so ffmpeg can never sit waiting on console input, and
+      // stdout discarded rather than piped: nothing reads it, and an unread
+      // pipe blocks the encoder for good once its buffer fills. Diagnostics all
+      // arrive on stderr, which is consumed below.
+      child = spawn(getFFmpeg(), args, { stdio: ['ignore', 'ignore', 'pipe'] });
     } catch (err) {
       reject(err);
       return;

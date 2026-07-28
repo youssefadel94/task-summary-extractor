@@ -263,23 +263,14 @@ async function phaseAnalyzeMedia(ctx, prep) {
   const geminiRunsDir = path.join(PROJECT_ROOT, 'gemini_runs', callName, baseName);
   fs.mkdirSync(geminiRunsDir, { recursive: true });
 
-  let forceReanalyze = opts.reanalyze;
+  // Whether to ignore cached runs is decided once up front, in
+  // promptReanalyzeCached() — asking here would land in the middle of the
+  // analyze stage while media prep is still logging in the background.
+  const forceReanalyze = opts.reanalyze;
   if (!forceReanalyze && !opts.skipGemini && !opts.dryRun) {
     const allExistingRuns = fs.readdirSync(geminiRunsDir).filter(f => f.endsWith('.json'));
     if (allExistingRuns.length > 0) {
-      console.log(`  Found ${c.highlight(allExistingRuns.length)} existing Gemini run file(s) in:`);
-      console.log(`    ${c.cyan(geminiRunsDir)}`);
-      console.log('');
-      if (!opts.resume) {
-        forceReanalyze = await promptUser('  Re-analyze all segments? (y/n, default: n): ');
-      }
-      if (forceReanalyze) {
-        console.log(`  → ${c.yellow('Will re-analyze all segments')} ${c.dim('(previous runs preserved with timestamps)')}`);
-        log.step('User chose to re-analyze all segments');
-      } else {
-        console.log(`  → ${c.dim('Using cached results where available')}`);
-      }
-      console.log('');
+      console.log(`  ${c.dim(`Using cached results where available (${allExistingRuns.length} previous run file(s))`)}`);
     }
   }
 
@@ -1110,6 +1101,58 @@ async function phaseAnalyzeMedia(ctx, prep) {
   return { fileResult, segmentAnalyses, segmentReports };
 }
 
+// ======================== CACHED-RUN DECISION ========================
+
+/**
+ * Ask once, up front, whether cached Gemini runs should be reused.
+ *
+ * Must run before any media prep is queued: prep works in the background and
+ * writes to the console, so a question asked later gets buried under its output
+ * (and under progress-bar repaints) while the run waits on invisible input.
+ *
+ * Sets `ctx.opts.reanalyze` and returns it.
+ */
+async function promptReanalyzeCached(ctx, mediaFiles) {
+  const { opts, callName } = ctx;
+  const log = getLog();
+
+  if (opts.reanalyze || opts.skipGemini || opts.dryRun) return !!opts.reanalyze;
+
+  // Count cached runs across every file being processed.
+  let totalRuns = 0;
+  const dirs = [];
+  for (const mediaFile of mediaFiles) {
+    const baseName = path.basename(mediaFile, path.extname(mediaFile));
+    const runsDir = path.join(PROJECT_ROOT, 'gemini_runs', callName, baseName);
+    if (!fs.existsSync(runsDir)) continue;
+    const runs = fs.readdirSync(runsDir).filter(f => f.endsWith('.json'));
+    if (runs.length > 0) {
+      totalRuns += runs.length;
+      dirs.push({ baseName, count: runs.length });
+    }
+  }
+
+  if (totalRuns === 0) return false;
+
+  console.log('');
+  console.log(`  Found ${c.highlight(totalRuns)} existing Gemini run file(s) from previous runs:`);
+  for (const d of dirs) console.log(`    ${c.dim(`- ${d.baseName}: ${d.count} file(s)`)}`);
+
+  if (!opts.resume) {
+    // Unanswered → reuse the cached runs: the cheap, non-destructive choice.
+    opts.reanalyze = await promptUser('  Re-analyze all segments? (y/n, default: n): ', { defaultYes: false });
+  }
+
+  if (opts.reanalyze) {
+    console.log(`  → ${c.yellow('Will re-analyze all segments')} ${c.dim('(previous runs preserved with timestamps)')}`);
+    log.step('User chose to re-analyze all segments');
+  } else {
+    console.log(`  → ${c.dim('Using cached results where available')}`);
+  }
+  console.log('');
+  return !!opts.reanalyze;
+}
+
 // ======================== PHASE: PROCESS MEDIA (combined) ========================
 
 /**
@@ -1119,6 +1162,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
  * processed end to end.
  */
 async function phaseProcessVideo(ctx, videoPath, videoIndex) {
+  await promptReanalyzeCached(ctx, [videoPath]);
   const prep = await phasePrepareMedia(ctx, videoPath, videoIndex);
   if (!prep || prep.skipped) return { fileResult: null, segmentAnalyses: [], segmentReports: [] };
   return await phaseAnalyzeMedia(ctx, prep);
@@ -1128,3 +1172,4 @@ module.exports = phaseProcessVideo;
 module.exports.phasePrepareMedia = phasePrepareMedia;
 module.exports.phaseAnalyzeMedia = phaseAnalyzeMedia;
 module.exports.phaseProcessVideo = phaseProcessVideo;
+module.exports.promptReanalyzeCached = promptReanalyzeCached;

@@ -332,3 +332,60 @@ describe('createProgressBar factory', () => {
     expect(bar.callName).toBe('test');
   });
 });
+
+describe('pause / resume around interactive prompts', () => {
+  it('stops rendering while paused', () => {
+    // Regression: media prep runs ahead of analysis, so a background tick could
+    // repaint the bar over a question on stdin. The run then looked frozen
+    // while it was really waiting on input the user could not see.
+    const stream = mockStream();
+    const bar = createProgressBar({ stream });
+    bar.setPhase('analyze', 4);
+
+    bar.pause();
+    const afterPause = stream.write.mock.calls.length;
+    bar.tick('file-2.mp4');
+    bar.render();
+
+    expect(stream.write.mock.calls.length).toBe(afterPause);
+    // Progress still advances — only the drawing is suppressed.
+    expect(bar.current).toBe(1);
+  });
+
+  it('redraws once resumed', () => {
+    const stream = mockStream();
+    const bar = createProgressBar({ stream });
+    bar.setPhase('analyze', 4);
+    bar.pause();
+    bar.tick('file-2.mp4');
+
+    const beforeResume = stream.write.mock.calls.length;
+    bar.resume();
+
+    expect(stream.write.mock.calls.length).toBeGreaterThan(beforeResume);
+  });
+
+  it('pauseActiveBar / resumeActiveBar drive the most recent bar', async () => {
+    const { pauseActiveBar, resumeActiveBar } = await import('../../src/utils/progress-bar.js');
+    const stream = mockStream();
+    const bar = createProgressBar({ stream });
+    bar.setPhase('analyze', 2);
+
+    pauseActiveBar();
+    const afterPause = stream.write.mock.calls.length;
+    bar.tick('x');
+    expect(stream.write.mock.calls.length).toBe(afterPause);
+
+    resumeActiveBar();
+    expect(stream.write.mock.calls.length).toBeGreaterThan(afterPause);
+  });
+
+  it('is idempotent', () => {
+    const bar = createProgressBar({ stream: mockStream() });
+    bar.pause();
+    bar.pause();
+    bar.resume();
+    bar.resume();
+    expect(bar._paused).toBe(false);
+  });
+});

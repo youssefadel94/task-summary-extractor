@@ -14,6 +14,7 @@ const {
 const { c } = require('../utils/colors');
 const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence, selectFeatureFlags } = require('../utils/cli');
 const { promptForKey } = require('../utils/global-config');
+const { setInputMode } = require('../utils/input-policy');
 const Logger = require('../logger');
 const Progress = require('../utils/checkpoint');
 const CostTracker = require('../utils/cost-tracker');
@@ -46,7 +47,13 @@ async function phaseInit() {
     throw Object.assign(new Error('VERSION_SHOWN'), { code: 'VERSION_SHOWN' });
   }
 
+  // Fully unattended: every prompt resolves instantly with its default.
+  if (flags['no-input'] || flags.yes) {
+    setInputMode('disabled');
+  }
+
   const opts = {
+    noInput: !!(flags['no-input'] || flags.yes),
     skipUpload: !!flags['skip-upload'],
     forceUpload: !!flags['force-upload'],
     noStorageUrl: !!flags['no-storage-url'],

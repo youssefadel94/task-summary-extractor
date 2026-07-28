@@ -198,12 +198,12 @@ function decodeKey(buf) {
  * @param {string}  [opts.footer]     - Hint line below the list
  * @returns {Promise<{index: number, value: any}>}
  */
-function selectOne({ title, items, default: defaultIdx = 0, footer }) {
+function selectOne({ title, items, default: defaultIdx = 0, footer, _forceFallback = false }) {
   if (!items || items.length === 0) {
     return Promise.resolve({ index: -1, value: undefined });
   }
 
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY || _forceFallback) {
     return _fallbackSelectOne({ title, items, default: defaultIdx });
   }
 
@@ -302,12 +302,12 @@ function selectOne({ title, items, default: defaultIdx = 0, footer }) {
  * @param {string}  [opts.footer]
  * @returns {Promise<{indices: number[], values: any[]}>}
  */
-function selectMany({ title, items, defaultSelected, footer }) {
+function selectMany({ title, items, defaultSelected, footer, _forceFallback = false }) {
   if (!items || items.length === 0) {
     return Promise.resolve({ indices: [], values: [] });
   }
 
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY || _forceFallback) {
     return _fallbackSelectMany({ title, items, defaultSelected });
   }
 
@@ -480,4 +480,35 @@ async function _fallbackSelectMany({ title, items, defaultSelected }) {
   });
 }
 
-module.exports = { selectOne, selectMany, computeWindow, getMaxVisibleRows };
+/**
+ * Wrap a full-screen selector so the progress bar cannot repaint over its menu
+ * while the user is choosing. Same reasoning as the stdin prompts in cli.js.
+ */
+function withBarPaused(fn) {
+  return async (...args) => {
+    const { pauseActiveBar, resumeActiveBar } = require('./progress-bar');
+    const { getInputMode, isInputDisabled } = require('./input-policy');
+
+    // A full-screen menu has no safe timeout — it owns the terminal until a key
+    // arrives. So it is simply never opened once work is running (or when input
+    // is off): the caller's default is taken instead, and the run keeps moving.
+    if (isInputDisabled() || getInputMode() === 'running') {
+      const [opts = {}] = args;
+      return fn({ ...opts, _forceFallback: true });
+    }
+
+    pauseActiveBar();
+    try {
+      return await fn(...args);
+    } finally {
+      resumeActiveBar();
+    }
+  };
+}
+
+module.exports = {
+  selectOne: withBarPaused(selectOne),
+  selectMany: withBarPaused(selectMany),
+  computeWindow,
+  getMaxVisibleRows,
+};
