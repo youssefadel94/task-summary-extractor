@@ -162,7 +162,7 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
       // compression and sees >1 segment → the batching path runs. (noCompress
       // ignores segmentTime and short clips don't re-encode into multiple parts.)
       const segDir = path.join(bdir, 'compressed', 'meeting');
-      const pre = video.splitOnly(longClip, segDir, { segTime: 2 });
+      const pre = await video.splitOnly(longClip, segDir, { segTime: 2 });
       expect(pre.length).toBeGreaterThan(1); // fixture sanity
 
       const ctx = makeCtx(bdir, longClip, {

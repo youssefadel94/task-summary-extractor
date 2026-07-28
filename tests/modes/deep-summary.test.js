@@ -20,6 +20,15 @@ function makeDoc(name, contentLength = 1000) {
   };
 }
 
+/**
+ * A summary that clears MIN_SUMMARY_FIDELITY for a doc of `originalLength`.
+ * Summaries far below the floor are rejected as information loss and the
+ * original document is kept instead, so fixtures must be realistically long.
+ */
+function makeSummary(originalLength, fraction = 0.7) {
+  return 'S'.repeat(Math.ceil(originalLength * fraction));
+}
+
 function makeFileDataDoc(name) {
   return {
     type: 'fileData',
@@ -239,10 +248,46 @@ describe('deepSummarize', () => {
     expect(ai.models.generateContent).not.toHaveBeenCalled();
   });
 
+  it('rejects an over-compressed summary and keeps the full document', async () => {
+    // Regression: a real run compressed 87K tokens of specs into 1.5K (98.3%),
+    // deleting the detail the analysis depended on. Anything under the fidelity
+    // floor is information loss, not summarization.
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({
+        summaries: { 'specs.md': 'Everything, briefly.' }, // ~1% of the original
+        metadata: {},
+      }),
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 10, totalTokenCount: 110 },
+    }));
+
+    const result = await deepSummarize(ai, [makeDoc('specs.md', 4000)], { excludeFileNames: [] });
+
+    const doc = result.docs.find(d => d.fileName === 'specs.md');
+    expect(doc.content).toBe('x'.repeat(4000)); // original, untouched
+    expect(doc._deepSummarized).toBeUndefined();
+    expect(result.stats.rejectedForLowFidelity).toBe(1);
+    expect(result.stats.summarized).toBe(0);
+    expect(result.stats.rejectedFiles[0].fileName).toBe('specs.md');
+  });
+
+  it('accepts a summary that stays above the fidelity floor', async () => {
+    const ai = makeMockAi(() => ({
+      text: JSON.stringify({ summaries: { 'specs.md': makeSummary(4000, 0.6) }, metadata: {} }),
+      usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 60, totalTokenCount: 160 },
+    }));
+
+    const result = await deepSummarize(ai, [makeDoc('specs.md', 4000)], { excludeFileNames: [] });
+
+    const doc = result.docs.find(d => d.fileName === 'specs.md');
+    expect(doc._deepSummarized).toBe(true);
+    expect(result.stats.rejectedForLowFidelity).toBe(0);
+    expect(result.stats.summarized).toBe(1);
+  });
+
   it('excludes specified docs from summarization', async () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({
-        summaries: { 'summarize-me.md': 'Short summary' },
+        summaries: { 'summarize-me.md': makeSummary(2000) },
         metadata: {},
       }),
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 },
@@ -265,7 +310,7 @@ describe('deepSummarize', () => {
     // summarize-me.md should have been replaced
     const sumDoc = result.docs.find(d => d.fileName === 'summarize-me.md');
     expect(sumDoc._deepSummarized).toBe(true);
-    expect(sumDoc.content).toContain('Short summary');
+    expect(sumDoc.content).toContain(makeSummary(2000));
     expect(sumDoc.content).toContain('[Deep Summary');
 
     expect(result.stats.keptFull).toBe(1);
@@ -275,7 +320,7 @@ describe('deepSummarize', () => {
   it('keeps fileData docs without content as-is (binary only)', async () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({
-        summaries: { 'normal.md': 'Condensed' },
+        summaries: { 'normal.md': makeSummary(2000) },
         metadata: {},
       }),
       usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, totalTokenCount: 70 },
@@ -296,7 +341,7 @@ describe('deepSummarize', () => {
   it('summarizes hybrid fileData docs (PDF with extracted text)', async () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({
-        summaries: { 'report.pdf': 'PDF summary content' },
+        summaries: { 'report.pdf': makeSummary(3000) },
         metadata: {},
       }),
       usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 50, totalTokenCount: 150 },
@@ -308,7 +353,7 @@ describe('deepSummarize', () => {
     const pdfDoc = result.docs.find(d => d.fileName === 'report.pdf');
     expect(pdfDoc._deepSummarized).toBe(true);
     expect(pdfDoc.type).toBe('inlineText');
-    expect(pdfDoc.content).toContain('PDF summary content');
+    expect(pdfDoc.content).toContain(makeSummary(3000));
     // fileData properties should be removed after summarization
     expect(pdfDoc.fileUri).toBeUndefined();
     expect(pdfDoc.mimeType).toBeUndefined();
@@ -332,8 +377,8 @@ describe('deepSummarize', () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({
         summaries: {
-          'report.pdf': 'PDF condensed',
-          'notes.md': 'MD condensed',
+          'report.pdf': makeSummary(2000),
+          'notes.md': makeSummary(2000),
         },
         metadata: {},
       }),
@@ -406,8 +451,8 @@ describe('deepSummarize', () => {
       return {
         text: JSON.stringify({
           summaries: callCount === 3
-            ? { 'a.md': 'Summary A', 'b.md': 'Summary B' }
-            : { 'c.md': 'Summary C', 'd.md': 'Summary D' },
+            ? { 'a.md': makeSummary(2000), 'b.md': makeSummary(2000) }
+            : { 'c.md': makeSummary(2000), 'd.md': makeSummary(2000) },
           metadata: {},
         }),
         usageMetadata: { promptTokenCount: 200, candidatesTokenCount: 50, totalTokenCount: 250 },
@@ -442,8 +487,8 @@ describe('deepSummarize', () => {
     const ai = makeMockAi(() => ({
       text: JSON.stringify({
         summaries: {
-          'big.md': 'Big summary',
-          'medium.md': 'Med summary',
+          'big.md': makeSummary(5000),
+          'medium.md': makeSummary(3000),
         },
         metadata: {},
       }),
@@ -501,7 +546,7 @@ describe('deepSummarize', () => {
 
   it('preserves original token estimate in _originalLength', async () => {
     const ai = makeMockAi(() => ({
-      text: JSON.stringify({ summaries: { 'doc.md': 'short' }, metadata: {} }),
+      text: JSON.stringify({ summaries: { 'doc.md': makeSummary(3000) }, metadata: {} }),
       usageMetadata: {},
     }));
 
@@ -511,7 +556,7 @@ describe('deepSummarize', () => {
     const doc = result.docs[0];
     expect(doc._deepSummarized).toBe(true);
     expect(doc._originalLength).toBe(3000);
-    expect(doc._summaryLength).toBe(5); // 'short'.length
+    expect(doc._summaryLength).toBe(makeSummary(3000).length);
   });
 
   it('calls onProgress callback for each batch', async () => {
@@ -540,7 +585,7 @@ describe('deepSummarize', () => {
 
   it('auto-excludes VTT transcript files from summarization', async () => {
     const ai = makeMockAi(() => ({
-      text: JSON.stringify({ summaries: { 'docs.md': 'Condensed' }, metadata: {} }),
+      text: JSON.stringify({ summaries: { 'docs.md': makeSummary(2000) }, metadata: {} }),
       usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, totalTokenCount: 70 },
     }));
 
@@ -563,7 +608,7 @@ describe('deepSummarize', () => {
 
   it('auto-excludes SRT subtitle files from summarization', async () => {
     const ai = makeMockAi(() => ({
-      text: JSON.stringify({ summaries: { 'notes.md': 'Condensed' }, metadata: {} }),
+      text: JSON.stringify({ summaries: { 'notes.md': makeSummary(2000) }, metadata: {} }),
       usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, totalTokenCount: 70 },
     }));
 

@@ -25,6 +25,8 @@ const {
   probeMediaIntegrity,
   probeDocIntegrity,
   auditFileIntegrity,
+  mergeAudits,
+  excludeUnusable,
   printIntegrityReport,
   SEVERITY,
   MIN_VIDEO_BITRATE_BPS,
@@ -46,6 +48,19 @@ function mockFfprobeResult({ format = {}, streams = [], status = 0, stderr = '' 
     status,
     stdout: JSON.stringify({ format, streams }),
     stderr,
+  });
+}
+
+/**
+ * Mock the two-step probe: the metadata call, then the packet-timestamp scan
+ * that runs only when the container reports no duration.
+ */
+function mockProbeThenScan({ format = {}, streams = [], scanStdout = '' } = {}) {
+  vi.spyOn(childProcess, 'spawnSync').mockImplementation((bin, args) => {
+    const isScan = args.includes('packet=pts_time');
+    return isScan
+      ? { status: 0, stdout: scanStdout, stderr: '' }
+      : { status: 0, stdout: JSON.stringify({ format, streams }), stderr: '' };
   });
 }
 
@@ -204,20 +219,73 @@ describe('probeMediaIntegrity (video)', () => {
     expect(noAudioIssue.severity).toBe('info');
   });
 
-  it('flags zero/missing container duration', () => {
+  it('errors on missing duration only when the stream is also unreadable', () => {
     mockStatSync(50_000_000);
-    mockFfprobeResult({
+    mockProbeThenScan({
       format: { duration: '0', nb_streams: '2', format_name: 'mp4' },
-      streams: [
-        { codec_type: 'video' },
-        { codec_type: 'audio' },
-      ],
+      streams: [{ codec_type: 'video' }, { codec_type: 'audio' }],
+      scanStdout: '', // no packets came back
     });
 
     const result = probeMediaIntegrity('/fake/video.mp4', 'video');
-    const durIssue = result.issues.find(i => i.message.includes('zero or missing duration'));
+    const durIssue = result.issues.find(i => i.message.includes('no readable packets'));
     expect(durIssue).toBeDefined();
     expect(durIssue.severity).toBe('error');
+  });
+
+  it('recovers duration by scanning packets when the header has none', () => {
+    // Regression: unfinalized recordings (browser MediaRecorder .webm, OBS
+    // captures) carry no Duration element but play fine. They used to be
+    // reported as ERROR "File header may be corrupt".
+    mockStatSync(46_000_000);
+    mockProbeThenScan({
+      format: { nb_streams: '2', format_name: 'matroska,webm' },
+      streams: [{ codec_type: 'video' }, { codec_type: 'audio' }],
+      scanStdout: '0.000\n0.033\n849.500\n', // last packet at ~14:09
+    });
+
+    const result = probeMediaIntegrity('/fake/recording.webm', 'video');
+    const durIssue = result.issues.find(i => i.message.includes('measured'));
+    expect(durIssue).toBeDefined();
+    expect(durIssue.severity).toBe('info');
+    expect(result.meta.formatDuration).toBe(849.5);
+    expect(result.meta.durationSource).toBe('packet-scan');
+    // An INFO-only file must not trip the "some files may be broken" banner.
+    expect(result.issues.some(i => i.severity === 'error')).toBe(false);
+  });
+
+  it('stays informational when packets are readable but carry no timestamps', () => {
+    mockStatSync(46_000_000);
+    mockProbeThenScan({
+      format: { duration: '0', nb_streams: '1', format_name: 'matroska,webm' },
+      streams: [{ codec_type: 'video' }],
+      scanStdout: 'N/A\nN/A\n',
+    });
+
+    const result = probeMediaIntegrity('/fake/recording.webm', 'video');
+    const durIssue = result.issues.find(i => i.message.includes('packets readable'));
+    expect(durIssue).toBeDefined();
+    expect(durIssue.severity).toBe('info');
+  });
+
+  it('explains an unreadable MP4 that has no ftyp box', () => {
+    mockStatSync(409_504);
+    vi.spyOn(childProcess, 'spawnSync').mockReturnValue({
+      status: 1, stdout: '', stderr: 'moov atom not found',
+    });
+    // Header bytes of a failed download — no recognizable box type at offset 4.
+    vi.spyOn(fs, 'openSync').mockReturnValue(7);
+    vi.spyOn(fs, 'closeSync').mockImplementation(() => {});
+    vi.spyOn(fs, 'readSync').mockImplementation((fd, buf) => {
+      Buffer.from('b0f0e44e5381fd145f0e8467', 'hex').copy(buf);
+      return 16;
+    });
+
+    const result = probeMediaIntegrity('/fake/broken.mp4', 'video');
+    const issue = result.issues[0];
+    expect(issue.severity).toBe('error');
+    expect(issue.detail).toMatch(/not a real MP4/);
+    expect(issue.detail).toMatch(/moov atom not found/);
   });
 
   it('flags duration mismatch between container and stream', () => {
@@ -420,6 +488,42 @@ describe('probeDocIntegrity', () => {
 // ---------------------------------------------------------------------------
 // auditFileIntegrity
 // ---------------------------------------------------------------------------
+describe('excludeUnusable / mergeAudits', () => {
+  const audit = {
+    unusable: [{ file: 'broken.mp4', filePath: '/calls/broken.mp4', type: 'video', reason: 'unreadable' }],
+  };
+
+  it('splits media paths into kept and dropped', () => {
+    const { kept, dropped } = excludeUnusable(['/calls/good.mp4', '/calls/broken.mp4'], audit);
+    expect(kept).toEqual(['/calls/good.mp4']);
+    expect(dropped).toEqual(['/calls/broken.mp4']);
+  });
+
+  it('splits document objects by absPath', () => {
+    const docs = [{ absPath: '/calls/notes.md', relPath: 'notes.md' }, { absPath: '/calls/broken.mp4' }];
+    const { kept, dropped } = excludeUnusable(docs, audit);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].relPath).toBe('notes.md');
+    expect(dropped).toHaveLength(1);
+  });
+
+  it('keeps everything when there is no audit or nothing unusable', () => {
+    expect(excludeUnusable(['/a.mp4'], null).kept).toEqual(['/a.mp4']);
+    expect(excludeUnusable(['/a.mp4'], { unusable: [] }).dropped).toEqual([]);
+  });
+
+  it('merges audits run at different points into one report', () => {
+    const a = { warnings: [{ file: 'a' }], hasErrors: true, hasSuspicious: true, report: [{}], unusable: [{ file: 'a' }] };
+    const b = { warnings: [{ file: 'b' }], hasErrors: false, hasSuspicious: false, report: [{}], unusable: [] };
+    const merged = mergeAudits(a, b, null);
+
+    expect(merged.warnings).toHaveLength(2);
+    expect(merged.unusable).toHaveLength(1);
+    expect(merged.hasErrors).toBe(true);
+    expect(merged.totalFiles).toBe(2);
+  });
+});
+
 describe('auditFileIntegrity', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -448,6 +552,37 @@ describe('auditFileIntegrity', () => {
     expect(result.hasErrors).toBe(false);
     expect(result.report).toHaveLength(1);
     expect(result.report[0].issues).toHaveLength(0);
+  });
+
+  it('lists unreadable files as unusable and marks their warnings excluded', () => {
+    mockStatSync(409_504);
+    vi.spyOn(childProcess, 'spawnSync').mockReturnValue({ status: 1, stdout: '', stderr: 'moov atom not found' });
+
+    const result = auditFileIntegrity({ videoFiles: ['/fake/broken.mp4'] });
+
+    expect(result.unusable).toHaveLength(1);
+    expect(result.unusable[0].filePath).toBe('/fake/broken.mp4');
+    expect(result.unusable[0].type).toBe('video');
+    expect(result.warnings.every(w => w.excluded)).toBe(true);
+    expect(result.totalFiles).toBe(1);
+  });
+
+  it('does not mark WARNING/INFO files as unusable', () => {
+    // Healthy container, but the bitrate looks low → WARNING, still processed.
+    mockStatSync(1_000_000);
+    mockFfprobeResult({
+      format: { duration: '3600', nb_streams: '2', format_name: 'mp4' },
+      streams: [
+        { codec_type: 'video', duration: '3600' },
+        { codec_type: 'audio', duration: '3600' },
+      ],
+    });
+
+    const result = auditFileIntegrity({ videoFiles: ['/fake/thin.mp4'] });
+
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.unusable).toHaveLength(0);
+    expect(result.warnings.every(w => w.excluded === false)).toBe(true);
   });
 
   it('aggregates issues across file types', () => {
@@ -547,7 +682,8 @@ describe('printIntegrityReport', () => {
     expect(output).toContain('doc.vtt');
     expect(output).toContain('Low bitrate');
     expect(output).toContain('Empty file');
-    expect(output).toContain('broken');
+    // Errors mean the file was skipped, not that the whole run is compromised.
+    expect(output).toContain('Unreadable files were skipped');
   });
 
   it('shows suspicious-only message when no errors', () => {

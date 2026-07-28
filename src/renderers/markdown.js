@@ -16,7 +16,7 @@
 // Shared renderer utilities (name clustering, dedup, badges)
 const {
   stripParens, normalizeKey, clusterNames, resolve,
-  dedupBy, normalizeDesc, dedupByDesc,
+  dedupBy, normalizeDesc, normalizeTaskDesc, dedupByDesc,
   fmtTs, priBadge, confBadge, confBadgeFull, shortVideo,
 } = require('./shared');
 
@@ -134,13 +134,14 @@ function renderResultsMarkdown({ compiled, meta }) {
     ln('>');
     for (const w of intWarnings) {
       const icon = w.severity === 'error' ? '🔴' : w.severity === 'warning' ? '🟡' : 'ℹ️';
-      ln(`> ${icon} **${w.file}** (${w.type}) — ${w.message}  `);
+      const tag = w.excluded ? ' _(skipped — not analyzed)_' : '';
+      ln(`> ${icon} **${w.file}** (${w.type}) — ${w.message}${tag}  `);
       if (w.detail) ln(`>   _${w.detail}_  `);
     }
     ln('>');
     const hasErrors = intWarnings.some(w => w.severity === 'error');
     if (hasErrors) {
-      ln('> **Some files may be broken.** Results may be incomplete — re-download or replace broken files.  ');
+      ln('> **Unreadable files were skipped** — the remaining files were analyzed normally. Re-download or replace them to include them.  ');
     } else {
       ln('> Results may be affected — review flagged files for completeness.  ');
     }
@@ -294,10 +295,11 @@ function renderResultsMarkdown({ compiled, meta }) {
       (ai.status === 'todo' || ai.status === 'in_progress')
     );
     const allTodos = [...todoItems];
-    // Add action items not already in todo list (fuzzy match to avoid near-duplicates)
-    const todoDescKeys = new Set(allTodos.map(t => normalizeDesc(t.description)));
+    // Add action items not already in todo list. Match on the actor-stripped
+    // form so "Clean up code" and "Youssef to clean up code" count as one task.
+    const todoDescKeys = new Set(allTodos.map(t => normalizeTaskDesc(t.description)));
     for (const ai of myActions) {
-      const dk = normalizeDesc(ai.description);
+      const dk = normalizeTaskDesc(ai.description);
       if (!todoDescKeys.has(dk)) {
         allTodos.push(ai);
         todoDescKeys.add(dk);

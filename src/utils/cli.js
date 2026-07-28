@@ -38,7 +38,7 @@ function parseArgs(argv) {
     'resume', 'reanalyze', 'dry-run',
     'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
-    'no-html', 'no-batch', 'no-progress',
+    'no-html', 'no-batch', 'batch', 'no-progress',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -329,7 +329,8 @@ ${f('--no-compress', 'Skip re-encoding — pass raw video to Gemini (fast, no qu
 ${f2('Auto-splits at 20 min (1200s) if needed. --speed and --segment-time are ignored.')}
 ${f2('Gemini File API: up to 2 GB/file, ~300 tok/sec at default resolution.')}
 ${f('--speed <n>', 'Playback speed multiplier for compression mode (default: 1.6)')}
-${f('--segment-time <n>', 'Segment duration in seconds for compression mode (default: 280)')}
+${f('--segment-time <n>', 'Segment length in seconds of sped-up output, compress mode (default: 280)')}
+${f2('At 1.6x that is ~7.5 min of actual meeting per segment.')}
 ${f2('Duration constraints (per Google Gemini docs):')}
 ${f2('  • Default res: ~300 tok/sec → max ~55 min/segment (safe: ≤20 min)')}
 ${f2('  • File API limit: 2 GB (free) / 20 GB (paid) per file')}
@@ -342,7 +343,8 @@ ${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (defau
 ${f('--no-focused-pass', 'Disable focused re-analysis')}
 ${f('--no-learning', 'Disable learning loop')}
 ${f('--no-diff', 'Disable diff comparison')}
-${f('--no-batch', 'Disable multi-segment batching')}
+${f('--batch', 'Group segments into one call — cheaper, less per-segment detail')}
+${f2('Off by default: batching merges several segments into one analysis.')}
 ${f('--no-html', 'Skip HTML output (Markdown only)')}
 ${f('--log-level <level>', 'debug, info, warn, error (default: info)')}
 
@@ -747,12 +749,12 @@ const FEATURE_FLAGS = [
   },
   {
     key: 'noBatch',
-    flag: '--no-batch',
+    flag: '--batch',
     icon: '📦',
     label: 'Batch Processing',
-    desc: 'Group short segments into batches for efficiency',
+    desc: 'Group segments into one call — cheaper, but merges detail across segments',
     category: 'processing',
-    default: true,
+    default: false,
     inverted: true,
   },
   {

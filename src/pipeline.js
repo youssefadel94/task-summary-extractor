@@ -39,6 +39,7 @@ const phaseInit        = require('./phases/init');
 const phaseDiscover    = require('./phases/discover');
 const { phaseServices, phaseDeepSummary } = require('./phases/services');
 const phaseProcessVideo = require('./phases/process-media');
+const { phasePrepareMedia, phaseAnalyzeMedia } = require('./phases/process-media');
 const phaseCompile     = require('./phases/compile');
 const phaseOutput      = require('./phases/output');
 const phaseSummary     = require('./phases/summary');
@@ -50,7 +51,7 @@ const phaseDeepDive    = require('./phases/deep-dive');
 
 // --- Utils (for run orchestration + alt modes) ---
 const { c } = require('./utils/colors');
-const { findDocsRecursive } = require('./utils/fs');
+const { findDocsRecursive, dedupeFormatTwins } = require('./utils/fs');
 const { promptUser, promptUserText, selectDocsToExclude } = require('./utils/cli');
 const { selectOne } = require('./utils/interactive');
 const { createProgressBar } = require('./utils/progress-bar');
@@ -60,6 +61,43 @@ const { loadPreviousCompilation } = require('./utils/diff-engine');
 
 // --- Modes & renderers (lazy-loaded inside each alternative mode function) ---
 // detectAllChanges, serializeReport, assessProgressLocal, assessProgressWithAI, etc.
+
+// ======================== PREPARE-FAILURE HANDLING ========================
+
+/**
+ * Decide what to do when a file could not be compressed/segmented.
+ *
+ * Prep runs ahead of analysis, so a failure is usually detected while an
+ * earlier file is still being analyzed. Asking mid-AI-call would garble the
+ * console, so the question is put at the next file boundary — the earliest
+ * point where stopping still saves AI spend on the remaining files.
+ *
+ * @returns {Promise<'skip'|'abort'>}
+ */
+async function handlePrepFailure(prep, mediaFiles, index) {
+  const log = getLog();
+  const name = path.basename(prep.videoPath);
+  const remaining = mediaFiles.length - index - 1;
+
+  console.log('');
+  console.log(`  ${c.error(`Could not prepare "${name}"`)}`);
+  console.log(`    ${c.dim(prep.error?.message || 'unknown error')}`);
+  log.error(`Prepare failure on ${name}: ${prep.error?.message}`);
+
+  if (remaining === 0 || !process.stdin.isTTY) {
+    console.log(`  ${c.dim('Skipped — continuing with the other files.')}`);
+    console.log('');
+    return 'skip';
+  }
+
+  // promptUser() treats a bare Enter as "no"; here the safe default is to keep
+  // going with the files that did prepare, so read the answer directly.
+  const answer = (await promptUserText(
+    `  Continue analyzing the remaining ${remaining} file(s)? (Y/n): `
+  )).toLowerCase();
+  console.log('');
+  return (answer === 'n' || answer === 'no') ? 'abort' : 'skip';
+}
 
 // ======================== MAIN PIPELINE ========================
 
@@ -269,6 +307,8 @@ async function run() {
     inputMode: ctx.inputMode,
     integrityWarnings: (fullCtx.integrityAudit && fullCtx.integrityAudit.warnings.length > 0)
       ? fullCtx.integrityAudit.warnings : null,
+    excludedFiles: (fullCtx.integrityAudit && fullCtx.integrityAudit.unusable?.length > 0)
+      ? fullCtx.integrityAudit.unusable : null,
     settings: {
       speed: fullCtx.opts.noCompress ? 1.0 : (fullCtx.opts.speed || SPEED),
       segmentTimeSec: fullCtx.opts.noCompress ? 1200 : (fullCtx.opts.segmentTime || SEG_TIME),
@@ -285,20 +325,86 @@ async function run() {
     files: [],
   };
 
-  fullCtx.progress.setPhase('analyze');
-  bar.setPhase('analyze', mediaFiles.length);
+  // ════════════════════════════════════════════════════════════
+  //  Stage 1: PREPARE (compress → segment → validate → upload)
+  //
+  //  Every file's prep is queued up front and runs back-to-back on its own
+  //  chain, so no AI call ever waits on ffmpeg that could have already run —
+  //  and no file is analyzed before it has been fully prepared. While Gemini
+  //  works on file N (network-bound), ffmpeg is already encoding file N+1
+  //  (CPU-bound), instead of the two taking turns.
+  // ════════════════════════════════════════════════════════════
+  fullCtx.progress.setPhase('compress');
+  bar.setPhase('compress', mediaFiles.length);
+  if (log && log.phaseStart) log.phaseStart('prepare_media');
+
+  const prepFailures = [];
+  let prepChain = Promise.resolve();
+  const prepQueue = mediaFiles.map((mediaFile, i) => {
+    prepChain = prepChain.then(async () => {
+      if (isShuttingDown()) return { skipped: true, videoPath: mediaFile, videoIndex: i };
+      try {
+        const prep = await phasePrepareMedia(fullCtx, mediaFile, i);
+        bar.tick(`Prepared ${path.basename(mediaFile)}`);
+        return prep;
+      } catch (err) {
+        // Never reject: a file that cannot be prepared must not take down the
+        // whole chain (or surface as an unhandled rejection later).
+        log.error(`Prepare failed for ${path.basename(mediaFile)}: ${err.message}`);
+        const failure = { failed: true, videoPath: mediaFile, videoIndex: i, error: err };
+        prepFailures.push(failure);
+        return failure;
+      }
+    });
+    return prepChain;
+  });
+
+  // ════════════════════════════════════════════════════════════
+  //  Stage 2: ANALYZE — consumes prepared files in order
+  // ════════════════════════════════════════════════════════════
   if (log && log.phaseStart) log.phaseStart('process_videos');
 
+  let abortRemaining = false;
   for (let i = 0; i < mediaFiles.length; i++) {
-    if (isShuttingDown()) break;
+    if (isShuttingDown() || abortRemaining) break;
 
+    // Stay on the Compress phase until the first file is actually ready —
+    // that wait is the only time the pipeline is purely prep-bound.
+    const prep = await prepQueue[i];
+    if (i === 0) {
+      fullCtx.progress.setPhase('analyze');
+      bar.setPhase('analyze', mediaFiles.length);
+    }
     bar.tick(path.basename(mediaFiles[i]));
-    const { fileResult, segmentAnalyses, segmentReports } = await phaseProcessVideo(fullCtx, mediaFiles[i], i);
+
+    if (prep && prep.failed) {
+      const decision = await handlePrepFailure(prep, mediaFiles, i);
+      if (decision === 'abort') {
+        abortRemaining = true;
+        console.log(`  ${c.warn('Stopping before further AI calls, as requested.')}`);
+        log.warn('User aborted after a prepare failure');
+      }
+      continue;
+    }
+    if (!prep || prep.skipped) continue;
+
+    const { fileResult, segmentAnalyses, segmentReports } = await phaseAnalyzeMedia(fullCtx, prep);
     if (fileResult) {
       results.files.push(fileResult);
       allSegmentAnalyses.push(...segmentAnalyses);
       allSegmentReports.push(...(segmentReports || []));
     }
+  }
+
+  // Let any still-running prep settle so nothing writes to the console after
+  // this point (and so Ctrl-C during analysis doesn't leave ffmpeg orphaned).
+  await Promise.allSettled(prepQueue);
+
+  if (prepFailures.length > 0) {
+    results.preparationFailures = prepFailures.map(f => ({
+      file: path.basename(f.videoPath),
+      reason: f.error?.message || 'unknown error',
+    }));
   }
 
   if (log && log.phaseEnd) log.phaseEnd({ videoCount: mediaFiles.length, segmentCount: allSegmentAnalyses.length });
@@ -676,6 +782,8 @@ async function runDocOnly(ctx) {
     inputMode: 'document',
     integrityWarnings: (ctx.integrityAudit && ctx.integrityAudit.warnings.length > 0)
       ? ctx.integrityAudit.warnings : null,
+    excludedFiles: (ctx.integrityAudit && ctx.integrityAudit.unusable?.length > 0)
+      ? ctx.integrityAudit.unusable : null,
     settings: {
       geminiModel: config.GEMINI_MODEL,
       thinkingBudget: opts.thinkingBudget,
@@ -1089,7 +1197,9 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
 
   // If contextDocs is empty and no images, try loading docs from disk (for doc-only mode compat)
   if (docSnippets.length === 0) {
-    const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
+    // Same format-twin dedup as discovery — otherwise the snippet budget is
+    // spent three times over on one document's md/html/pdf exports.
+    const { kept: allDocFiles } = dedupeFormatTwins(findDocsRecursive(targetDir, DOC_EXTS));
     for (const { absPath, relPath } of allDocFiles) {
       const ext = path.extname(absPath).toLowerCase();
       try {

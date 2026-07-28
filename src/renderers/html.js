@@ -14,7 +14,7 @@
 
 const {
   clusterNames, resolve,
-  dedupBy, normalizeDesc, dedupByDesc,
+  dedupBy, normalizeDesc, normalizeTaskDesc, dedupByDesc,
   escHtml,
 } = require('./shared');
 
@@ -250,12 +250,13 @@ function renderResultsHtml({ compiled, meta }) {
     ln('<strong>⚠️ File Integrity Issues Detected</strong><br>');
     for (const w of intWarnings) {
       const icon = w.severity === 'error' ? '🔴' : w.severity === 'warning' ? '🟡' : 'ℹ️';
-      ln(`${icon} <strong>${e(w.file)}</strong> (${e(w.type)}) — ${e(w.message)}<br>`);
+      const tag = w.excluded ? ' <em>(skipped — not analyzed)</em>' : '';
+      ln(`${icon} <strong>${e(w.file)}</strong> (${e(w.type)}) — ${e(w.message)}${tag}<br>`);
       if (w.detail) ln(`<em style="margin-left:1.5em;color:#666;">${e(w.detail)}</em><br>`);
     }
     const hasErrors = intWarnings.some(w => w.severity === 'error');
     if (hasErrors) {
-      ln('<br><strong>Some files may be broken.</strong> Results may be incomplete — re-download or replace broken files.');
+      ln('<br><strong>Unreadable files were skipped</strong> — the remaining files were analyzed normally. Re-download or replace them to include them.');
     } else {
       ln('<br>Results may be affected — review flagged files for completeness.');
     }
@@ -364,9 +365,11 @@ function renderResultsHtml({ compiled, meta }) {
       (ai.status === 'todo' || ai.status === 'in_progress')
     );
     const allTodos = [...todoItems];
-    const todoDescKeys = new Set(allTodos.map(t => normalizeDesc(t.description)));
+    // Actor-stripped match — "Clean up code" and "Youssef to clean up code"
+    // are the same task arriving from two sources.
+    const todoDescKeys = new Set(allTodos.map(t => normalizeTaskDesc(t.description)));
     for (const ai of myActions) {
-      const dk = normalizeDesc(ai.description);
+      const dk = normalizeTaskDesc(ai.description);
       if (!todoDescKeys.has(dk)) { allTodos.push(ai); todoDescKeys.add(dk); }
     }
     if (allTodos.length > 0) {

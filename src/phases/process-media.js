@@ -26,15 +26,22 @@ const { identifyWeaknesses, runFocusedPass, mergeFocusedResults } = require('../
 
 // --- Shared state ---
 const { c } = require('../utils/colors');
-const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT } = require('./_shared');
+const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT, uploadSkipReason } = require('./_shared');
 
-// ======================== PHASE: PROCESS VIDEO ========================
+// ======================== PHASE: PREPARE MEDIA ========================
 
 /**
- * Process a single video: compress → upload segments → analyze with Gemini.
- * Returns { fileResult, segmentAnalyses }.
+ * Stage 1 of media processing: everything that must happen before a single AI
+ * token is spent — compress/segment, validate, upload.
+ *
+ * Split out from analysis so preparation can run *ahead of* the AI stage: the
+ * pipeline chains all prep work immediately, and each file's analysis simply
+ * waits for its own prep to land. That keeps ffmpeg (CPU) and Gemini (network)
+ * busy at the same time, and surfaces an unencodable file early.
+ *
+ * Returns the handoff object consumed by phaseAnalyzeMedia.
  */
-async function phaseProcessVideo(ctx, videoPath, videoIndex) {
+async function phasePrepareMedia(ctx, videoPath, videoIndex) {
   const log = getLog();
   const {
     opts, callName, storage, firebaseReady, ai, contextDocs,
@@ -74,9 +81,9 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
       console.warn(`  ${c.warn(`No existing segments found \u2014 cannot skip compression for "${baseName}"`)}`);
       if (opts.dryRun) {
         console.log(`  ${c.dim(`[DRY-RUN] Would compress "${path.basename(videoPath)}" into segments`)}`);
-        return { fileResult: null, segmentAnalyses: [] };
+        return { skipped: true, videoPath, videoIndex };
       }
-      segments = compressAndSegment(videoPath, segmentDir, videoOpts);
+      segments = await compressAndSegment(videoPath, segmentDir, videoOpts);
       log.step(`Compressed → ${segments.length} segment(s)`);
     }
   } else if (existingSegments.length > 0) {
@@ -85,14 +92,14 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
     console.log(`  ${c.success(`Skipped compression \u2014 ${c.highlight(segments.length)} segment(s) already exist`)}`);
   } else if (opts.noCompress) {
     // --no-compress: split raw video at keyframes, no re-encoding
-    segments = splitOnly(videoPath, segmentDir, videoOpts);
+    segments = await splitOnly(videoPath, segmentDir, videoOpts);
     log.step(`Split (raw) → ${segments.length} segment(s)`);
     console.log(`  \u2192 ${c.highlight(segments.length)} raw segment(s) created`);
   } else {
     if (isAudio) {
-      segments = compressAndSegmentAudio(videoPath, segmentDir, videoOpts);
+      segments = await compressAndSegmentAudio(videoPath, segmentDir, videoOpts);
     } else {
-      segments = compressAndSegment(videoPath, segmentDir, videoOpts);
+      segments = await compressAndSegment(videoPath, segmentDir, videoOpts);
     }
     log.step(`Compressed → ${segments.length} segment(s)`);
     console.log(`  \u2192 ${c.highlight(segments.length)} segment(s) created`);
@@ -205,7 +212,7 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
 
       console.log(`  ${c.cyan('──')} Segment ${c.highlight(`${j + 1}/${segments.length}`)}: ${c.cyan(segName)} ${c.cyan('──')}`);
       console.log(`    Duration: ${c.yellow(fmtDuration(durSec))} | Size: ${c.yellow(sizeMB + ' MB')}`);
-      if (opts.skipUpload) console.log(`    ${c.warn('Upload skipped (--skip-upload)')}`);
+      if (opts.skipUpload) console.log(`    ${c.dim(`Upload skipped (${uploadSkipReason(opts)})`)}`);
 
       segmentMeta.push({ segPath, segName, storagePath, storageUrl: null, durSec, sizeMB });
     }
@@ -222,7 +229,33 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   }
 
   console.log('');
-  log.step(`All ${segments.length} segment(s) processed. Starting Gemini analysis...`);
+  log.step(`Prepared "${path.basename(videoPath)}": ${segments.length} segment(s) ready for analysis`);
+
+  return {
+    videoPath, videoIndex, baseName, segmentDir, isAudio, mediaLabel,
+    segments, segmentMeta, fileResult, origSize,
+  };
+}
+
+// ======================== PHASE: ANALYZE MEDIA ========================
+
+/**
+ * Stage 2: send a prepared file's segments to Gemini.
+ * Takes the handoff object from phasePrepareMedia — by the time this runs, the
+ * file is already compressed, validated and uploaded.
+ *
+ * Returns { fileResult, segmentAnalyses, segmentReports }.
+ */
+async function phaseAnalyzeMedia(ctx, prep) {
+  const log = getLog();
+  const {
+    opts, callName, ai, contextDocs,
+    progress, costTracker, userName,
+  } = ctx;
+  const { videoPath, baseName, segments, segmentMeta, fileResult } = prep;
+
+  console.log('');
+  log.step(`Analyzing "${path.basename(videoPath)}" — ${segments.length} segment(s)`);
   console.log('');
 
   // ---- Analyze all segments with Gemini ----
@@ -1077,4 +1110,21 @@ async function phaseProcessVideo(ctx, videoPath, videoIndex) {
   return { fileResult, segmentAnalyses, segmentReports };
 }
 
+// ======================== PHASE: PROCESS MEDIA (combined) ========================
+
+/**
+ * Prepare then analyze one file, back to back.
+ * The pipeline drives the two stages separately so prep can run ahead; this
+ * wrapper keeps the simple sequential form for callers that just want one file
+ * processed end to end.
+ */
+async function phaseProcessVideo(ctx, videoPath, videoIndex) {
+  const prep = await phasePrepareMedia(ctx, videoPath, videoIndex);
+  if (!prep || prep.skipped) return { fileResult: null, segmentAnalyses: [], segmentReports: [] };
+  return await phaseAnalyzeMedia(ctx, prep);
+}
+
 module.exports = phaseProcessVideo;
+module.exports.phasePrepareMedia = phasePrepareMedia;
+module.exports.phaseAnalyzeMedia = phaseAnalyzeMedia;
+module.exports.phaseProcessVideo = phaseProcessVideo;

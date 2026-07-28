@@ -249,7 +249,9 @@ Control how video is processed before AI analysis:
 |------|---------|-------------|
 | `--no-compress` | off | Skip re-encoding — pass raw video to Gemini (auto-splits at 20 min) |
 | `--speed <n>` | `1.6` | Playback speed multiplier (compress mode only) |
-| `--segment-time <n>` | `280` | Segment duration in seconds, compress mode only (30–3600) |
+| `--segment-time <n>` | `280` | Segment length in seconds of **sped-up output**, compress mode only (30–3600) |
+
+> **Note:** `--segment-time` is measured on the sped-up timeline, because ffmpeg's segment muxer cuts after the speed filter. At the default `--speed 1.6`, `--segment-time 280` produces 280-second files that each cover **~7.5 minutes of the actual meeting**. Divide by your speed multiplier to reason in meeting time.
 
 **Duration constraints** (per [Google Gemini docs](https://ai.google.dev/gemini-api/docs/vision#video)):
 - Default resolution: ~300 tokens/sec → max ~55 min/segment (recommended: ≤20 min)
@@ -273,7 +275,7 @@ Control how video is processed before AI analysis:
 | `--no-focused-pass` | enabled | Disable targeted re-analysis of weak segments |
 | `--no-learning` | enabled | Disable auto-tuning from historical run data |
 | `--no-diff` | enabled | Disable diff comparison with the previous run |
-| `--no-batch` | enabled | Disable multi-segment batching (force 1 segment per API call) |
+| `--batch` | disabled | Group segments into one API call. Cheaper, but several segments share one merged analysis, so per-segment detail is lost before compilation. Off by default |
 
 ### Available Models
 

@@ -21,7 +21,7 @@ const { filterByConfidence } = require('../utils/confidence-filter');
 const { c } = require('../utils/colors');
 
 // --- Shared state ---
-const { getLog, phaseTimer, PROJECT_ROOT } = require('./_shared');
+const { getLog, phaseTimer, PROJECT_ROOT, uploadSkipReason } = require('./_shared');
 
 /** Check whether a given output type should be rendered. */
 function shouldRender(opts, type) {
@@ -226,7 +226,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
       console.warn(`  ${c.warn('Results upload failed:')} ${err.message}`);
     }
   } else if (opts.skipUpload) {
-    console.log(`  ${c.warn('Skipping results upload')} ${c.dim('(--skip-upload)')}`);
+    console.log(`  ${c.dim('Skipping results upload')} ${c.dim(`(${uploadSkipReason(opts)})`)}`);
   } else {
     console.log(`  ${c.warn('Skipping results upload')} ${c.dim('(Firebase auth not configured)')}`);
   }

@@ -11,7 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { FIREBASE_CONFIG, MIME_MAP } = require('../config');
+const { FIREBASE_CONFIG, MIME_MAP, firebaseStatus } = require('../config');
 const { withRetry } = require('../utils/retry');
 const { ref, uploadBytes, getDownloadURL } = require('firebase/storage');
 
@@ -24,10 +24,20 @@ let _auth = null;
  * Initialize Firebase app, storage, and anonymous auth.
  * Returns { storage, authenticated }.
  * Safe to call multiple times — caches the instance.
+ *
+ * Firebase is optional. When it is not configured this returns
+ * { storage: null, authenticated: false } so callers bypass uploads instead of
+ * crashing — every call site already gates on `authenticated && storage`.
  */
 async function initFirebase() {
   if (_storage) {
     return { storage: _storage, authenticated: !!_auth };
+  }
+
+  const fb = firebaseStatus();
+  if (!fb.configured) {
+    console.log(`  Firebase: skipped (not configured — set ${fb.missingEnvKeys.join(', ')} to enable uploads)`);
+    return { storage: null, authenticated: false };
   }
 
   const { initializeApp } = require('firebase/app');

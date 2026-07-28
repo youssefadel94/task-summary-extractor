@@ -1101,10 +1101,11 @@ async function compileFinalResult(ai, allSegmentAnalyses, userName, callName, sc
     if (clean.tickets) {
       clean.tickets = clean.tickets.map(t => {
         const tc = { ...t };
-        // Keep max 5 key comments per ticket for context, drop the rest
-        if (tc.comments && tc.comments.length > 5) {
-          tc.comments = tc.comments.slice(0, 5);
-          tc.comments.push({ note: `...${t.comments.length - 5} more comments omitted for brevity` });
+        // Keep the key comments per ticket for context, drop the long tail.
+        // Raised from 5 — the compiler cannot reconcile detail it never sees.
+        if (tc.comments && tc.comments.length > 15) {
+          tc.comments = tc.comments.slice(0, 15);
+          tc.comments.push({ note: `...${t.comments.length - 15} more comments omitted for brevity` });
         }
         return tc;
       });
@@ -1113,6 +1114,14 @@ async function compileFinalResult(ai, allSegmentAnalyses, userName, callName, sc
     delete clean.conversation_transcript;
     return `=== SEGMENT ${idx + 1} OF ${allSegmentAnalyses.length} ===\n${JSON.stringify(clean, null, 2)}`;
   }).join('\n\n');
+
+  // Raw per-field counts across segments — stating them makes "keep everything"
+  // checkable for the model instead of an abstract instruction.
+  const segmentItemCounts = ['tickets', 'action_items', 'blockers', 'change_requests', 'scope_changes']
+    .reduce((acc, field) => {
+      acc[field] = allSegmentAnalyses.reduce((n, a) => n + (Array.isArray(a?.[field]) ? a[field].length : 0), 0);
+      return acc;
+    }, {});
 
   const compilationPrompt = `You are compiling the FINAL unified analysis from a multi-segment video call.
 
@@ -1152,6 +1161,8 @@ COMPILATION RULES:
 6. SEQUENTIAL IDs: Re-number action items (AI-1, AI-2, ...), scope changes (SC-1, SC-2, ...), blockers (BLK-1, ...) sequentially. Keep real CR/ticket numbers (e.g. CR31296872) unchanged.
 7. FILE REFERENCES: Merge and deduplicate — keep the most specific resolved_path. Each file appears ONCE.
 8. PRESERVE ALL DATA: Include every unique ticket, action item, blocker, etc. from the segments. Do NOT omit items for brevity. The goal is completeness with deduplication, not summarization.
+   The segments below contain ${segmentItemCounts.action_items} action item entries, ${segmentItemCounts.blockers} blockers, ${segmentItemCounts.change_requests} change requests, ${segmentItemCounts.scope_changes} scope changes and ${segmentItemCounts.tickets} ticket entries.
+   Many are the SAME item repeated across segments — merge those. But two entries that describe DIFFERENT work are both kept, even if they are related, small, or mentioned only once. Dropping a distinct item is the single worst failure of this step.
 9. PRESERVE source_segment AND source_video: Every item in the input has a "source_segment" field (1-based integer per video) and a "source_video" field (video filename string) indicating which video segment it originated from. You MUST preserve BOTH fields on EVERY output item (action_items, change_requests, blockers, scope_changes, file_references, and inside tickets: comments, code_changes, video_segments). For your_tasks sub-arrays (tasks_todo, tasks_waiting_on_others, decisions_needed), also preserve both fields. If an item appears in multiple segments, keep the source_segment and source_video of the FIRST (earliest) occurrence.
 
 You MUST respond with ONLY valid JSON (no markdown fences, no extra text).
@@ -1350,6 +1361,15 @@ ${segmentDumps}`;
   if (!compiled) {
     console.warn(`  ${c.warn('Failed to parse compiled result — falling back to raw segment merge')}`);
   } else {
+    // The model deduplicates, but it also quietly drops items it judges minor.
+    // Re-check against the segments and restore anything missing — extraction
+    // work already paid for must not vanish at the merge step.
+    const { backfillCompiledItems } = require('../utils/compilation-backfill');
+    const { recovered, totalRecovered } = backfillCompiledItems(compiled, allSegmentAnalyses);
+    if (totalRecovered > 0) {
+      const detail = Object.entries(recovered).map(([f, n]) => `${n} ${f.replace(/_/g, ' ')}`).join(', ');
+      console.log(`  ${c.warn(`Restored ${totalRecovered} item(s) the merge dropped:`)} ${c.dim(detail)}`);
+    }
     console.log(`  ${c.success('Final compilation complete')}`);
   }
 

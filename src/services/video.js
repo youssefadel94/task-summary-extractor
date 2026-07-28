@@ -9,7 +9,7 @@
 
 'use strict';
 
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawnSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { SPEED, SEG_TIME, PRESET } = require('../config');
@@ -55,6 +55,66 @@ function getFFmpeg() {
 function getFFprobe() {
   if (!_ffprobe) _ffprobe = findBin('ffprobe');
   return _ffprobe;
+}
+
+// ======================== FFMPEG EXECUTION ========================
+
+/** How often the heartbeat line is printed while ffmpeg works (ms). */
+const FFMPEG_HEARTBEAT_MS = 15_000;
+
+/**
+ * Run ffmpeg asynchronously.
+ *
+ * Async on purpose: compression runs *ahead of* AI analysis, so it must not
+ * block the event loop the way spawnSync did — otherwise nothing else can
+ * progress while ffmpeg works.
+ *
+ * ffmpeg's own live output is captured rather than inherited: prep now overlaps
+ * with analysis logging, and two writers on one terminal produce garbage. A
+ * periodic heartbeat keeps long encodes visible instead.
+ *
+ * @returns {Promise<{ status: number, stderr: string }>}
+ */
+function runFFmpeg(args, { label = 'ffmpeg', heartbeat = true } = {}) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(getFFmpeg(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+
+    const startedAt = Date.now();
+    let stderr = '';
+    let lastTime = null; // ffmpeg's own "time=" progress marker
+
+    child.stderr.on('data', chunk => {
+      const text = chunk.toString();
+      // Keep only the tail — a full encode log can be megabytes.
+      stderr = (stderr + text).slice(-4000);
+      const m = text.match(/time=(\d+:\d+:\d+\.\d+)/g);
+      if (m) lastTime = m[m.length - 1].slice(5);
+    });
+
+    const timer = heartbeat ? setInterval(() => {
+      const elapsed = fmtDuration((Date.now() - startedAt) / 1000);
+      const at = lastTime ? ` — encoded ${lastTime.split('.')[0]}` : '';
+      console.log(`    ${c.dim(`${label}: working… ${elapsed} elapsed${at}`)}`);
+    }, FFMPEG_HEARTBEAT_MS) : null;
+    if (timer && timer.unref) timer.unref();
+
+    const finish = (status) => {
+      if (timer) clearInterval(timer);
+      resolve({ status, stderr });
+    };
+
+    child.on('error', err => {
+      if (timer) clearInterval(timer);
+      reject(err);
+    });
+    child.on('close', code => finish(code === null ? 1 : code));
+  });
 }
 
 // ======================== PROBING ========================
@@ -160,10 +220,11 @@ function buildEncodingArgs(inputFile, { speed = SPEED } = {}) {
  * @param {{ segTime?: number, speed?: number }} [opts]
  * Returns sorted array of segment file paths.
  */
-function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
+async function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
   const { encodingArgs, effectiveDuration, width, crf, audioBr, duration } = buildEncodingArgs(inputFile, { speed });
 
   fs.mkdirSync(outputDir, { recursive: true });
+  const label = path.basename(inputFile);
 
   console.log(`  Resolution : ${width > 0 ? width + 'p' : 'unknown'}`);
   console.log(`  Duration   : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${speed}x)` : ''}`);
@@ -173,7 +234,10 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
   const needsSegmentation = effectiveDuration === null || effectiveDuration > segTime;
 
   if (needsSegmentation) {
-    console.log(`  Compressing (segmented, ${segTime}s chunks)...`);
+    // segTime applies to the sped-up OUTPUT timeline, so each segment covers
+    // segTime * speed seconds of the original meeting. Spell both out — the
+    // difference matters when picking --segment-time.
+    console.log(`  Compressing (segmented, ${segTime}s chunks ${c.dim(`≈ ${fmtDuration(segTime * speed)} of meeting at ${speed}x`)})...`);
     const args = [
       '-y', '-err_detect', 'ignore_err', '-fflags', '+genpts+discardcorrupt',
       '-i', inputFile,
@@ -183,7 +247,7 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
       path.join(outputDir, 'segment_%02d.mp4'),
     ];
 
-    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    const result = await runFFmpeg(args, { label });
     if (result.status !== 0) {
       console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status} (output may still be usable)`)}`);
     }
@@ -198,7 +262,7 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
       outPath,
     ];
 
-    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    const result = await runFFmpeg(args, { label });
     if (result.status !== 0) {
       console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status}`)}`);
     }
@@ -234,7 +298,7 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
       '-map', '0:v:0', '-map', '0:a:0',
       fallbackPath,
     ];
-    const fbResult = spawnSync(getFFmpeg(), fbArgs, { stdio: 'inherit' });
+    const fbResult = await runFFmpeg(fbArgs, { label: `${path.basename(inputFile)} (fallback)` });
     if (fbResult.status === 0 && verifySegment(fallbackPath)) {
       // Remove all corrupt segments and replace with the fallback
       for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch { /* best-effort cleanup */ } }
@@ -255,7 +319,7 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
           '-movflags', '+faststart',
           path.join(reSegDir, 'segment_%02d.mp4'),
         ];
-        spawnSync(getFFmpeg(), rsArgs, { stdio: 'inherit' });
+        await runFFmpeg(rsArgs, { label: `${path.basename(inputFile)} (re-segment)` });
         // Move re-segmented files back, overwriting corrupt ones
         const reSegs = fs.readdirSync(reSegDir).filter(f => f.endsWith('.mp4')).sort();
         for (const f of reSegs) {
@@ -286,7 +350,7 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
       '-map', '0:v:0', '-map', '0:a:0',
       retryPath,
     ];
-    const retryResult = spawnSync(getFFmpeg(), retryArgs, { stdio: 'inherit' });
+    const retryResult = await runFFmpeg(retryArgs, { label: `${path.basename(inputFile)} (retry)` });
     if (retryResult.status === 0 && verifySegment(retryPath)) {
       segments = [retryPath];
       console.log(`  ${c.success('Retry succeeded')}`);
@@ -305,8 +369,9 @@ function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = 
  *
  * Returns sorted array of segment file paths.
  */
-function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
+async function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
   fs.mkdirSync(outputDir, { recursive: true });
+  const label = path.basename(inputFile);
 
   const duration = probeFormat(inputFile, 'duration');
   const durationSec = duration ? parseFloat(duration) : null;
@@ -335,7 +400,7 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
       '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
       path.join(outputDir, 'segment_%02d.m4a'),
     ];
-    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    const result = await runFFmpeg(args, { label });
     if (result.status !== 0) {
       console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status} (output may still be usable)`)}`);
     }
@@ -343,7 +408,7 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
     console.log(`  Compressing (single output, ${effectiveDuration ? fmtDuration(effectiveDuration) : '?'} effective)...`);
     const outPath = path.join(outputDir, 'segment_00.m4a');
     const args = ['-y', '-i', inputFile, ...encodingArgs, outPath];
-    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    const result = await runFFmpeg(args, { label });
     if (result.status !== 0) {
       console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status}`)}`);
     }
@@ -371,7 +436,7 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
     console.log(`  Retrying ${corrupt.length} corrupt segment(s)...`);
     const fallbackPath = path.join(outputDir, '_fallback_full.m4a');
     const fbArgs = ['-y', '-i', inputFile, ...encodingArgs, fallbackPath];
-    const fbResult = spawnSync(getFFmpeg(), fbArgs, { stdio: 'inherit' });
+    const fbResult = await runFFmpeg(fbArgs, { label: `${label} (fallback)` });
     if (fbResult.status === 0 && verifySegment(fallbackPath)) {
       for (const seg of corrupt) { try { fs.unlinkSync(seg); } catch { /* best-effort cleanup */ } }
       if (segments.length === 1) {
@@ -389,7 +454,7 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
           '-f', 'segment', '-segment_time', String(segTime), '-reset_timestamps', '1',
           path.join(reSegDir, 'segment_%02d.m4a'),
         ];
-        spawnSync(getFFmpeg(), rsArgs, { stdio: 'inherit' });
+        await runFFmpeg(rsArgs, { label: `${label} (re-segment)` });
         const reSegs = fs.readdirSync(reSegDir).filter(f => f.endsWith('.m4a')).sort();
         for (const f of reSegs) {
           fs.renameSync(path.join(reSegDir, f), path.join(outputDir, f));
@@ -421,8 +486,9 @@ function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, spe
  * @param {{ segTime?: number }} opts - Options (segTime defaults to 1200s for raw mode)
  * @returns {string[]} Sorted array of segment file paths
  */
-function splitOnly(inputFile, outputDir, { segTime = 1200 } = {}) {
+async function splitOnly(inputFile, outputDir, { segTime = 1200 } = {}) {
   fs.mkdirSync(outputDir, { recursive: true });
+  const label = path.basename(inputFile);
 
   const duration = probeFormat(inputFile, 'duration');
   const durationSec = duration ? parseFloat(duration) : null;
@@ -449,7 +515,7 @@ function splitOnly(inputFile, outputDir, { segTime = 1200 } = {}) {
       '-movflags', '+faststart',
       path.join(outputDir, `segment_%02d${outExt}`),
     ];
-    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    const result = await runFFmpeg(args, { label });
     if (result.status !== 0) {
       console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status} (output may still be usable)`)}`);
     }
@@ -464,7 +530,7 @@ function splitOnly(inputFile, outputDir, { segTime = 1200 } = {}) {
       '-movflags', '+faststart',
       outPath,
     ];
-    const result = spawnSync(getFFmpeg(), args, { stdio: 'inherit' });
+    const result = await runFFmpeg(args, { label });
     if (result.status !== 0) {
       console.warn(`  ${c.warn(`ffmpeg exited with code ${result.status}`)}`);
     }
@@ -500,6 +566,7 @@ function splitOnly(inputFile, outputDir, { segTime = 1200 } = {}) {
 
 module.exports = {
   findBin,
+  runFFmpeg,
   probe,
   probeFormat,
   compressAndSegment,

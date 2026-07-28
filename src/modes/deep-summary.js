@@ -59,6 +59,18 @@ const BATCH_MAX_CHARS = 600000;
 const MIN_SUMMARIZE_LENGTH = 500;
 
 /**
+ * Fidelity floor: the smallest fraction of a document's original length that is
+ * still credible as "condensed but complete".
+ *
+ * Prompt instructions alone do not bind a model — a run against a *-lite model
+ * compressed 87K tokens of specs down to 1.5K (98.3%), silently deleting the
+ * detail the whole analysis depends on. Anything under this floor is treated as
+ * information loss, not summarization, and the ORIGINAL document is used instead.
+ * Costs input tokens; never costs content.
+ */
+const MIN_SUMMARY_FIDELITY = 0.5;
+
+/**
  * Hard cap per-document chars before sending to Gemini.
  * Gemini context = 1M tokens; prompt overhead ~50K tokens; at 0.3 tok/char
  * 900K chars ≈ 270K tokens — safe with prompt + thinking overhead.
@@ -167,7 +179,10 @@ async function summarizeBatch(ai, docs, opts = {}) {
 
   const promptText = `You are a precision document summarizer for a meeting analysis pipeline.
 
-Your job: read ALL documents below and produce a CONDENSED version of each that preserves every piece of actionable information.
+Your job: read ALL documents below and produce a version of each that preserves
+EVERY piece of information a downstream analyst could need. You are removing
+padding and repetition ONLY — you are not shortening the substance. When in
+doubt, keep it.
 
 WHAT TO PRESERVE (in order of importance):
 1. IDENTIFIERS — Every ticket ID, task ID, CR number, PR number, JIRA key, GitHub issue, reference number, version number. Copy these VERBATIM — do not paraphrase or abbreviate IDs.
@@ -190,7 +205,15 @@ WHAT TO REMOVE:
 ${focusSection}
 
 QUALITY REQUIREMENTS:
-- Aim for 70-80% size reduction while preserving ALL actionable information.
+- COMPLETENESS BEATS BREVITY. There is no length limit and no reward for a short
+  answer. A long summary that keeps everything is CORRECT; a short one that drops
+  a single detail is WRONG.
+- Keep AT LEAST 60% of each document's original length. If a document is already
+  dense (tables, checklists, ID lists, specs), reproduce it essentially verbatim —
+  returning it unchanged is a valid and often the best answer.
+- Never generalize specifics into summary phrasing. "13 tasks pending" must keep
+  the 13 task rows. "Several blockers" is a failure; list each blocker.
+- Never merge distinct items into one line. One source item = one output item.
 - Every ID, every name, every status MUST survive the summarization.
 - If two documents reference the same entity (ticket, file, person), ensure the summary preserves enough context in BOTH summaries for downstream consumers to make the connection.
 - When a document contains a table, preserve the table structure (header + key rows). Omit empty or low-value rows.
@@ -461,6 +484,7 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
   let originalTokens = 0;
   let summaryTokens = 0;
   const resultDocs = [];
+  const rejected = []; // summaries that fell below the fidelity floor
 
   for (const doc of contextDocs) {
     // Non-text docs without extracted content stay as-is
@@ -486,6 +510,17 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
     const summary = allSummaries.get(summaryKey);
 
     if (summary && summary.length > 0) {
+      // Reject over-compression: a summary far below the fidelity floor has
+      // dropped content, not padding. Keep the original rather than feed the
+      // rest of the pipeline a gutted document.
+      if (summary.length < doc.content.length * MIN_SUMMARY_FIDELITY) {
+        const keptPct = ((summary.length / doc.content.length) * 100).toFixed(0);
+        console.warn(`    ${c.warn(`${doc.fileName}: summary kept only ${keptPct}% of the original — rejected, using full document`)}`);
+        rejected.push({ fileName: doc.fileName, keptPercent: parseFloat(keptPct) });
+        resultDocs.push(doc);
+        continue;
+      }
+
       const origTokens = estimateTokens(doc.content);
       const sumTokens = estimateTokens(summary);
       originalTokens += origTokens;
@@ -517,11 +552,17 @@ async function deepSummarize(ai, contextDocs, opts = {}) {
     ? parseFloat(((savedTokens / originalTokens) * 100).toFixed(1))
     : 0;
 
+  if (rejected.length > 0) {
+    console.log(`    ${c.dim(`${rejected.length} over-compressed summary(ies) rejected — those documents are used in full.`)}`);
+  }
+
   return {
     docs: resultDocs,
     stats: {
-      summarized: allSummaries.size,
-      keptFull: keepFull.length,
+      summarized: allSummaries.size - rejected.length,
+      rejectedForLowFidelity: rejected.length,
+      rejectedFiles: rejected,
+      keptFull: keepFull.length + rejected.length,
       originalTokens,
       summaryTokens,
       savedTokens,
@@ -543,5 +584,6 @@ module.exports = {
   SUMMARY_MAX_OUTPUT,
   BATCH_MAX_CHARS,
   MIN_SUMMARIZE_LENGTH,
+  MIN_SUMMARY_FIDELITY,
   MAX_DOC_CHARS,
 };

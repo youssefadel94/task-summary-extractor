@@ -191,7 +191,10 @@ function getMaxThinkingBudget() {
 // ======================== VIDEO PROCESSING ========================
 
 const SPEED = envFloat('VIDEO_SPEED', 1.6);
-const SEG_TIME = envInt('VIDEO_SEGMENT_TIME', 280); // seconds — produces segments < 5 min
+// Seconds of *output* (sped-up) video per segment — ffmpeg's segment muxer cuts
+// on the post-speed-up timeline. At the default 1.6x, 280s of output covers
+// ~448s (7.5 min) of the original meeting.
+const SEG_TIME = envInt('VIDEO_SEGMENT_TIME', 280);
 const PRESET = env('VIDEO_PRESET', 'slow');
 const VIDEO_EXTS = ['.mp4', '.mkv', '.avi', '.mov', '.webm'];
 const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma'];
@@ -280,6 +283,39 @@ const MIME_MAP = {
   '.svg': 'image/svg+xml',
 };
 
+// ======================== FIREBASE AVAILABILITY ========================
+
+// Keys Firebase Storage cannot work without.
+const FIREBASE_REQUIRED_KEYS = ['apiKey', 'authDomain', 'projectId', 'storageBucket'];
+
+/**
+ * Report whether Firebase is usable.
+ *
+ * Firebase is optional across the whole tool: when it is not configured every
+ * feature falls back to local-only output instead of failing.
+ *
+ * Returns:
+ *   configured — all required keys present (uploads can run)
+ *   missing    — required config keys that are absent
+ *   partial    — some keys set but not all (likely a typo/incomplete setup — worth warning about)
+ *   absent     — none of the required keys set (deliberate opt-out — stay quiet)
+ */
+function firebaseStatus() {
+  const missing = FIREBASE_REQUIRED_KEYS.filter(key => !FIREBASE_CONFIG[key]);
+  return {
+    configured: missing.length === 0,
+    missing,
+    missingEnvKeys: missing.map(key => `FIREBASE_${key.replace(/([A-Z])/g, '_$1').toUpperCase()}`),
+    partial: missing.length > 0 && missing.length < FIREBASE_REQUIRED_KEYS.length,
+    absent: missing.length === FIREBASE_REQUIRED_KEYS.length,
+  };
+}
+
+/** Convenience predicate — true when Firebase uploads are possible. */
+function isFirebaseConfigured() {
+  return firebaseStatus().configured;
+}
+
 // ======================== VALIDATION ========================
 
 /**
@@ -288,18 +324,20 @@ const MIME_MAP = {
  */
 function validateConfig({ skipFirebase = false, skipGemini = false } = {}) {
   const errors = [];
+  const warnings = [];
 
   if (!skipGemini && !GEMINI_API_KEY) {
     errors.push('GEMINI_API_KEY is missing. Set it in .env or as an environment variable.');
   }
 
+  // Firebase is optional: when it is not (fully) configured, uploads are bypassed
+  // rather than failing the run. Only surface a warning, never a fatal error.
   if (!skipFirebase) {
-    const fbRequired = ['apiKey', 'authDomain', 'projectId', 'storageBucket'];
-    for (const key of fbRequired) {
-      if (!FIREBASE_CONFIG[key]) {
-        const envKey = `FIREBASE_${key.replace(/([A-Z])/g, '_$1').toUpperCase()}`;
-        errors.push(`Firebase ${key} is missing. Set ${envKey} in .env or as an environment variable.`);
-      }
+    const fb = firebaseStatus();
+    if (fb.partial) {
+      warnings.push(
+        `Firebase is partially configured — missing ${fb.missingEnvKeys.join(', ')}. Uploads will be skipped.`
+      );
     }
   }
 
@@ -327,11 +365,14 @@ function validateConfig({ skipFirebase = false, skipGemini = false } = {}) {
     errors.push(`GEMINI_MODEL="${GEMINI_MODEL}" is not in the model registry. Valid models: ${validModels}`);
   }
 
-  return { valid: errors.length === 0, errors };
+  return { valid: errors.length === 0, errors, warnings };
 }
 
 module.exports = {
   FIREBASE_CONFIG,
+  FIREBASE_REQUIRED_KEYS,
+  firebaseStatus,
+  isFirebaseConfigured,
   GEMINI_API_KEY,
   GEMINI_MODEL,
   GEMINI_CONTEXT_WINDOW,

@@ -48,6 +48,88 @@ const SEVERITY = {
 // ======================== VIDEO / AUDIO PROBING ========================
 
 /**
+ * Measure real duration by scanning packet timestamps.
+ *
+ * Live-written containers (browser MediaRecorder .webm, OBS captures, any
+ * recording whose writer was killed before finalizing) never get a Duration
+ * element in the header. The media itself is perfectly playable — only the
+ * header lookup fails — so a missing container duration is not by itself
+ * evidence of corruption. This resolves the ambiguity by reading the stream.
+ *
+ * Returns { packets, duration } — duration is null when it cannot be measured.
+ */
+function measureDurationByScan(filePath, type = 'video') {
+  try {
+    const { spawnSync } = require('child_process');
+    const { getFFprobe } = require('../services/video');
+    const result = spawnSync(getFFprobe(), [
+      '-v', 'error',
+      '-select_streams', type === 'audio' ? 'a:0' : 'v:0',
+      '-show_entries', 'packet=pts_time',
+      '-of', 'csv=p=0',
+      filePath,
+    ], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 120_000,
+      maxBuffer: 64 * 1024 * 1024, // long recordings emit one line per packet
+    });
+
+    if (result.status !== 0 || !result.stdout) return { packets: 0, duration: null };
+
+    const lines = result.stdout.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return { packets: 0, duration: null };
+
+    // Packets are not always in presentation order — take the largest timestamp.
+    let maxPts = null;
+    for (const line of lines) {
+      const pts = parseFloat(line);
+      if (Number.isFinite(pts) && (maxPts === null || pts > maxPts)) maxPts = pts;
+    }
+    return { packets: lines.length, duration: maxPts !== null && maxPts > 0 ? maxPts : null };
+  } catch {
+    return { packets: 0, duration: null };
+  }
+}
+
+/**
+ * Sniff a container's magic bytes to explain *why* ffprobe rejected a file.
+ * Returns a human-readable detail string, or null when nothing conclusive.
+ */
+function sniffContainerHeader(filePath) {
+  let header;
+  try {
+    header = Buffer.alloc(16);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, header, 0, 16, 0);
+    fs.closeSync(fd);
+  } catch {
+    return null;
+  }
+
+  const ext = path.extname(filePath).toLowerCase();
+
+  // MP4/MOV: bytes 4-8 must be a box type, normally 'ftyp' at the very start.
+  if (['.mp4', '.mov', '.m4a'].includes(ext)) {
+    const boxType = header.toString('ascii', 4, 8);
+    if (!['ftyp', 'moov', 'mdat', 'free', 'skip', 'wide'].includes(boxType)) {
+      return "No 'ftyp' box at the start — this is not a real MP4. "
+        + 'Usually a failed or partial download (or an error page saved with a .mp4 name). Re-download it.';
+    }
+    return 'MP4 boxes present but the moov index is missing — the download stopped before the file was finished.';
+  }
+
+  // Matroska/WebM magic: 1A 45 DF A3
+  if (['.webm', '.mkv'].includes(ext)) {
+    if (!(header[0] === 0x1A && header[1] === 0x45 && header[2] === 0xDF && header[3] === 0xA3)) {
+      return 'Missing Matroska/WebM signature — the file is not a valid WebM container.';
+    }
+  }
+
+  return null;
+}
+
+/**
  * Probe a media file for integrity issues using ffprobe only (fast).
  *
  * @param {string} filePath - Absolute path to video/audio file
@@ -93,8 +175,17 @@ function probeMediaIntegrity(filePath, type = 'video') {
   }
 
   if (probeResult.status !== 0) {
-    const stderr = (probeResult.stderr || '').slice(0, 200);
-    issues.push({ severity: SEVERITY.ERROR, message: 'ffprobe could not read file', detail: stderr || 'Unknown error' });
+    // Keep ffprobe's first diagnostic line only — later lines just repeat the
+    // full path, which is noise next to the plain-language hint below.
+    const firstLine = (probeResult.stderr || '').split('\n').map(s => s.trim()).find(Boolean) || '';
+    const stderr = firstLine.replace(/^\[[^\]]*\]\s*/, '').slice(0, 160);
+    // Explain the cause where the container header makes it obvious.
+    const hint = sniffContainerHeader(filePath);
+    issues.push({
+      severity: SEVERITY.ERROR,
+      message: 'ffprobe could not read file',
+      detail: hint ? `${hint}${stderr ? ` (ffprobe: ${stderr})` : ''}` : (stderr || 'Unknown error'),
+    });
     return { file: fileName, type, issues, meta };
   }
 
@@ -128,9 +219,38 @@ function probeMediaIntegrity(filePath, type = 'video') {
   }
 
   // 4. Check container duration
+  // A missing duration usually means the recording was never finalized, not
+  // that it is broken — confirm against the actual stream before crying wolf.
   if (meta.formatDuration == null || meta.formatDuration <= 0) {
-    issues.push({ severity: SEVERITY.ERROR, message: 'Container reports zero or missing duration', detail: 'File header may be corrupt' });
-    return { file: fileName, type, issues, meta };
+    const scan = measureDurationByScan(filePath, type);
+    meta.scannedPackets = scan.packets;
+
+    if (scan.packets === 0) {
+      issues.push({
+        severity: SEVERITY.ERROR,
+        message: 'No duration in the container and no readable packets',
+        detail: 'File header is corrupt and the stream could not be read.',
+      });
+      return { file: fileName, type, issues, meta };
+    }
+
+    if (scan.duration == null) {
+      issues.push({
+        severity: SEVERITY.INFO,
+        message: `Container reports no duration (${scan.packets.toLocaleString()} packets readable)`,
+        detail: 'Recording was likely not finalized. The stream is readable, so processing continues normally.',
+      });
+      return { file: fileName, type, issues, meta };
+    }
+
+    // Duration recovered — carry on with the remaining checks using it.
+    meta.formatDuration = scan.duration;
+    meta.durationSource = 'packet-scan';
+    issues.push({
+      severity: SEVERITY.INFO,
+      message: `Container reports no duration — measured ${fmtDur(scan.duration)} by scanning the stream`,
+      detail: 'Typical of a recording that was not finalized (browser/OBS capture). The media is readable; processing continues normally.',
+    });
   }
 
   // 5. Bitrate analysis — the key corruption detector
@@ -305,6 +425,19 @@ function auditFileIntegrity({ videoFiles = [], audioFiles = [], docFiles = [] } 
     r.issues.some(i => i.severity === SEVERITY.WARNING || i.severity === SEVERITY.ERROR)
   );
 
+  // ERROR means the file cannot be read at all — processing it would only waste
+  // time and pollute the analysis, so callers drop these and carry on with the
+  // rest. WARNING/INFO files are still processed.
+  const unusable = flagged
+    .filter(r => r.issues.some(i => i.severity === SEVERITY.ERROR))
+    .map(r => ({
+      file: r.file,
+      type: r.type,
+      filePath: r.meta.filePath,
+      reason: r.issues.find(i => i.severity === SEVERITY.ERROR).message,
+    }));
+  const unusablePaths = new Set(unusable.map(u => u.filePath));
+
   // Build flat warnings list
   const warnings = [];
   for (const entry of flagged) {
@@ -315,11 +448,46 @@ function auditFileIntegrity({ videoFiles = [], audioFiles = [], docFiles = [] } 
         severity: issue.severity,
         message: issue.message,
         detail: issue.detail || null,
+        excluded: unusablePaths.has(entry.meta.filePath),
       });
     }
   }
 
-  return { warnings, hasErrors, hasSuspicious, report };
+  return { warnings, hasErrors, hasSuspicious, report, unusable, totalFiles: report.length };
+}
+
+/**
+ * Combine audits run at different points (media before mode selection,
+ * documents after) into one report for display and for results.json.
+ */
+function mergeAudits(...audits) {
+  const merged = audits.filter(Boolean);
+  const report = merged.flatMap(a => a.report || []);
+  const unusable = merged.flatMap(a => a.unusable || []);
+  return {
+    warnings: merged.flatMap(a => a.warnings || []),
+    hasErrors: merged.some(a => a.hasErrors),
+    hasSuspicious: merged.some(a => a.hasSuspicious),
+    report,
+    unusable,
+    totalFiles: report.length,
+  };
+}
+
+/**
+ * Drop files the audit found unreadable.
+ * Accepts plain paths (media) or { absPath } objects (documents).
+ * Returns { kept, dropped }.
+ */
+function excludeUnusable(files, audit) {
+  const unusablePaths = new Set((audit?.unusable || []).map(u => u.filePath));
+  const kept = [];
+  const dropped = [];
+  for (const f of files) {
+    const filePath = typeof f === 'string' ? f : f.absPath;
+    (unusablePaths.has(filePath) ? dropped : kept).push(f);
+  }
+  return { kept, dropped };
 }
 
 // ======================== CONSOLE OUTPUT ========================
@@ -336,7 +504,8 @@ function printIntegrityReport(audit, log) {
   if (warnings.length === 0) return;
 
   console.log('');
-  console.log(`  ${c.warn('⚠ File Integrity Check')} — ${warnings.length} issue(s) found:`);
+  // c.warn/c.error already prefix their own glyph — never add another here.
+  console.log(`  ${c.warn('File Integrity Check')} — ${warnings.length} issue(s) found:`);
 
   // Group by file
   const byFile = {};
@@ -349,14 +518,14 @@ function printIntegrityReport(audit, log) {
     const worstSeverity = issues.some(i => i.severity === SEVERITY.ERROR) ? 'error'
       : issues.some(i => i.severity === SEVERITY.WARNING) ? 'warning' : 'info';
 
-    const icon = worstSeverity === 'error' ? c.error('✗')
-      : worstSeverity === 'warning' ? c.warn('⚠')
+    const icon = worstSeverity === 'error' ? c.red('✗')
+      : worstSeverity === 'warning' ? c.yellow('⚠')
       : c.dim('ℹ');
 
     console.log(`    ${icon} ${c.cyan(file)}`);
     for (const issue of issues) {
-      const sevLabel = issue.severity === 'error' ? c.error(issue.severity.toUpperCase())
-        : issue.severity === 'warning' ? c.warn(issue.severity.toUpperCase())
+      const sevLabel = issue.severity === 'error' ? c.red(issue.severity.toUpperCase())
+        : issue.severity === 'warning' ? c.yellow(issue.severity.toUpperCase())
         : c.dim(issue.severity.toUpperCase());
 
       console.log(`      ${sevLabel}: ${issue.message}`);
@@ -364,12 +533,15 @@ function printIntegrityReport(audit, log) {
         console.log(`        ${c.dim(issue.detail)}`);
       }
     }
+    if (issues.some(i => i.excluded)) {
+      console.log(`        ${c.dim('→ Skipped — the rest of the files are processed as normal.')}`);
+    }
   }
 
   if (hasErrors) {
     console.log('');
-    console.log(`  ${c.error('Some files may be broken.')} Processing will continue, but results may be incomplete.`);
-    console.log(`  ${c.dim('Re-download or replace broken files and re-run for best results.')}`);
+    console.log(`  ${c.error('Unreadable files were skipped.')} Everything else is processed as normal.`);
+    console.log(`  ${c.dim('Re-download or replace the skipped files and re-run to include them.')}`);
   } else if (hasSuspicious) {
     console.log('');
     console.log(`  ${c.warn('Some files look suspicious.')} Processing will continue — check results.json for details.`);
@@ -408,8 +580,12 @@ module.exports = {
   probeMediaIntegrity,
   probeDocIntegrity,
   auditFileIntegrity,
+  mergeAudits,
+  excludeUnusable,
   printIntegrityReport,
   SEVERITY,
+  measureDurationByScan,
+  sniffContainerHeader,
   // Exported for testing
   MIN_VIDEO_BITRATE_BPS,
   MIN_AUDIO_BITRATE_BPS,

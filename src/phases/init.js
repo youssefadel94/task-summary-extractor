@@ -7,7 +7,7 @@ const path = require('path');
 const config = require('../config');
 const {
   LOG_LEVEL, MAX_PARALLEL_UPLOADS, THINKING_BUDGET, COMPILATION_THINKING_BUDGET,
-  validateConfig, GEMINI_MODELS, setActiveModel, getActiveModelPricing,
+  validateConfig, GEMINI_MODELS, setActiveModel, getActiveModelPricing, firebaseStatus,
 } = config;
 
 // --- Utils ---
@@ -66,7 +66,10 @@ async function phaseInit() {
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
     noHtml: !!flags['no-html'],
-    noBatch: !!flags['no-batch'],
+    // Batching off by default: one Gemini call per batch produces ONE merged
+    // analysis for several segments, so per-segment detail is lost before
+    // compilation even sees it. --batch opts back in for cheaper, coarser runs.
+    noBatch: flags.batch ? false : true,
     // Video processing flags
     noCompress: !!flags['no-compress'],
     speed: flags.speed ? parseFloat(flags.speed) : null,
@@ -268,6 +271,20 @@ async function phaseInit() {
     throw new Error(`"${targetDir}" is not a valid folder. Check the path and try again.`);
   }
 
+  // --- Firebase is optional: bypass uploads when it is not configured ---
+  const fbStatus = firebaseStatus();
+  if (!fbStatus.configured && !opts.skipUpload) {
+    opts.skipUpload = true;
+    opts.uploadDisabledReason = 'Firebase not configured';
+    if (fbStatus.partial) {
+      console.warn(`\n  ${c.warn(`Firebase is partially configured — missing ${fbStatus.missingEnvKeys.join(', ')}.`)}`);
+      console.warn(`  ${c.dim('Uploads are disabled for this run; results stay local.')}\n`);
+    } else {
+      console.log(`  ${c.dim('Firebase not configured — uploads disabled, results stay local.')}`);
+      console.log(`  ${c.dim('Run')} ${c.cyan('taskex config')} ${c.dim('to enable Storage uploads.')}\n`);
+    }
+  }
+
   // --- Validate configuration (with first-run recovery) ---
   let configCheck = validateConfig({
     skipFirebase: opts.skipUpload,
@@ -284,6 +301,10 @@ async function phaseInit() {
         skipGemini: opts.skipGemini,
       });
     }
+  }
+
+  if (configCheck.warnings?.length) {
+    configCheck.warnings.forEach(w => console.warn(`  ${c.warn(w)}`));
   }
 
   if (!configCheck.valid) {
@@ -424,14 +445,14 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (!opts.noBatch) features.push(c.green('batch'));
   if (opts.resume) features.push(c.yellow('resume'));
   if (opts.dryRun) features.push(c.yellow('dry-run'));
-  if (opts.skipUpload) features.push(c.dim('skip-upload'));
+  if (opts.skipUpload) features.push(c.dim(opts.uploadDisabledReason ? 'no-upload (firebase off)' : 'skip-upload'));
 
   const disabled = [];
   if (opts.disableFocusedPass) disabled.push(c.dim('no-focused'));
   if (opts.disableLearning) disabled.push(c.dim('no-learning'));
   if (opts.disableDiff) disabled.push(c.dim('no-diff'));
   if (opts.disableProgress) disabled.push(c.dim('no-progress'));
-  if (opts.noBatch) disabled.push(c.dim('no-batch'));
+  if (opts.noBatch) features.push(c.green('per-segment'));
 
   if (features.length > 0) {
     console.log(`    ${c.dim('Features:')}    ${features.join(c.dim(' · '))}`);

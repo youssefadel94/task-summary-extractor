@@ -139,6 +139,24 @@ function normalizeDesc(s) {
     .trim();
 }
 
+/**
+ * Normalize a task description for cross-source matching.
+ *
+ * The same task arrives phrased two ways — `your_tasks.tasks_todo` says
+ * "Clean up code", `action_items` says "Youssef to clean up code" — and plain
+ * normalizeDesc keeps them distinct, so both land in the To Do list. Stripping
+ * the leading actor phrase makes them match.
+ *
+ * Kept separate from normalizeDesc because dropping the actor is only safe
+ * where the owner is already fixed (a single person's task list); in a global
+ * action-item list "Huda to review" and "Youssef to review" are different work.
+ */
+function normalizeTaskDesc(s) {
+  return normalizeDesc(s)
+    .replace(/^[a-z]+(?:\s+[a-z]+)?\s+(?:to|will|should|must|needs?\s+to|is\s+to)\s+/, '')
+    .trim();
+}
+
 /** Deduplicate by description text similarity. */
 function dedupByDesc(arr, descField = 'description') {
   const seen = new Set();
@@ -217,6 +235,7 @@ module.exports = {
   resolve,
   dedupBy,
   normalizeDesc,
+  normalizeTaskDesc,
   dedupByDesc,
   fmtTs,
   shortVideo,

@@ -25,6 +25,15 @@ function setShuttingDown(val) {
 }
 function getAbortSignal() { return _abortController.signal; }
 
+/**
+ * Human-readable reason uploads are off, for status lines.
+ * Uploads are skipped either because the user asked (--skip-upload) or because
+ * Firebase was never configured (phaseInit sets uploadDisabledReason).
+ */
+function uploadSkipReason(opts) {
+  return opts.uploadDisabledReason || '--skip-upload';
+}
+
 /** Create a timing wrapper for phase profiling — also writes structured log spans */
 function phaseTimer(phaseName) {
   const t0 = Date.now();
@@ -48,4 +57,5 @@ module.exports = {
   setShuttingDown,
   getAbortSignal,
   phaseTimer,
+  uploadSkipReason,
 };

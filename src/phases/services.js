@@ -18,7 +18,7 @@ const { estimateTokens } = require('../utils/context-manager');
 
 // --- Shared state ---
 const { c } = require('../utils/colors');
-const { getLog, isShuttingDown, phaseTimer, PROJECT_ROOT } = require('./_shared');
+const { getLog, isShuttingDown, phaseTimer, PROJECT_ROOT, uploadSkipReason } = require('./_shared');
 
 // ======================== PHASE: SERVICES ========================
 
@@ -41,7 +41,7 @@ async function phaseServices(ctx) {
     storage = fb.storage;
     firebaseReady = fb.authenticated;
   } else if (opts.skipUpload) {
-    console.log(`  Firebase: ${c.dim('skipped (--skip-upload)')}`);
+    console.log(`  Firebase: ${c.dim(`skipped (${uploadSkipReason(opts)})`)}`);
   } else {
     console.log(`  Firebase: ${c.dim('skipped (--dry-run)')}`);
   }
@@ -122,7 +122,7 @@ async function phaseServices(ctx) {
       console.warn(`    ${c.warn(`Upload failed: ${w}`)}`);
     }
   } else if (opts.skipUpload) {
-    console.log(`  ${c.warn('Skipping document uploads (--skip-upload)')}`);
+    console.log(`  ${c.dim(`Skipping document uploads (${uploadSkipReason(opts)})`)}`);
   } else {
     console.log(`  ${c.warn('Skipping document uploads (Firebase auth not configured)')}`);
   }

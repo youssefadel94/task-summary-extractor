@@ -56,9 +56,9 @@ d('video service (real ffmpeg)', () => {
     expect(video.verifySegment(path.join(dir, 'nope.mp4'))).toBe(false);
   });
 
-  it('compressAndSegment produces a single valid segment for a short clip', () => {
+  it('compressAndSegment produces a single valid segment for a short clip', async () => {
     const outDir = path.join(dir, 'compressed');
-    const segments = video.compressAndSegment(clip, outDir, { segTime: 1200, speed: 1.6 });
+    const segments = await video.compressAndSegment(clip, outDir, { segTime: 1200, speed: 1.6 });
     expect(segments.length).toBeGreaterThanOrEqual(1);
     for (const s of segments) {
       expect(fs.existsSync(s)).toBe(true);
@@ -66,9 +66,9 @@ d('video service (real ffmpeg)', () => {
     }
   }, 60000);
 
-  it('splitOnly stream-copies into a valid segment (raw mode)', () => {
+  it('splitOnly stream-copies into a valid segment (raw mode)', async () => {
     const outDir = path.join(dir, 'raw');
-    const segments = video.splitOnly(clip, outDir, { segTime: 1200 });
+    const segments = await video.splitOnly(clip, outDir, { segTime: 1200 });
     expect(segments.length).toBeGreaterThanOrEqual(1);
     expect(video.verifySegment(segments[0])).toBe(true);
     expect(segments[0].endsWith('.mp4')).toBe(true);

@@ -220,12 +220,13 @@ function printHealthDashboard(report) {
   // File integrity warnings
   if (report.integrityWarnings && report.integrityWarnings.length > 0) {
     console.log('');
-    console.log(`  ${c.warn('⚠ File Integrity Warnings')} (${report.integrityWarnings.length}):`);
+    console.log(`  ${c.warn('File Integrity Warnings')} (${report.integrityWarnings.length}):`);
     for (const w of report.integrityWarnings) {
-      const icon = w.severity === 'error' ? c.error('✗')
-        : w.severity === 'warning' ? c.warn('⚠')
+      const icon = w.severity === 'error' ? c.red('✗')
+        : w.severity === 'warning' ? c.yellow('⚠')
         : c.dim('ℹ');
-      console.log(`    ${icon} ${w.file}: ${w.message}`);
+      const tag = w.excluded ? c.dim(' (skipped)') : '';
+      console.log(`    ${icon} ${w.file}: ${w.message}${tag}`);
     }
   }
 

@@ -9,10 +9,10 @@ const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, IMAGE_EXTS, SPEED, SEG_TIME } = config
 
 // --- Utils ---
 const { c } = require('../utils/colors');
-const { findDocsRecursive } = require('../utils/fs');
+const { findDocsRecursive, dedupeFormatTwins } = require('../utils/fs');
 const { promptUserText } = require('../utils/cli');
 const { selectMany } = require('../utils/interactive');
-const { auditFileIntegrity, printIntegrityReport } = require('../utils/file-integrity');
+const { auditFileIntegrity, mergeAudits, excludeUnusable, printIntegrityReport } = require('../utils/file-integrity');
 
 // --- Shared state ---
 const { getLog, phaseTimer } = require('./_shared');
@@ -36,7 +36,20 @@ async function phaseDiscover(ctx) {
     })
     .map(f => path.join(targetDir, f));
 
-  // --- Find audio files (if no video) ---
+  // --- Integrity: drop unreadable media before anything depends on the list ---
+  // Broken files are excluded from processing but still reported below, and a
+  // folder whose videos are all broken correctly falls back to audio/documents.
+  const audits = [];
+  const excluded = [];
+  if (videoFiles.length > 0) {
+    const videoAudit = auditFileIntegrity({ videoFiles });
+    audits.push(videoAudit);
+    const split = excludeUnusable(videoFiles, videoAudit);
+    videoFiles = split.kept;
+    excluded.push(...split.dropped.map(f => path.basename(f)));
+  }
+
+  // --- Find audio files (if no usable video) ---
   let audioFiles = [];
   if (videoFiles.length === 0) {
     audioFiles = fs.readdirSync(targetDir)
@@ -45,10 +58,42 @@ async function phaseDiscover(ctx) {
         return stat.isFile() && AUDIO_EXTS.includes(path.extname(f).toLowerCase());
       })
       .map(f => path.join(targetDir, f));
+
+    if (audioFiles.length > 0) {
+      const audioAudit = auditFileIntegrity({ audioFiles });
+      audits.push(audioAudit);
+      const split = excludeUnusable(audioFiles, audioAudit);
+      audioFiles = split.kept;
+      excluded.push(...split.dropped.map(f => path.basename(f)));
+    }
   }
 
   // --- Find ALL document files recursively ---
-  const allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
+  let allDocFiles = findDocsRecursive(targetDir, DOC_EXTS);
+
+  // Same document exported to several formats (foo.md + foo.html + foo.pdf)
+  // costs 2-3x the context tokens for identical words — and that inflation is
+  // what pushes a run over the deep-summary threshold in the first place.
+  const twins = dedupeFormatTwins(allDocFiles);
+  allDocFiles = twins.kept;
+  if (twins.dropped.length > 0) {
+    console.log(`  ${c.dim(`Skipped ${twins.dropped.length} duplicate export(s) — same content in another format:`)}`);
+    for (const d of twins.dropped.slice(0, 5)) {
+      console.log(`    ${c.dim(`- ${d.relPath} → using ${d.supersededBy}`)}`);
+    }
+    if (twins.dropped.length > 5) console.log(`    ${c.dim(`… and ${twins.dropped.length - 5} more`)}`);
+    log.step(`Doc dedup: dropped ${twins.dropped.length} format twin(s)`);
+  }
+
+  if (allDocFiles.length > 0) {
+    const docAudit = auditFileIntegrity({ docFiles: allDocFiles });
+    audits.push(docAudit);
+    const split = excludeUnusable(allDocFiles, docAudit);
+    allDocFiles = split.kept;
+    excluded.push(...split.dropped.map(f => f.relPath || path.basename(f.absPath)));
+  }
+
+  const integrityAudit = mergeAudits(...audits);
 
   // --- Find image files recursively ---
   const imageFiles = findDocsRecursive(targetDir, IMAGE_EXTS);
@@ -61,6 +106,13 @@ async function phaseDiscover(ctx) {
     inputMode = 'audio';
   } else if (allDocFiles.length > 0 || imageFiles.length > 0) {
     inputMode = 'document';
+  } else if (excluded.length > 0) {
+    printIntegrityReport(integrityAudit, log);
+    throw new Error(
+      `No processable files left — all ${excluded.length} file(s) in this folder were unreadable:\n` +
+      excluded.map(f => `    - ${f}`).join('\n') +
+      '\n  See the integrity report above; re-download or replace them and re-run.'
+    );
   } else {
     throw new Error(
       'No processable files found (video, audio, documents, or images).\n' +
@@ -82,7 +134,7 @@ async function phaseDiscover(ctx) {
 
   // Show active flags
   const activeFlags = [];
-  if (opts.skipUpload) activeFlags.push('skip-upload');
+  if (opts.skipUpload) activeFlags.push(opts.uploadDisabledReason ? 'no-upload (firebase off)' : 'skip-upload');
   if (opts.forceUpload) activeFlags.push('force-upload');
   if (opts.noStorageUrl) activeFlags.push('no-storage-url');
   if (opts.noCompress) activeFlags.push('no-compress');
@@ -133,6 +185,15 @@ async function phaseDiscover(ctx) {
     console.log(`  Segments: ${c.dim('< 5 min each')} (${c.yellow(SEG_TIME + 's')})`);
   }
   console.log(`  Model   : ${c.cyan(config.GEMINI_MODEL)}`);
+  // Economy models are tuned for high-volume simple processing. On dense
+  // meeting analysis they extract noticeably fewer tickets/actions/blockers
+  // per segment, which reads as "the tool missed things" rather than "the
+  // cheap model missed things".
+  if (/lite/i.test(config.GEMINI_MODEL) || config.GEMINI_MODELS[config.GEMINI_MODEL]?.tier === 'economy') {
+    console.log(`  ${c.warn('Economy model selected — expect noticeably less detail per segment.')}`);
+    console.log(`    ${c.dim('For a thorough extraction use a balanced/premium model (--model or the model picker).')}`);
+    log.warn(`Economy model in use for analysis: ${config.GEMINI_MODEL}`);
+  }
   if (inputMode !== 'document') {
     console.log(`  Parallel: ${c.yellow(opts.parallel)} concurrent uploads`);
   }
@@ -142,8 +203,16 @@ async function phaseDiscover(ctx) {
   // Save progress init
   progress.init(path.basename(targetDir), userName);
 
+  if (excluded.length > 0) {
+    console.log(`  ${c.yellow('\u26a0')} Skipped ${c.highlight(excluded.length)} unreadable file(s): ${c.dim(excluded.join(', '))}`);
+    console.log(`    ${c.dim('Details in the integrity report below \u2014 everything else is processed as normal.')}`);
+    console.log('');
+  }
+
   if (inputMode === 'document') {
-    console.log(`  ${c.info('No video or audio files found \u2014 running in document-only mode.')}`);
+    console.log(`  ${c.info(excluded.length > 0
+      ? 'No usable video or audio left \u2014 running in document-only mode.'
+      : 'No video or audio files found \u2014 running in document-only mode.')}`);
     if (!opts.dynamic) {
       console.log(`  ${c.dim('Tip: Use --dynamic for custom document generation.')}`);
     }
@@ -192,15 +261,18 @@ async function phaseDiscover(ctx) {
     console.log('');
   }
 
-  // --- File integrity audit (non-blocking) ---
-  const integrityAudit = auditFileIntegrity({ videoFiles, audioFiles, docFiles: allDocFiles });
+  // --- File integrity report (audited above, before mode selection) ---
   if (integrityAudit.warnings.length > 0) {
     printIntegrityReport(integrityAudit, log);
     log.step(`File integrity: ${integrityAudit.warnings.length} issue(s) flagged`);
+    if (excluded.length > 0) {
+      log.warn(`Excluded ${excluded.length} unreadable file(s) from processing: ${excluded.join(', ')}`);
+    }
     log.metric('file_integrity', {
       totalFiles: integrityAudit.totalFiles,
       warnings: integrityAudit.warnings.length,
-      issues: integrityAudit.warnings.map(w => ({ file: w.file, severity: w.severity, reason: w.reason })),
+      excluded: integrityAudit.unusable.map(u => ({ file: u.file, type: u.type, reason: u.reason })),
+      issues: integrityAudit.warnings.map(w => ({ file: w.file, severity: w.severity, reason: w.message })),
     });
   }
 
