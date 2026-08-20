@@ -25,6 +25,7 @@ const config = require('../config');
 const { extractJson } = require('../utils/json-parser');
 const { withRetry } = require('../utils/retry');
 const { isShuttingDown } = require('../phases/_shared');
+const { MERMAID_RULES, sanitizeMermaidBlocks, buildDocumentMap } = require('../utils/mermaid');
 
 // ======================== TOPIC PLANNING ========================
 
@@ -174,7 +175,7 @@ RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
  * @returns {Promise<{markdown: string, raw: string, durationMs: number, tokenUsage: object}>}
  */
 async function generateDynamicDocument(ai, topic, userRequest, docSnippets, options = {}) {
-  const { folderName = 'project', userName = '', thinkingBudget = 16384, allTopics = [], videoSummaries = [] } = options;
+  const { folderName = 'project', userName = '', thinkingBudget = 16384, allTopics = [], videoSummaries = [], diagrams = true } = options;
 
   // Build the list of related documents for cross-references
   const otherDocs = allTopics
@@ -240,6 +241,9 @@ WRITING RULES:
 10. Start with a level-1 heading (# Title) followed by a brief introduction.
 11. Include a "Summary" or "Key Takeaways" section at the end for longer docs.
 
+${diagrams ? `
+${MERMAID_RULES}
+` : ''}
 START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):`;
 
   const requestPayload = {
@@ -272,6 +276,11 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
     markdown = markdown.replace(/^```\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
 
+
+  // Models produce almost-valid Mermaid — repair the recurring mistakes (unquoted
+  // labels, <br> tags, reserved-word ids) so the fences actually render.
+  if (diagrams) markdown = sanitizeMermaidBlocks(markdown);
+
   const usage = response.usageMetadata || {};
   const tokenUsage = {
     inputTokens: usage.promptTokenCount || 0,
@@ -300,7 +309,7 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
  * @returns {Promise<{markdown: string, raw: string, durationMs: number, tokenUsage: object}>}
  */
 async function generateUnifiedDocument(ai, userRequest, docSnippets, options = {}) {
-  const { folderName = 'project', userName = '', thinkingBudget = 16384, videoSummaries = [] } = options;
+  const { folderName = 'project', userName = '', thinkingBudget = 16384, videoSummaries = [], diagrams = true } = options;
 
   // Build video context section
   const videoSection = videoSummaries.length > 0
@@ -347,6 +356,9 @@ WRITING RULES:
 11. DO NOT include YAML frontmatter.
 12. Start with a level-1 heading (# Title).
 
+${diagrams ? `
+${MERMAID_RULES}
+` : ''}
 START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):`;
 
   const requestPayload = {
@@ -378,6 +390,11 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
   } else if (markdown.startsWith('```')) {
     markdown = markdown.replace(/^```\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
+
+
+  // Models produce almost-valid Mermaid — repair the recurring mistakes (unquoted
+  // labels, <br> tags, reserved-word ids) so the fences actually render.
+  if (diagrams) markdown = sanitizeMermaidBlocks(markdown);
 
   const usage = response.usageMetadata || {};
   const tokenUsage = {
@@ -525,6 +542,21 @@ function writeDynamicOutput(outputDir, documents, meta = {}) {
     '',
   ];
 
+  if (meta.diagrams !== false) {
+    const map = buildDocumentMap({
+      title: meta.userRequest || meta.projectSummary || 'Generated documents',
+      groups: Object.entries(categories).map(([cat, docs]) => ({
+        category: cat,
+        label: categoryLabels[cat] || cat,
+        docs: docs.map(d => ({ title: d.topic.title })),
+      })),
+    });
+    if (map) {
+      indexLines.push(map);
+      indexLines.push('');
+    }
+  }
+
   for (const [cat, docs] of Object.entries(categories)) {
     indexLines.push(`### ${categoryLabels[cat] || cat}`);
     indexLines.push('');
@@ -640,7 +672,7 @@ Write a clear educational explanation.
 - Start with "what it is" for newcomers
 - Explain "why it matters" in context
 - Use analogies to make complex ideas accessible
-- Include diagrams (as described text) if helpful
+- Include a Mermaid diagram when the concept has parts that relate to each other
 - Progress from simple to advanced`,
 
     'decision': `CATEGORY GUIDANCE — DECISION RECORD:

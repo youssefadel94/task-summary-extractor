@@ -190,7 +190,13 @@ function getMaxThinkingBudget() {
 
 // ======================== VIDEO PROCESSING ========================
 
+// The speed the finished segments should play at, measured against the ORIGINAL
+// real-life meeting — not against the input file.
 const SPEED = envFloat('VIDEO_SPEED', 1.6);
+// How fast the source recording already plays. 1 = captured in real time; 2 = the
+// recorder itself sped the footage up 2x. Anything above 1 means ffmpeg has less
+// work to do to reach SPEED, so it is subtracted out rather than compounded.
+const SOURCE_SPEED = envFloat('VIDEO_SOURCE_SPEED', 1);
 // Seconds of *output* (sped-up) video per segment — ffmpeg's segment muxer cuts
 // on the post-speed-up timeline. At the default 1.6x, 280s of output covers
 // ~448s (7.5 min) of the original meeting.
@@ -205,6 +211,53 @@ const DOC_EXTS = [
   '.xlsx', '.xls', '.pptx', '.ppt', '.odt', '.odp', '.ods', '.rtf', '.epub',
   '.html', '.htm',
 ];
+
+/** Trim binary-float noise so 1.6/1.25 reads as 1.28, not 1.2800000000000002. */
+function roundSpeed(n) {
+  return Math.round(n * 10000) / 10000;
+}
+
+/** ffmpeg's practical limits for setpts/atempo, and what this tool will accept. */
+const SPEED_MIN = 0.1;
+const SPEED_MAX = 10;
+
+/**
+ * Work out the three different speeds a run needs. They only coincide when the
+ * source was recorded in real time, which is why they are resolved in one place.
+ *
+ *   sourceSpeed    how fast the input file already plays vs real life
+ *   encodeSpeed    the multiplier handed to ffmpeg (setpts / atempo)
+ *   timelineSpeed  output seconds → original real-life seconds (source × encode)
+ *
+ * `speed` is the TARGET against the original footage, so a 2x-recorded source
+ * is re-encoded at 0.8 and the result still plays at 1.6x of real life. That
+ * keeps every timestamp the model reports anchored to the real meeting clock.
+ *
+ * @param {{ speed?: number|null, sourceSpeed?: number|null, noCompress?: boolean }} [opts]
+ */
+function resolveSpeeds({ speed = null, sourceSpeed = null, noCompress = false } = {}) {
+  const source = roundSpeed(sourceSpeed > 0 ? sourceSpeed : SOURCE_SPEED);
+
+  // Raw passthrough re-encodes nothing, so the segments keep playing at exactly
+  // the speed they were recorded at — there is no target to hit.
+  if (noCompress) {
+    return { sourceSpeed: source, targetSpeed: source, encodeSpeed: 1, timelineSpeed: source, clamped: false };
+  }
+
+  const target = speed > 0 ? speed : SPEED;
+  const wanted = roundSpeed(target / source);
+  const encode = roundSpeed(Math.min(SPEED_MAX, Math.max(SPEED_MIN, wanted)));
+
+  return {
+    sourceSpeed: source,
+    targetSpeed: target,
+    encodeSpeed: encode,
+    // Recomputed from the (possibly clamped) encode speed so timestamps describe
+    // the file that was actually produced, not the one that was asked for.
+    timelineSpeed: roundSpeed(source * encode),
+    clamped: wanted !== encode,
+  };
+}
 
 // ======================== PIPELINE SETTINGS ========================
 
@@ -345,6 +398,10 @@ function validateConfig({ skipFirebase = false, skipGemini = false } = {}) {
     errors.push(`VIDEO_SPEED=${SPEED} is out of range. Must be between 0.5 and 10.`);
   }
 
+  if (SOURCE_SPEED < SPEED_MIN || SOURCE_SPEED > SPEED_MAX) {
+    errors.push(`VIDEO_SOURCE_SPEED=${SOURCE_SPEED} is out of range. Must be between ${SPEED_MIN} and ${SPEED_MAX}.`);
+  }
+
   if (SEG_TIME < 30 || SEG_TIME > 3600) {
     errors.push(`VIDEO_SEGMENT_TIME=${SEG_TIME} is out of range. Must be between 30 and 3600.`);
   }
@@ -381,6 +438,10 @@ module.exports = {
   getActiveModelPricing,
   getMaxThinkingBudget,
   SPEED,
+  SOURCE_SPEED,
+  SPEED_MIN,
+  SPEED_MAX,
+  resolveSpeeds,
   SEG_TIME,
   PRESET,
   VIDEO_EXTS,

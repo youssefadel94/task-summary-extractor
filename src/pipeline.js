@@ -29,7 +29,7 @@ const path = require('path');
 
 // --- Config ---
 const config = require('./config');
-const { VIDEO_EXTS, DOC_EXTS, SPEED, SEG_TIME, PRESET, THINKING_BUDGET, validateConfig } = config;
+const { VIDEO_EXTS, DOC_EXTS, SEG_TIME, PRESET, THINKING_BUDGET, validateConfig } = config;
 
 // --- Shared state ---
 const { getLog, isShuttingDown, PKG_ROOT, PROJECT_ROOT } = require('./phases/_shared');
@@ -313,6 +313,7 @@ async function run() {
   const allSegmentReports = [];
   const pipelineStartMs = Date.now();
   const mediaFiles = ctx.inputMode === 'video' ? fullCtx.videoFiles : fullCtx.audioFiles;
+  const speeds = config.resolveSpeeds(fullCtx.opts);
   const results = {
     processedAt: new Date().toISOString(),
     sourceFolder: fullCtx.targetDir,
@@ -324,7 +325,12 @@ async function run() {
     excludedFiles: (fullCtx.integrityAudit && fullCtx.integrityAudit.unusable?.length > 0)
       ? fullCtx.integrityAudit.unusable : null,
     settings: {
-      speed: fullCtx.opts.noCompress ? 1.0 : (fullCtx.opts.speed || SPEED),
+      // `speed` is output seconds → original-meeting seconds, which is what the
+      // renderers use to place segment timestamps. It only equals the ffmpeg
+      // multiplier when the source was captured in real time.
+      speed: speeds.timelineSpeed,
+      sourceSpeed: speeds.sourceSpeed,
+      encodeSpeed: speeds.encodeSpeed,
       segmentTimeSec: fullCtx.opts.noCompress ? 1200 : (fullCtx.opts.segmentTime || SEG_TIME),
       noCompress: !!fullCtx.opts.noCompress,
       ...(fullCtx.opts.noCompress ? {} : { preset: PRESET }),
@@ -856,6 +862,7 @@ async function runDocOnly(ctx) {
       integrityWarnings: results.integrityWarnings || null,
       segments: [],
       settings: results.settings,
+      diagrams: !opts.noDiagrams,
     };
 
     if (shouldRender('md')) {
@@ -1255,6 +1262,7 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
         userName: userName || opts.userName,
         thinkingBudget,
         videoSummaries,
+        diagrams: !opts.noDiagrams,
       });
 
       if (result.tokenUsage) {
@@ -1355,6 +1363,7 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
     userName: userName || opts.userName,
     thinkingBudget,
     videoSummaries,
+    diagrams: !opts.noDiagrams,
     concurrency: Math.min(opts.parallelAnalysis || 2, 3),
     onProgress: (done, total, topic) => {
       console.log(`    ${c.dim(`[${done}/${total}]`)} ${c.success(topic.title)}`);
@@ -1377,6 +1386,7 @@ async function runDynamicTopics(fullCtx, compiledAnalysis, parentRunDir) {
     userRequest,
     projectSummary: planResult.projectSummary,
     timestamp: ts,
+    diagrams: !opts.noDiagrams,
   });
 
   console.log('');
@@ -1530,7 +1540,7 @@ async function runAutoProgressCheck(ctx, compiledAnalysis, runDir, runTs) {
     const progressMd = renderProgressMarkdown({
       assessments: localAssessments,
       changeReport,
-      meta: { callName, timestamp: runTs, mode: 'auto' },
+      meta: { callName, timestamp: runTs, mode: 'auto', diagrams: !opts.noDiagrams },
     });
     fs.writeFileSync(path.join(runDir, 'progress.md'), progressMd, 'utf8');
   } catch (writeErr) {
@@ -1700,7 +1710,7 @@ async function runProgressUpdate(initCtx) {
     changeReport,
     overallSummary,
     recommendations,
-    meta: { callName, timestamp: ts, mode: aiMode },
+    meta: { callName, timestamp: ts, mode: aiMode, diagrams: !opts.noDiagrams },
   });
   const progressMdPath = path.join(runDir, 'progress.md');
   fs.writeFileSync(progressMdPath, progressMd);

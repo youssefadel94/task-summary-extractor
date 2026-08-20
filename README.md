@@ -248,10 +248,34 @@ Control how video is processed before AI analysis:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--no-compress` | off | Skip re-encoding — pass raw video to Gemini (auto-splits at 20 min) |
-| `--speed <n>` | `1.6` | Playback speed multiplier (compress mode only) |
+| `--speed <n>` | `1.6` | Target speed of the output vs the **original footage** (compress mode only) |
+| `--source-speed <n>` | `1` | Speed the recording was **already captured at** (0.1–10) |
 | `--segment-time <n>` | `280` | Segment length in seconds of **sped-up output**, compress mode only (30–3600) |
 
 > **Note:** `--segment-time` is measured on the sped-up timeline, because ffmpeg's segment muxer cuts after the speed filter. At the default `--speed 1.6`, `--segment-time 280` produces 280-second files that each cover **~7.5 minutes of the actual meeting**. Divide by your speed multiplier to reason in meeting time.
+
+#### Recordings that were already sped up
+
+Some screen recorders capture sped-up footage. Encoding that at the usual 1.6× would **compound** the two — a 2× capture would land at 3.2× of the real meeting, and every timestamp the model reports would drift away from the real clock.
+
+`--source-speed` tells the pipeline what it is starting from, so the capture speed is subtracted instead:
+
+```
+encode speed = --speed ÷ --source-speed
+```
+
+| You ran | ffmpeg encodes at | Result vs the real meeting |
+|---------|-------------------|----------------------------|
+| *(nothing)* | 1.6× | 1.6× |
+| `--source-speed 1.25` | 1.28× | 1.6× |
+| `--source-speed 2` | 0.8× *(slowed down)* | 1.6× |
+| `--source-speed 1.5 --speed 3` | 2× | 3× |
+
+A source faster than your target means the video is **slowed back down** — the segments come out longer and larger than the input. If you would rather keep it fast, raise `--speed` to at least your `--source-speed`.
+
+`--source-speed` also applies under `--no-compress`. Nothing is re-encoded there, but the pipeline still needs it to map segment timestamps back onto the original meeting clock.
+
+In interactive runs on a folder containing media, a **🎬 Source Recording Speed** picker asks for this — press Enter for the normal 1× case. Set `VIDEO_SOURCE_SPEED` in `.env` if your recorder always does this.
 
 **Duration constraints** (per [Google Gemini docs](https://ai.google.dev/gemini-api/docs/vision#video)):
 - Default resolution: ~300 tokens/sec → max ~55 min/segment (recommended: ≤20 min)
@@ -275,6 +299,7 @@ Control how video is processed before AI analysis:
 | `--no-focused-pass` | enabled | Disable targeted re-analysis of weak segments |
 | `--no-learning` | enabled | Disable auto-tuning from historical run data |
 | `--no-diff` | enabled | Disable diff comparison with the previous run |
+| `--no-diagrams` | enabled | Disable Mermaid diagrams in the generated Markdown |
 | `--batch` | disabled | Group segments into one API call. Cheaper, but several segments share one merged analysis, so per-segment detail is lost before compilation. Off by default |
 
 ### Available Models
@@ -297,10 +322,10 @@ CONFIG     --gemini-key  --firebase-key  --firebase-project
 MODES      --dynamic  --deep-dive  --deep-summary  --update-progress
 CORE       --name  --model  --skip-upload  --resume  --reanalyze  --dry-run
 OUTPUT     --format <md|html|json|pdf|docx|all>  --min-confidence <high|medium|low>
-           --no-html
+           --no-html  --no-diagrams
 UPLOAD     --force-upload  --no-storage-url
 SKIP       --skip-compression  --skip-gemini
-VIDEO      --no-compress  --speed <n>  --segment-time <n>
+VIDEO      --no-compress  --speed <n>  --source-speed <n>  --segment-time <n>
 DYNAMIC    --request <text>
 PROGRESS   --repo <path>
 TUNING     --thinking-budget  --compilation-thinking-budget  --parallel
@@ -431,6 +456,7 @@ GEMINI_API_KEY=your-key-here
 # Optional — uncomment to customize
 # GEMINI_MODEL=gemini-3-flash-preview
 # VIDEO_SPEED=1.6
+# VIDEO_SOURCE_SPEED=1
 # THINKING_BUDGET=24576
 # LOG_LEVEL=info
 
@@ -467,6 +493,7 @@ GEMINI_API_KEY=your-key-here
 | **Deep Dive** | Explanatory docs per topic discussed |
 | **Dynamic Mode** | Generate docs from any content mix |
 | **Progress Bar** | Real-time visual progress with phase tracking, ETA, and cost display |
+| **Mermaid Diagrams** | Generated Markdown carries diagrams — work-item map, ownership map, blocker chains, confidence/status pies — and AI-written docs are prompted for (and repaired into) valid Mermaid. `--no-diagrams` to disable |
 | **HTML Report** | Self-contained HTML report with collapsible sections, filtering, dark mode |
 | **JSON Schema Validation** | Validates AI output against JSON Schema (segment + compiled) |
 | **Confidence Filter** | `--min-confidence` flag to exclude low-confidence items from output |

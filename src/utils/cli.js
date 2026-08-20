@@ -38,7 +38,7 @@ function parseArgs(argv) {
     'resume', 'reanalyze', 'dry-run',
     'dynamic', 'deep-dive', 'deep-summary', 'update-progress',
     'no-focused-pass', 'no-learning', 'no-diff',
-    'no-html', 'no-batch', 'batch', 'no-progress',
+    'no-html', 'no-batch', 'batch', 'no-progress', 'no-diagrams',
     'no-input', 'yes',
   ]);
 
@@ -329,7 +329,12 @@ ${f('--dry-run', 'Preview without executing')}
 ${f('--no-compress', 'Skip re-encoding — pass raw video to Gemini (fast, no quality loss)')}
 ${f2('Auto-splits at 20 min (1200s) if needed. --speed and --segment-time are ignored.')}
 ${f2('Gemini File API: up to 2 GB/file, ~300 tok/sec at default resolution.')}
-${f('--speed <n>', 'Playback speed multiplier for compression mode (default: 1.6)')}
+${f('--speed <n>', 'Target speed vs the ORIGINAL footage (default: 1.6)')}
+${f('--source-speed <n>', 'Speed the recording was already captured at (default: 1)')}
+${f2('Use when your recorder sped the footage up. The capture speed is')}
+${f2('subtracted, not added: --source-speed 2 encodes at 0.8x so the result')}
+${f2('still plays at 1.6x of the real meeting and timestamps stay correct.')}
+${f2('Applies to --no-compress too (for timestamps only — nothing is re-encoded).')}
 ${f('--segment-time <n>', 'Segment length in seconds of sped-up output, compress mode (default: 280)')}
 ${f2('At 1.6x that is ~7.5 min of actual meeting per segment.')}
 ${f2('Duration constraints (per Google Gemini docs):')}
@@ -348,6 +353,7 @@ ${f('--no-input, --yes', 'Never prompt — take every default (unattended runs)'
 ${f('--batch', 'Group segments into one call — cheaper, less per-segment detail')}
 ${f2('Off by default: batching merges several segments into one analysis.')}
 ${f('--no-html', 'Skip HTML output (Markdown only)')}
+${f('--no-diagrams', 'Skip Mermaid diagrams in the generated Markdown')}
 ${f('--log-level <level>', 'debug, info, warn, error (default: info)')}
 
   ${h('DYNAMIC MODE')}
@@ -386,6 +392,8 @@ ${f('--version, -v', 'Show version')}
     ${c.dim('$')} taskex --name "Jane" --skip-upload "call 1"
     ${c.dim('$')} taskex --model gemini-3.1-pro-preview --deep-dive "call 1"
     ${c.dim('$')} taskex --dynamic --request "Plan API migration" "specs"
+    ${c.dim('$')} taskex --source-speed 2 "call 1" ${c.dim('# Recorded at 2x → encodes 0.8x, still 1.6x of original')}
+    ${c.dim('$')} taskex --source-speed 1.5 --speed 3 "call 1" ${c.dim('# Recorded at 1.5x → encodes 2x, lands at 3x')}
     ${c.dim('$')} taskex --min-confidence medium "call 1" ${c.dim('# Filter low-confidence')}
     ${c.dim('$')} taskex --format md "call 1" ${c.dim('# Markdown only')}
     ${c.dim('$')} taskex --format md,html,pdf "call 1" ${c.dim('# Multiple formats')}
@@ -403,7 +411,7 @@ ${f('--version, -v', 'Show version')}
 module.exports = {
   parseArgs, showHelp, discoverFolders, selectFolder, selectModel,
   promptUser, promptUserText, selectRunMode, selectFormats, selectConfidence,
-  selectDocsToExclude, selectFeatureFlags,
+  selectDocsToExclude, selectFeatureFlags, selectSourceSpeed,
 };
 
 // ======================== INTERACTIVE PROMPTS ========================
@@ -660,6 +668,63 @@ async function selectConfidence() {
   return result.value;
 }
 
+// ======================== SOURCE RECORDING SPEED PICKER ========================
+
+/** Common capture speeds, plus an escape hatch for anything else. */
+const SOURCE_SPEED_CHOICES = [1, 1.25, 1.5, 2, 3];
+
+/**
+ * Ask how fast the source recording already plays.
+ *
+ * Screen recorders can capture sped-up footage, and encoding that at the usual
+ * 1.6x compounds the two — a 2x capture would end up at 3.2x of the real
+ * meeting and every reported timestamp would drift. Answering here lets the
+ * pipeline subtract the capture speed instead.
+ *
+ * @param {number} targetSpeed - Desired speed vs the original footage (default 1.6)
+ * @returns {Promise<number>} The source speed multiplier (1 = recorded in real time)
+ */
+async function selectSourceSpeed(targetSpeed = 1.6) {
+  const round = (n) => Math.round(n * 10000) / 10000;
+
+  const items = SOURCE_SPEED_CHOICES.map(s => ({
+    label: s === 1 ? `🎬 ${c.bold('Normal (1x)')}` : `⏩ ${c.bold(`${s}x`)}`,
+    hint: s === 1
+      ? `Recorded in real time — encode at ${round(targetSpeed)}x`
+      : `Recorded ${s}x faster — encode at ${round(targetSpeed / s)}x to stay ${round(targetSpeed)}x of the original`,
+    value: s,
+  }));
+  items.push({
+    label: `✏️  ${c.bold('Other…')}`,
+    hint: 'Type the exact multiplier your recorder used',
+    value: 'custom',
+  });
+
+  console.log('');
+  console.log(c.heading('  ┌──────────────────────────────────────────────────────────────────────────────┐'));
+  console.log(c.heading('  │                     🎬  Source Recording Speed                               │'));
+  console.log(c.heading('  └──────────────────────────────────────────────────────────────────────────────┘'));
+  console.log(`  ${c.dim(`Was this recording already sped up when you captured it? Segments always end`)}`);
+  console.log(`  ${c.dim(`up at ${round(targetSpeed)}x of the original, so the capture speed is subtracted, not added.`)}`);
+
+  const result = await selectOne({
+    title: null, // banner already printed
+    items,
+    default: 0, // Normal — Enter keeps today's behaviour
+    footer: '↑↓ navigate · Enter select',
+  });
+
+  if (result.value !== 'custom') return result.value;
+
+  const raw = await promptUserText('  Source recording speed (e.g. 1.75): ', { defaultText: '1' });
+  const n = parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.log(`  ${c.warn(`"${raw}" is not a speed — using 1x (recorded in real time).`)}`);
+    return 1;
+  }
+  return round(n);
+}
+
 // ======================== DEEP SUMMARY DOC EXCLUSION PICKER ========================
 
 /**
@@ -805,6 +870,16 @@ const FEATURE_FLAGS = [
     desc: 'Group segments into one call — cheaper, but merges detail across segments',
     category: 'processing',
     default: false,
+    inverted: true,
+  },
+  {
+    key: 'noDiagrams',
+    flag: '--no-diagrams',
+    icon: '🗺️',
+    label: 'Mermaid Diagrams',
+    desc: 'Draw work-item maps, ownership and status charts in the output Markdown',
+    category: 'quality',
+    default: true,
     inverted: true,
   },
   {

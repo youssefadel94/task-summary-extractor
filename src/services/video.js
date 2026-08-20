@@ -166,9 +166,33 @@ function verifySegment(segPath) {
 }
 
 /**
+ * Express a tempo change as a chain of atempo filters ffmpeg will accept.
+ *
+ * A single atempo is only safe between 0.5x and 2.0x (older builds reject
+ * anything outside that window outright), and a sped-up source pushes the
+ * encode multiplier well below 0.5 — 1.6x target from a 4x recording is 0.4.
+ * Factors outside the window are split into in-range steps whose product is
+ * the requested speed: 0.4 → `atempo=0.5,atempo=0.8`.
+ *
+ * @param {number} speed
+ * @returns {string} comma-joined filter chain for -af
+ */
+function buildAtempoChain(speed) {
+  const trim = (n) => Number(n.toFixed(6));
+  const steps = [];
+  let remaining = speed;
+  while (remaining > 2.0) { steps.push(2.0); remaining /= 2.0; }
+  while (remaining < 0.5) { steps.push(0.5); remaining /= 0.5; }
+  steps.push(trim(remaining));
+  return steps.map(s => `atempo=${s}`).join(',');
+}
+
+/**
  * Build the common ffmpeg encoding args (video + audio filters/codecs).
  * @param {string} inputFile
- * @param {{ speed?: number }} [overrides]
+ * @param {{ speed?: number }} [overrides] `speed` is the multiplier applied to
+ *   THIS file — for an already-sped-up recording that is the remainder needed
+ *   to reach the target, not the target itself (see config.resolveSpeeds).
  * Returns { encodingArgs, effectiveDuration }.
  */
 function buildEncodingArgs(inputFile, { speed = SPEED } = {}) {
@@ -202,7 +226,7 @@ function buildEncodingArgs(inputFile, { speed = SPEED } = {}) {
 
   const encodingArgs = [
     '-vf', vf,
-    '-af', `atempo=${speed}`,
+    '-af', buildAtempoChain(speed),
     '-c:v', 'libx264', '-crf', String(crf), '-preset', PRESET,
     ...tune,
     '-x264-params', x264p,
@@ -221,11 +245,14 @@ function buildEncodingArgs(inputFile, { speed = SPEED } = {}) {
  * - Long videos → segment muxer for splitting.
  * - Post-compression validation: verifies each output has a valid moov atom.
  *   Corrupt segments are re-encoded individually with the regular MP4 muxer.
- * @param {{ segTime?: number, speed?: number }} [opts]
+ * @param {{ segTime?: number, speed?: number, sourceSpeed?: number }} [opts]
+ *   `sourceSpeed` only affects reporting: it is how fast the input already plays,
+ *   used to state the result against the original meeting clock.
  * Returns sorted array of segment file paths.
  */
-async function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
+async function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED, sourceSpeed = 1 } = {}) {
   const { encodingArgs, effectiveDuration, width, crf, audioBr, duration } = buildEncodingArgs(inputFile, { speed });
+  const timelineSpeed = Math.round(speed * sourceSpeed * 10000) / 10000;
 
   fs.mkdirSync(outputDir, { recursive: true });
   const label = path.basename(inputFile);
@@ -233,6 +260,9 @@ async function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, sp
   console.log(`  Resolution : ${width > 0 ? width + 'p' : 'unknown'}`);
   console.log(`  Duration   : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${speed}x)` : ''}`);
   console.log(`  CRF ${crf} | ${audioBr} audio | ${speed}x speed`);
+  if (sourceSpeed !== 1) {
+    console.log(`  ${c.dim(`Source recorded at ${sourceSpeed}x → encoding ${speed}x → ${timelineSpeed}x of the original meeting`)}`);
+  }
 
   // Decide: single output vs segmented
   const needsSegmentation = effectiveDuration === null || effectiveDuration > segTime;
@@ -241,7 +271,7 @@ async function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, sp
     // segTime applies to the sped-up OUTPUT timeline, so each segment covers
     // segTime * speed seconds of the original meeting. Spell both out — the
     // difference matters when picking --segment-time.
-    console.log(`  Compressing (segmented, ${segTime}s chunks ${c.dim(`≈ ${fmtDuration(segTime * speed)} of meeting at ${speed}x`)})...`);
+    console.log(`  Compressing (segmented, ${segTime}s chunks ${c.dim(`≈ ${fmtDuration(segTime * timelineSpeed)} of meeting at ${timelineSpeed}x`)})...`);
     const args = [
       '-y', '-err_detect', 'ignore_err', '-fflags', '+genpts+discardcorrupt',
       '-i', inputFile,
@@ -373,7 +403,7 @@ async function compressAndSegment(inputFile, outputDir, { segTime = SEG_TIME, sp
  *
  * Returns sorted array of segment file paths.
  */
-async function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED } = {}) {
+async function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIME, speed = SPEED, sourceSpeed = 1 } = {}) {
   fs.mkdirSync(outputDir, { recursive: true });
   const label = path.basename(inputFile);
 
@@ -386,9 +416,13 @@ async function compressAndSegmentAudio(inputFile, outputDir, { segTime = SEG_TIM
 
   console.log(`  Duration : ${duration ? fmtDuration(parseFloat(duration)) : 'unknown'}${effectiveDuration ? ` (${fmtDuration(effectiveDuration)} at ${speed}x)` : ''}`);
   console.log(`  Audio-only mode | ${speed}x speed | ${audioBr} bitrate`);
+  if (sourceSpeed !== 1) {
+    const timelineSpeed = Math.round(speed * sourceSpeed * 10000) / 10000;
+    console.log(`  ${c.dim(`Source recorded at ${sourceSpeed}x → encoding ${speed}x → ${timelineSpeed}x of the original`)}`);
+  }
 
   const encodingArgs = [
-    '-af', `atempo=${speed}`,
+    '-af', buildAtempoChain(speed),
     '-c:a', 'aac', '-b:a', audioBr, '-ar', sampleRate, '-ac', String(channels),
     '-vn',  // no video
     '-movflags', '+faststart',
@@ -573,6 +607,8 @@ module.exports = {
   runFFmpeg,
   probe,
   probeFormat,
+  buildAtempoChain,
+  buildEncodingArgs,
   compressAndSegment,
   compressAndSegmentAudio,
   splitOnly,

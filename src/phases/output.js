@@ -112,6 +112,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
       });
     }),
     settings: results.settings,
+    diagrams: !opts.noDiagrams,
   };
 
   if (renderData && !renderData._incomplete) {

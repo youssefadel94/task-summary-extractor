@@ -168,6 +168,8 @@ The pipeline will:
 
 > **Tip:** Use `--no-compress` to skip re-encoding (auto-splits at 20 min). Use `--speed 2.0` to speed up compressed playback (saves tokens), or `--segment-time 600` for longer compressed segments.
 
+> **Recorded sped up?** If your recorder already captured the footage fast, say so with `--source-speed 2` (or answer the 🎬 Source Recording Speed prompt). The capture speed is subtracted from `--speed`, so the result still plays at 1.6× of the real meeting and timestamps stay anchored to the real clock.
+
 This takes **~2-5 minutes** depending on video length.
 
 ---

@@ -66,6 +66,28 @@ d('video service (real ffmpeg)', () => {
     }
   }, 60000);
 
+  it('buildEncodingArgs chains atempo when the encode speed is a slow-down', () => {
+    // A 4x-recorded source aiming for 1.6x needs 0.4x — below what a single
+    // atempo accepts, so ffmpeg would reject the filter outright.
+    const { encodingArgs } = video.buildEncodingArgs(clip, { speed: 0.4 });
+    const af = encodingArgs[encodingArgs.indexOf('-af') + 1];
+    expect(af).toBe('atempo=0.5,atempo=0.8');
+    expect(encodingArgs[encodingArgs.indexOf('-vf') + 1]).toContain('setpts=PTS/0.4');
+  });
+
+  it('compressAndSegment slows a sped-up recording back down and stays valid', async () => {
+    // What --source-speed 2 produces: encode at 0.8x so the result lands on 1.6x
+    // of the original. ffmpeg must accept it and the output must get longer.
+    const outDir = path.join(dir, 'slowed');
+    const segments = await video.compressAndSegment(clip, outDir, { segTime: 1200, speed: 0.8, sourceSpeed: 2 });
+    expect(segments.length).toBe(1);
+    expect(video.verifySegment(segments[0])).toBe(true);
+
+    const srcDur = parseFloat(video.probeFormat(clip, 'duration'));
+    const outDur = parseFloat(video.probeFormat(segments[0], 'duration'));
+    expect(outDur).toBeGreaterThan(srcDur * 1.1);
+  }, 60000);
+
   it('splitOnly stream-copies into a valid segment (raw mode)', async () => {
     const outDir = path.join(dir, 'raw');
     const segments = await video.splitOnly(clip, outDir, { segTime: 1200 });

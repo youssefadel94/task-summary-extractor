@@ -25,6 +25,7 @@ const config = require('../config');
 // Access config.GEMINI_MODEL / config.GEMINI_CONTEXT_WINDOW at call time for runtime model changes.
 const { extractJson } = require('../utils/json-parser');
 const { withRetry } = require('../utils/retry');
+const { MERMAID_RULES, sanitizeMermaidBlocks, buildDocumentMap } = require('../utils/mermaid');
 
 // ======================== TOPIC DISCOVERY ========================
 
@@ -142,7 +143,7 @@ RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
  * @returns {Promise<{markdown: string, raw: string, durationMs: number, tokenUsage: object}>}
  */
 async function generateDocument(ai, topic, compiledAnalysis, options = {}) {
-  const { callName = 'meeting', userName = '', thinkingBudget = 16384, contextSnippets = [] } = options;
+  const { callName = 'meeting', userName = '', thinkingBudget = 16384, contextSnippets = [], diagrams = true } = options;
 
   // Extract relevant items from analysis based on source_items
   const relevantContext = extractRelevantItems(compiledAnalysis, topic.source_items);
@@ -178,6 +179,9 @@ WRITING RULES:
 9. Be factual — only include information that was discussed or can be inferred from the analysis.
 10. DO NOT include YAML frontmatter or metadata blocks — start directly with the title.
 
+${diagrams ? `
+${MERMAID_RULES}
+` : ''}
 START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):`;
 
   const requestPayload = {
@@ -209,6 +213,10 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
   } else if (markdown.startsWith('```')) {
     markdown = markdown.replace(/^```\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
+
+  // Models produce almost-valid Mermaid — repair the recurring mistakes (unquoted
+  // labels, <br> tags, reserved-word ids) so the fences actually render.
+  if (diagrams) markdown = sanitizeMermaidBlocks(markdown);
 
   const usage = response.usageMetadata || {};
   const tokenUsage = {
@@ -348,6 +356,21 @@ function writeDeepDiveOutput(deepDiveDir, documents, meta = {}) {
     'action-plan': 'Action Plans',
   };
 
+  if (meta.diagrams !== false) {
+    const map = buildDocumentMap({
+      title: `Deep Dive — ${meta.callName || 'Meeting Analysis'}`,
+      groups: Object.entries(categories).map(([cat, docs]) => ({
+        category: cat,
+        label: categoryLabels[cat] || cat,
+        docs: docs.map(d => ({ title: d.topic.title })),
+      })),
+    });
+    if (map) {
+      indexLines.push(map);
+      indexLines.push('');
+    }
+  }
+
   for (const [cat, docs] of Object.entries(categories)) {
     indexLines.push(`## ${categoryLabels[cat] || cat}`);
     indexLines.push('');
@@ -485,7 +508,7 @@ function getCategoryGuidance(category) {
 Write an explanatory document about this technical concept or pattern.
 - Start with a "What Is It?" section for someone unfamiliar
 - Explain HOW it works and WHY it's used in this context
-- Include diagrams (as text descriptions) if helpful
+- Include a Mermaid diagram when the concept has parts that relate to each other
 - Connect it to the specific implementation discussed in the meeting`,
 
     'decision': `CATEGORY GUIDANCE — DECISION RECORD:

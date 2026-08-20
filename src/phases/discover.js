@@ -5,7 +5,7 @@ const path = require('path');
 
 // --- Config ---
 const config = require('../config');
-const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, IMAGE_EXTS, SPEED, SEG_TIME } = config;
+const { VIDEO_EXTS, AUDIO_EXTS, DOC_EXTS, IMAGE_EXTS, SEG_TIME } = config;
 
 // --- Utils ---
 const { c } = require('../utils/colors');
@@ -181,7 +181,9 @@ async function phaseDiscover(ctx) {
   console.log(`  Docs    : ${c.highlight(allDocFiles.length)}`);
   if (imageFiles.length > 0) console.log(`  Images  : ${c.highlight(imageFiles.length)}`);
   if (inputMode !== 'document') {
-    console.log(`  Speed   : ${c.yellow(SPEED + 'x')}`);
+    const speeds = config.resolveSpeeds(opts);
+    console.log(`  Speed   : ${c.yellow(speeds.timelineSpeed + 'x')} ${c.dim('of the original')}${
+      speeds.sourceSpeed !== 1 ? c.dim(` (recorded at ${speeds.sourceSpeed}x, encoding ${speeds.encodeSpeed}x)`) : ''}`);
     console.log(`  Segments: ${c.dim('< 5 min each')} (${c.yellow(SEG_TIME + 's')})`);
   }
   console.log(`  Model   : ${c.cyan(config.GEMINI_MODEL)}`);

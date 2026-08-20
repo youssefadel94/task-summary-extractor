@@ -634,7 +634,8 @@ JSONL structured format includes phase spans with timing metrics for observabili
 | Sharpening | `unsharp=3:3:0.3` | Preserve text clarity |
 | x264 params | `aq-mode=3:deblock=-1,-1:psy-rd=1.0,0.0` | Text readability |
 | Audio | AAC, 64–128k, original sample rate | Clear speech |
-| Speed | 1.6× default (`--speed` flag, env `VIDEO_SPEED`) | Reduce tokens per segment |
+| Speed | 1.6× default vs the **original** footage (`--speed` flag, env `VIDEO_SPEED`) | Reduce tokens per segment |
+| Source Speed | 1× default (`--source-speed` flag, env `VIDEO_SOURCE_SPEED`) | Recordings captured already sped up; subtracted from the target so the two never compound (`config.resolveSpeeds`) |
 | Segment Duration | 280s default, compress mode only (`--segment-time` flag) | Context budget per segment |
 | No-Compress Mode | Off by default (`--no-compress` flag) | Stream-copy split at 1200s (20 min), no re-encoding |
 

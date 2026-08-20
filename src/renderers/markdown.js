@@ -20,6 +20,11 @@ const {
   fmtTs, priBadge, confBadge, confBadgeFull, shortVideo,
 } = require('./shared');
 
+// Deterministic Mermaid diagrams built from the compiled data (no AI involved)
+const {
+  buildWorkItemMap, buildConfidencePie, buildOwnershipMap, buildBlockerMap,
+} = require('../utils/mermaid');
+
 /** Escape pipe characters in Markdown table cells to prevent column corruption. */
 // Escape a value for use inside a Markdown table cell: escape pipes AND collapse
 // newlines to spaces (a raw \n splits the cell across rows and corrupts the table).
@@ -50,6 +55,8 @@ function renderResultsMarkdown({ compiled, meta }) {
   const allScope = dedupBy(compiled.scope_changes || [], sc => sc.id);
   const allFiles = dedupBy(compiled.file_references || [], f => f.resolved_path || f.file_name);
   const summary = compiled.summary || compiled.executive_summary || '';
+  // Diagrams are on unless the run explicitly disabled them (--no-diagrams).
+  const diagrams = meta.diagrams !== false;
   const yourTasks = compiled.your_tasks || null;
 
   // ── Discover & cluster participant names ──
@@ -198,7 +205,13 @@ function renderResultsMarkdown({ compiled, meta }) {
     }
 
     if (meta.settings) {
-      ln(`> Speed: ${meta.settings.speed}x | Preset: ${meta.settings.preset} | Segment time: ${meta.settings.segmentTimeSec}s`);
+      // Speed is stated against the original meeting; when the recording was
+      // already sped up, show what ffmpeg actually applied so the two add up.
+      const src = meta.settings.sourceSpeed;
+      const srcNote = src && src !== 1
+        ? ` (recorded at ${src}x, encoded ${meta.settings.encodeSpeed}x)`
+        : '';
+      ln(`> Speed: ${meta.settings.speed}x of original${srcNote} | Preset: ${meta.settings.preset} | Segment time: ${meta.settings.segmentTimeSec}s`);
     }
     ln('</details>');
     ln('');
@@ -230,6 +243,10 @@ function renderResultsMarkdown({ compiled, meta }) {
       if (confLow > 0) ln(`| 🔴 LOW | ${confLow} | ${((confLow / confTotal) * 100).toFixed(0)}% |`);
       if (confMissing > 0) ln(`| ⚪ UNSET | ${confMissing} | ${((confMissing / confTotal) * 100).toFixed(0)}% |`);
       ln('');
+      if (diagrams) {
+        const pie = buildConfidencePie({ high: confHigh, medium: confMed, low: confLow, unset: confMissing });
+        if (pie) { ln(pie); ln(''); }
+      }
       if (confLow > 0) {
         ln('> ⚠️ **LOW confidence items** need human verification before acting on them.');
         ln('');
@@ -396,6 +413,28 @@ function renderResultsMarkdown({ compiled, meta }) {
 
     hr();
     ln('');
+  }
+
+  // ══════════════════════════════════════════════════════
+  //  WORK ITEM MAP (diagram)
+  // ══════════════════════════════════════════════════════
+  if (diagrams) {
+    const map = buildWorkItemMap({
+      tickets: allTickets,
+      changeRequests: allCRs,
+      actionItems: allActions,
+      blockers: allBlockers,
+    });
+    if (map) {
+      ln('## 🗺️ Work Item Map');
+      ln('');
+      ln('How the tickets, change requests, action items and blockers below connect. Only linked items are shown.');
+      ln('');
+      ln(map);
+      ln('');
+      hr();
+      ln('');
+    }
   }
 
   // ══════════════════════════════════════════════════════
@@ -577,6 +616,27 @@ function renderResultsMarkdown({ compiled, meta }) {
   //  OTHER PARTICIPANTS
   // ══════════════════════════════════════════════════════
   const otherPeople = orderedPeople.filter(p => p !== currentUserCanonical);
+  if (diagrams && orderedPeople.length > 0) {
+    const ownership = buildOwnershipMap({
+      people: orderedPeople,
+      nameMatch,
+      tickets: allTickets,
+      actionItems: allActions,
+      blockers: allBlockers,
+      currentUser: currentUserCanonical,
+    });
+    if (ownership) {
+      ln('## 👥 Ownership Map');
+      ln('');
+      ln('Who is carrying what. People with nothing assigned are omitted.');
+      ln('');
+      ln(ownership);
+      ln('');
+      hr();
+      ln('');
+    }
+  }
+
   if (otherPeople.length > 0) {
     ln('## 👥 Other Participants');
     ln('');
@@ -686,6 +746,10 @@ function renderResultsMarkdown({ compiled, meta }) {
       if (b.blocks?.length > 0) ln(`  - Blocks: ${b.blocks.join(', ')}`);
     }
     ln('');
+    if (diagrams) {
+      const chain = buildBlockerMap(teamBlockers);
+      if (chain) { ln(chain); ln(''); }
+    }
     hr();
     ln('');
   }

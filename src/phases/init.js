@@ -12,7 +12,7 @@ const {
 
 // --- Utils ---
 const { c } = require('../utils/colors');
-const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence, selectFeatureFlags } = require('../utils/cli');
+const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence, selectFeatureFlags, selectSourceSpeed } = require('../utils/cli');
 const { promptForKey } = require('../utils/global-config');
 const { setInputMode } = require('../utils/input-policy');
 const Logger = require('../logger');
@@ -29,6 +29,20 @@ function safeInt(raw, defaultVal) {
   if (raw === undefined || raw === null || raw === true) return defaultVal;
   const n = parseInt(raw, 10);
   return Number.isNaN(n) ? defaultVal : n;
+}
+
+/**
+ * Does this folder hold anything that gets encoded? Matches phaseDiscover's
+ * top-level-only scan, so the answer agrees with what the run will process.
+ */
+function folderHasMedia(targetDir) {
+  try {
+    return fs.readdirSync(targetDir, { withFileTypes: true }).some(e =>
+      e.isFile() && config.MEDIA_EXTS.includes(path.extname(e.name).toLowerCase())
+    );
+  } catch {
+    return false;
+  }
 }
 
 // ======================== PHASE: INIT ========================
@@ -73,6 +87,7 @@ async function phaseInit() {
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
     noHtml: !!flags['no-html'],
+    noDiagrams: !!flags['no-diagrams'],
     // Batching off by default: one Gemini call per batch produces ONE merged
     // analysis for several segments, so per-segment detail is lost before
     // compilation even sees it. --batch opts back in for cheaper, coarser runs.
@@ -80,6 +95,9 @@ async function phaseInit() {
     // Video processing flags
     noCompress: !!flags['no-compress'],
     speed: flags.speed ? parseFloat(flags.speed) : null,
+    // How fast the recording ALREADY plays. Subtracted from the target so a
+    // source captured at 2x still lands at 1.6x of the real meeting.
+    sourceSpeed: flags['source-speed'] ? parseFloat(flags['source-speed']) : null,
     segmentTime: flags['segment-time'] ? parseInt(flags['segment-time'], 10) : null,
     deepDive: !!flags['deep-dive'],
     deepSummary: !!flags['deep-summary'],
@@ -183,6 +201,15 @@ async function phaseInit() {
   }
 
   // --- Validate video processing flags ---
+  // --source-speed is checked before the --no-compress branch: unlike --speed it
+  // still applies to raw passthrough, where it is what maps segment timestamps
+  // back onto the real meeting clock.
+  if (opts.sourceSpeed !== null) {
+    if (Number.isNaN(opts.sourceSpeed) || opts.sourceSpeed < config.SPEED_MIN || opts.sourceSpeed > config.SPEED_MAX) {
+      throw new Error(`Invalid --source-speed "${flags['source-speed']}". Must be between ${config.SPEED_MIN} and ${config.SPEED_MAX} (1 = recorded in real time).`);
+    }
+  }
+
   if (opts.noCompress) {
     // --no-compress: raw passthrough — speed and segment-time are not user-configurable
     if (opts.speed !== null) {
@@ -276,6 +303,29 @@ async function phaseInit() {
   const targetDir = path.resolve(folderArg);
   if (!fs.existsSync(targetDir) || !fs.statSync(targetDir).isDirectory()) {
     throw new Error(`"${targetDir}" is not a valid folder. Check the path and try again.`);
+  }
+
+  // --- Ask how fast the recording was captured (only when it can change anything) ---
+  // Asked here rather than in the run-mode wizard because it needs the folder:
+  // a docs-only run has no encode to adjust, so the question would be noise.
+  if (opts.sourceSpeed === null && !hasExplicitMode && !isNonInteractive && !opts.noInput && folderHasMedia(targetDir)) {
+    opts.sourceSpeed = await selectSourceSpeed(opts.speed || config.SPEED);
+  }
+
+  // --- Report what the speed settings actually resolve to ---
+  const speeds = config.resolveSpeeds(opts);
+  if (speeds.sourceSpeed !== 1) {
+    if (opts.noCompress) {
+      console.log(`  ${c.dim(`Source recorded at ${speeds.sourceSpeed}x — timestamps map back to the original meeting clock (no re-encode).`)}`);
+    } else {
+      console.log(`  ${c.dim(`Source recorded at ${speeds.sourceSpeed}x → encoding at ${speeds.encodeSpeed}x to reach ${speeds.timelineSpeed}x of the original.`)}`);
+      if (speeds.clamped) {
+        console.log(`  ${c.warn(`Requested ${speeds.targetSpeed}x from a ${speeds.sourceSpeed}x source needs an out-of-range multiplier — clamped to ${speeds.encodeSpeed}x (${speeds.timelineSpeed}x of the original).`)}`);
+      } else if (speeds.encodeSpeed < 1) {
+        console.log(`  ${c.warn(`That means slowing the recording down — segments will be longer and larger than the source.`)}`);
+        console.log(`    ${c.dim(`Pass --speed ${speeds.sourceSpeed} or higher to keep it at or above real speed.`)}`);
+      }
+    }
   }
 
   // --- Firebase is optional: bypass uploads when it is not configured ---
@@ -450,6 +500,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.deepSummary) features.push(c.cyan('deep-summary'));
   if (opts.dynamic) features.push(c.cyan('dynamic'));
   if (!opts.noBatch) features.push(c.green('batch'));
+  if (!opts.noDiagrams) features.push(c.green('diagrams'));
   if (opts.resume) features.push(c.yellow('resume'));
   if (opts.dryRun) features.push(c.yellow('dry-run'));
   if (opts.skipUpload) features.push(c.dim(opts.uploadDisabledReason ? 'no-upload (firebase off)' : 'skip-upload'));
@@ -459,6 +510,7 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.disableLearning) disabled.push(c.dim('no-learning'));
   if (opts.disableDiff) disabled.push(c.dim('no-diff'));
   if (opts.disableProgress) disabled.push(c.dim('no-progress'));
+  if (opts.noDiagrams) disabled.push(c.dim('no-diagrams'));
   if (opts.noBatch) features.push(c.green('per-segment'));
 
   if (features.length > 0) {
@@ -469,13 +521,16 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   }
 
   // Video processing settings
-  const { SPEED, SEG_TIME } = require('../config');
-  const effectiveSpeed = opts.noCompress ? 1.0 : (opts.speed || SPEED);
+  const { SEG_TIME, resolveSpeeds } = require('../config');
+  const speeds = resolveSpeeds(opts);
   const effectiveSegTime = opts.noCompress ? 1200 : (opts.segmentTime || SEG_TIME);
   const videoMode = opts.noCompress
     ? c.cyan('raw (stream-copy, auto-split at 20 min)')
-    : c.green(`compress × ${effectiveSpeed}x  |  ${effectiveSegTime}s segments`);
+    : c.green(`compress × ${speeds.encodeSpeed}x  |  ${effectiveSegTime}s segments`);
   console.log(`    ${c.dim('Video:')}       ${videoMode}`);
+  if (speeds.sourceSpeed !== 1) {
+    console.log(`    ${c.dim('Source:')}      ${c.bold(`recorded at ${speeds.sourceSpeed}x`)} ${c.dim(`→ ${speeds.timelineSpeed}x of the original meeting`)}`);
+  }
 
   if (opts.runMode) {
     console.log(`    ${c.dim('Run mode:')}    ${c.bold(opts.runMode)}`);

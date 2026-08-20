@@ -340,8 +340,10 @@ function buildProgressSummary(assessments) {
  * @returns {string} Markdown content
  */
 function renderProgressMarkdown({ assessments, changeReport, overallSummary, recommendations, meta = {} }) {
+  const { buildProgressPie, buildProgressFlow } = require('../utils/mermaid');
   const lines = [];
   const summary = buildProgressSummary(assessments);
+  const diagrams = meta.diagrams !== false;
   const ts = meta.timestamp || new Date().toISOString();
 
   lines.push(`# Progress Report${meta.callName ? ` — ${meta.callName}` : ''}`);
@@ -372,6 +374,19 @@ function renderProgressMarkdown({ assessments, changeReport, overallSummary, rec
   const pct = summary.total > 0 ? ((summary.done / summary.total) * 100).toFixed(0) : 0;
   lines.push(`**Overall completion: ${pct}%** (${summary.done}/${summary.total} items done)`);
   lines.push('');
+
+  if (diagrams) {
+    const pie = buildProgressPie(summary);
+    if (pie) { lines.push(pie); lines.push(''); }
+
+    const flow = buildProgressFlow({ assessments, changeReport });
+    if (flow) {
+      lines.push('### Where the items stand');
+      lines.push('');
+      lines.push(flow);
+      lines.push('');
+    }
+  }
 
   // Overall summary
   if (overallSummary) {

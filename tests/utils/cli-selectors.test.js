@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { PassThrough } from 'stream';
 
 const {
-  selectFormats, selectConfidence, selectRunMode, selectFeatureFlags,
+  selectFormats, selectConfidence, selectRunMode, selectFeatureFlags, selectSourceSpeed,
 } = require('../../src/utils/cli');
 
 // Temporarily replace process.stdin with a controllable non-TTY stream, run fn,
@@ -117,5 +117,29 @@ describe('selectFeatureFlags (non-TTY) — inversion mapping', () => {
     expect(result.disableDiff).toBe(false);
     expect(result.disableProgress).toBe(false);
     expect(result.noBatch).toBe(false);
+  }, 8000);
+});
+
+// ---------------------------------------------------------------------------
+// selectSourceSpeed (selectOne fallback) — choices: 1, 1.25, 1.5, 2, 3, Other…
+// ---------------------------------------------------------------------------
+
+describe('selectSourceSpeed (non-TTY)', () => {
+  it('defaults to 1x — the recording was captured in real time', async () => {
+    expect(await withStdin('\n', () => selectSourceSpeed())).toBe(1);
+  }, 8000);
+
+  it('choice 4 → 2x (recorded at double speed)', async () => {
+    expect(await withStdin('4\n', () => selectSourceSpeed())).toBe(2);
+  }, 8000);
+
+  it('choice 2 → 1.25x', async () => {
+    expect(await withStdin('2\n', () => selectSourceSpeed())).toBe(1.25);
+  }, 8000);
+
+  it('"Other…" with no answer falls back to 1x rather than guessing', async () => {
+    // Non-TTY: the free-text prompt resolves instantly with its default, so the
+    // escape hatch can never leave the run waiting on input nobody can give.
+    expect(await withStdin('6\n', () => selectSourceSpeed())).toBe(1);
   }, 8000);
 });

@@ -44,6 +44,10 @@ function segmentParams(videoPath, videoOpts, opts) {
   } catch { /* source unreadable — treated as unknown below */ }
 
   return {
+    // The ENCODE speed, not the target — that is what determines the bytes on
+    // disk. Two runs that reach a different final speed from different sources
+    // but encode identically produce identical segments, and reusing them is
+    // correct: timestamps are recomputed from the timeline speed every run.
     speed: opts.noCompress ? 1 : (videoOpts.speed ?? SPEED),
     segTime: videoOpts.segTime ?? null,
     noCompress: !!opts.noCompress,
@@ -135,9 +139,17 @@ async function phasePrepareMedia(ctx, videoPath, videoIndex) {
 
   // Build video processing options from CLI flags
   // --no-compress uses hardcoded 1200s (splitOnly default); --segment-time only for compress mode
+  //
+  // `speeds.encodeSpeed` is what ffmpeg gets — for a recording that was already
+  // captured sped up, that is only the remainder needed to reach the target, so
+  // the two speeds never compound.
+  const speeds = config.resolveSpeeds(opts);
   const videoOpts = {};
   if (!opts.noCompress && opts.segmentTime) videoOpts.segTime = opts.segmentTime;
-  if (!opts.noCompress && opts.speed) videoOpts.speed = opts.speed;
+  if (!opts.noCompress) {
+    videoOpts.speed = speeds.encodeSpeed;
+    videoOpts.sourceSpeed = speeds.sourceSpeed;
+  }
 
   // Cached segments are only valid for the settings and source they were made
   // from. Reusing 1.6x segments after --speed 2 (or after the recording was
@@ -300,9 +312,11 @@ async function phasePrepareMedia(ctx, videoPath, videoIndex) {
     }
   }
 
-  // Calculate cumulative time offsets for VTT time-slicing
-  // When --no-compress is active, segments play at real time (speed = 1.0)
-  const effectiveSpeed = opts.noCompress ? 1.0 : (opts.speed || SPEED);
+  // Calculate cumulative time offsets for VTT time-slicing.
+  // These are ORIGINAL-meeting seconds, so the multiplier is the full timeline
+  // speed: the capture speed times whatever ffmpeg applied. With --no-compress
+  // nothing is re-encoded, so it collapses to the capture speed alone.
+  const effectiveSpeed = speeds.timelineSpeed;
   let cumulativeTimeSec = 0;
   for (const meta of segmentMeta) {
     meta.startTimeSec = cumulativeTimeSec;

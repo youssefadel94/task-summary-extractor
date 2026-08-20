@@ -84,6 +84,7 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
     userName,
     thinkingBudget,
     contextSnippets,
+    diagrams: !opts.noDiagrams,
     concurrency: Math.min(opts.parallelAnalysis || 2, 3), // match pipeline parallelism
     onProgress: (done, total, topic) => {
       console.log(`    ${c.dim(`[${done}/${total}]`)} ${c.success(topic.title)}`);
@@ -103,6 +104,7 @@ async function phaseDeepDive(ctx, compiledAnalysis, runDir) {
   const { indexPath, stats } = writeDeepDiveOutput(deepDiveDir, documents, {
     callName,
     timestamp: ts,
+    diagrams: !opts.noDiagrams,
   });
 
   console.log('');
