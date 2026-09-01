@@ -259,6 +259,59 @@ function resolveSpeeds({ speed = null, sourceSpeed = null, noCompress = false } 
   };
 }
 
+// ======================== MEDIA DETAIL ========================
+
+/** Media resolution levels the Gemini API accepts, lowest detail first. */
+const MEDIA_RESOLUTION_LEVELS = {
+  low: 'MEDIA_RESOLUTION_LOW',        // 64 tokens/frame
+  medium: 'MEDIA_RESOLUTION_MEDIUM',  // 256 tokens/frame
+  high: 'MEDIA_RESOLUTION_HIGH',      // 256 tokens/frame, zoomed reframing
+};
+
+// How much detail Gemini keeps per video frame. The API defaults video to LOW
+// (64 tokens/frame) — enough to follow a talking head, not enough to read the
+// Swagger field, the DTO name or the ticket title a change request is about, so
+// on-screen asks were being missed outright. HIGH costs more input tokens and a
+// five-minute segment still lands under 10% of the context window.
+const MEDIA_RESOLUTION = env('MEDIA_RESOLUTION', 'high');
+
+// Frames per second sampled from the video. Null = the API default (1 fps).
+// Segments play at 1.6x, so 1 fps sees one frame per 1.6s of real meeting —
+// raise it when screens change faster than the model can follow.
+const VIDEO_FPS = envFloat('VIDEO_FPS', 0) || null;
+
+/**
+ * Resolve a media resolution level to the enum the API expects.
+ *
+ * @param {string} [level] - low, medium or high (defaults to MEDIA_RESOLUTION)
+ * @returns {string|null} API enum value, or null to leave the API default alone
+ */
+/**
+ * Override the video detail settings at runtime (CLI flags).
+ * Mirrors setActiveModel: writes through to module.exports so every module
+ * reading config.MEDIA_RESOLUTION sees the new value.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.level] - low, medium or high
+ * @param {number} [opts.fps] - Frames per second to sample (0/null = API default)
+ */
+function setMediaDetail({ level, fps } = {}) {
+  if (level) {
+    const key = String(level).toLowerCase();
+    if (!MEDIA_RESOLUTION_LEVELS[key]) {
+      const valid = Object.keys(MEDIA_RESOLUTION_LEVELS).join(', ');
+      throw new Error(`Unknown media resolution "${level}". Valid levels: ${valid}`);
+    }
+    module.exports.MEDIA_RESOLUTION = key;
+  }
+  if (fps != null) module.exports.VIDEO_FPS = fps > 0 ? fps : null;
+}
+
+function resolveMediaResolution(level) {
+  const key = String(level || module.exports.MEDIA_RESOLUTION || '').toLowerCase();
+  return MEDIA_RESOLUTION_LEVELS[key] || null;
+}
+
 // ======================== PIPELINE SETTINGS ========================
 
 const LOG_LEVEL = env('LOG_LEVEL', 'info');
@@ -437,6 +490,11 @@ module.exports = {
   setActiveModel,
   getActiveModelPricing,
   getMaxThinkingBudget,
+  MEDIA_RESOLUTION,
+  MEDIA_RESOLUTION_LEVELS,
+  VIDEO_FPS,
+  resolveMediaResolution,
+  setMediaDetail,
   SPEED,
   SOURCE_SPEED,
   SPEED_MIN,

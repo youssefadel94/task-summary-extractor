@@ -70,6 +70,30 @@ function isStallError(err) {
   return /headers timeout|body timeout|HEADERS_TIMEOUT|BODY_TIMEOUT|deadline exceeded|operation was aborted|AbortError/i.test(text);
 }
 
+/**
+ * Detail settings for a request that carries video.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.mediaResolution] - Override the configured level
+ * @returns {object} Generation-config fragment (empty when left at API defaults)
+ */
+function mediaDetailConfig(opts = {}) {
+  const level = config.resolveMediaResolution(opts.mediaResolution);
+  return level ? { mediaResolution: level } : {};
+}
+
+/**
+ * Per-part video sampling settings — only set when a custom fps is configured.
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.videoFps] - Override the configured fps
+ * @returns {object} Part fragment (empty when left at the API default of 1 fps)
+ */
+function videoSampling(opts = {}) {
+  const fps = opts.videoFps || config.VIDEO_FPS;
+  return fps ? { videoMetadata: { fps } } : {};
+}
+
 // ======================== DOCUMENT PREPARATION ========================
 
 /**
@@ -555,7 +579,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   console.log(`    Analyzing with ${config.GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
 
   const contentParts = [
-    { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
+    { fileData: { mimeType: file.mimeType, fileUri: file.uri }, ...videoSampling(segmentOpts) },
   ];
 
   // --- Smart document selection by priority ---
@@ -636,8 +660,15 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       maxOutputTokens: 65536,
       temperature: 0,
       thinkingConfig: { thinkingBudget },
+      ...mediaDetailConfig(segmentOpts),
     },
   };
+
+  const detail = config.resolveMediaResolution(segmentOpts.mediaResolution);
+  if (detail) {
+    const fps = segmentOpts.videoFps || config.VIDEO_FPS;
+    console.log(`    Video detail: ${c.highlight(detail.replace('MEDIA_RESOLUTION_', '').toLowerCase())}${fps ? ' @ ' + fps + ' fps' : ''}`);
+  }
 
   const t0 = Date.now();
   let response;
@@ -670,7 +701,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
         file = await uploadViaFileApi();
         usedExternalUrl = false;
         // Replace the video reference in contentParts[0]
-        contentParts[0] = { fileData: { mimeType: file.mimeType, fileUri: file.uri } };
+        contentParts[0] = { fileData: { mimeType: file.mimeType, fileUri: file.uri }, ...videoSampling(segmentOpts) };
         requestPayload.contents[0].parts = contentParts;
         response = await withRetry(
           () => ai.models.generateContent(requestPayload),
@@ -686,7 +717,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
       console.log(`    ${c.warn('INVALID_ARGUMENT with File API — re-uploading and retrying...')}`);
       try {
         file = await uploadViaFileApi();
-        contentParts[0] = { fileData: { mimeType: file.mimeType, fileUri: file.uri } };
+        contentParts[0] = { fileData: { mimeType: file.mimeType, fileUri: file.uri }, ...videoSampling(segmentOpts) };
         requestPayload.contents[0].parts = contentParts;
         response = await withRetry(
           () => ai.models.generateContent(requestPayload),
@@ -951,7 +982,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
     const ref = fileRefs[i];
     const segIdx = segmentIndices[i];
     contentParts.push({ text: `=== VIDEO SEGMENT ${segIdx + 1} of ${totalSegments} ===` });
-    contentParts.push({ fileData: { mimeType: ref.mimeType, fileUri: ref.uri } });
+    contentParts.push({ fileData: { mimeType: ref.mimeType, fileUri: ref.uri }, ...videoSampling(batchOpts) });
   }
 
   // Context docs — same budget logic as single-segment but account for multiple videos
@@ -1018,6 +1049,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
       maxOutputTokens: 65536,
       temperature: 0,
       thinkingConfig: { thinkingBudget },
+      ...mediaDetailConfig(batchOpts),
     },
   };
 
@@ -1526,7 +1558,7 @@ FORMAT:
 - Do NOT use JSON. Write natural language with Markdown formatting.`;
 
   const contentParts = [
-    { fileData: { mimeType: file.mimeType, fileUri: file.uri } },
+    { fileData: { mimeType: file.mimeType, fileUri: file.uri }, ...videoSampling(opts) },
     { text: prompt },
   ];
 
@@ -1540,6 +1572,7 @@ FORMAT:
       maxOutputTokens: 32768,
       temperature: 0.1,
       thinkingConfig: { thinkingBudget },
+      ...mediaDetailConfig(opts),
     },
   };
 

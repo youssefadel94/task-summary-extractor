@@ -112,6 +112,9 @@ async function phaseInit() {
     repoPath: flags.repo || null,
     model: typeof flags.model === 'string' ? flags.model : null,
     minConfidence: typeof flags['min-confidence'] === 'string' ? flags['min-confidence'].toLowerCase() : null,
+    // How much of each video frame the model actually gets to read.
+    mediaResolution: typeof flags['media-resolution'] === 'string' ? flags['media-resolution'].toLowerCase() : null,
+    videoFps: flags['video-fps'] ? parseFloat(flags['video-fps']) : null,
     format: typeof flags.format === 'string' ? flags.format.toLowerCase() : null,
     runMode: null, // will be populated by interactive selector or inferred
   };
@@ -423,6 +426,12 @@ async function phaseInit() {
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+  // --- Video detail (flags override the configured default) ---
+  if (opts.mediaResolution || opts.videoFps) {
+    config.setMediaDetail({ level: opts.mediaResolution, fps: opts.videoFps });
+    log.step(`Video detail set via flag: ${config.MEDIA_RESOLUTION}${config.VIDEO_FPS ? ` @ ${config.VIDEO_FPS} fps` : ''}`);
+  }
 
   // --- Model selection ---
   if (opts.model) {

@@ -198,6 +198,7 @@ async function phaseDiscover(ctx) {
   }
   if (inputMode !== 'document') {
     console.log(`  Parallel: ${c.yellow(opts.parallel)} concurrent uploads`);
+    console.log(`  Detail  : ${c.yellow(config.MEDIA_RESOLUTION)} video resolution${config.VIDEO_FPS ? ` @ ${c.yellow(config.VIDEO_FPS)} fps` : ''} ${c.dim('(--media-resolution / --video-fps)')}`);
   }
   console.log(`  Thinking: ${c.yellow(opts.thinkingBudget)} tokens ${c.dim('(analysis)')} / ${c.yellow(opts.compilationThinkingBudget)} tokens ${c.dim('(compilation)')}`);
   console.log('');

@@ -344,6 +344,8 @@ ${f2('  • File API limit: 2 GB (free) / 20 GB (paid) per file')}
   ${h('TUNING')}
 ${f('--parallel <n>', 'Max parallel uploads (default: 3)')}
 ${f('--parallel-analysis <n>', 'Concurrent analysis batches (default: 2)')}
+${f('--media-resolution <level>', 'Video detail: low, medium, high (default: high — reads on-screen text)')}
+${f('--video-fps <n>', 'Frames sampled per second of video (default: API default, 1)')}
 ${f('--thinking-budget <n>', 'Thinking tokens per segment (default: 24576)')}
 ${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (default: 10240)')}
 ${f('--no-focused-pass', 'Disable focused re-analysis')}
