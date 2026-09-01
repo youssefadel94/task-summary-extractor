@@ -38,7 +38,74 @@ const TRANSIENT_PATTERNS = [
   /INTERNAL/i,
   /overloaded/i,
   /capacity/i,
+  // Node/undici fetch failures. fetch() throws a bare "fetch failed" TypeError and
+  // hides the real reason (socket reset, DNS, the 300s headers timeout) in
+  // err.cause — without these a dropped connection looked permanent, so a segment
+  // was abandoned on the first blip instead of being retried.
+  /fetch failed/i,
+  /UND_ERR_/i,
+  /headers timeout/i,
+  /body timeout/i,
+  /other side closed/i,
+  /premature close/i,
+  /socket disconnected/i,
+  /terminated/i,
+  /ECONNABORTED/i,
+  /ECONNREFUSED/i,
+  /EAI_AGAIN/i,
+  /EHOSTUNREACH/i,
+  /ENETUNREACH/i,
+  /ENETDOWN/i,
+  /timed? ?out/i,
+  /deadline exceeded/i,
+  /operation was aborted/i,
+  /AbortError/i,
 ];
+
+/**
+ * Flatten an error and its `cause` chain into one searchable string.
+ *
+ * Node's fetch reports "fetch failed" and puts the actual reason one or two
+ * levels down in err.cause, so anything reading only err.message misclassifies it.
+ *
+ * @param {any} err
+ * @returns {{ text: string, statuses: number[] }}
+ */
+function flattenError(err) {
+  const parts = [];
+  const statuses = [];
+  const seen = new Set();
+  let cur = err;
+  for (let depth = 0; cur && typeof cur === 'object' && depth < 6; depth++) {
+    if (seen.has(cur)) break;
+    seen.add(cur);
+    parts.push(cur.message || '', cur.code || '', cur.errno || '', cur.name || '');
+    const st = cur.status || cur.statusCode || 0;
+    if (st) statuses.push(Number(st));
+    cur = cur.cause;
+  }
+  return { text: parts.filter(Boolean).join(' '), statuses };
+}
+
+/**
+ * Human-readable error text that keeps the underlying cause.
+ * "fetch failed" alone says nothing; "fetch failed (UND_ERR_HEADERS_TIMEOUT)" does.
+ *
+ * @param {any} err
+ * @returns {string}
+ */
+function describeError(err) {
+  if (!err) return 'unknown error';
+  const msg = err.message || String(err);
+  const causes = [];
+  let cur = err.cause;
+  for (let depth = 0; cur && typeof cur === 'object' && depth < 4; depth++) {
+    const part = cur.code || cur.message || '';
+    if (part && !msg.includes(part) && !causes.includes(part)) causes.push(part);
+    cur = cur.cause;
+  }
+  return causes.length > 0 ? `${msg} (${causes.join(' → ')})` : msg;
+}
 
 /**
  * Determine if an error is likely transient and worth retrying.
@@ -46,16 +113,14 @@ const TRANSIENT_PATTERNS = [
  * @returns {boolean}
  */
 function isTransientError(err) {
-  const msg = err.message || '';
-  const code = err.code || '';
-  const status = err.status || err.statusCode || 0;
+  if (!err) return false;
+  const { text, statuses } = flattenError(err);
 
-  // HTTP status codes that are transient
-  if ([429, 500, 502, 503, 504].includes(status)) return true;
+  // HTTP status codes that are transient (anywhere in the cause chain)
+  if (statuses.some(s => [429, 500, 502, 503, 504].includes(s))) return true;
 
-  // Check message against known patterns
-  const combined = `${msg} ${code}`;
-  return TRANSIENT_PATTERNS.some(p => p.test(combined));
+  // Check the flattened message/code chain against known patterns
+  return TRANSIENT_PATTERNS.some(p => p.test(text));
 }
 
 /**
@@ -103,8 +168,8 @@ async function withRetry(fn, opts = {}) {
       if (onRetry) {
         onRetry(attempt + 1, delay, err);
       } else {
-        const msg = err.message || String(err);
-        console.warn(`  ${c.warn(`${label} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${msg.slice(0, 120)}`)}`);
+        const msg = describeError(err);
+        console.warn(`  ${c.warn(`${label} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${msg.slice(0, 160)}`)}`);
         console.warn(`    → Retrying in ${(delay / 1000).toFixed(1)}s...`);
       }
 
@@ -143,4 +208,4 @@ async function parallelMap(items, fn, concurrency = 3) {
   return results;
 }
 
-module.exports = { withRetry, parallelMap, isTransientError };
+module.exports = { withRetry, parallelMap, isTransientError, describeError };

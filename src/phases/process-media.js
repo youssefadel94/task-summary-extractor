@@ -15,7 +15,7 @@ const { compressAndSegment, compressAndSegmentAudio, splitOnly, probeFormat, ver
 // --- Utils ---
 const { fmtDuration, fmtBytes } = require('../utils/format');
 const { promptUser } = require('../utils/cli');
-const { parallelMap } = require('../utils/retry');
+const { parallelMap, describeError } = require('../utils/retry');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('../utils/quality-gate');
 const { validateAnalysis, formatSchemaLine, schemaScore, normalizeAnalysis } = require('../utils/schema-validator');
 const { calculateThinkingBudget } = require('../utils/adaptive-budget');
@@ -342,6 +342,46 @@ async function phasePrepareMedia(ctx, videoPath, videoIndex) {
  *
  * Returns { fileResult, segmentAnalyses, segmentReports }.
  */
+/**
+ * Stamp source_segment / source_video onto every item a segment analysis holds.
+ *
+ * Shared by the main loop and the rescue pass so a rescued segment's items are
+ * attributed exactly like the ones that succeeded first time round.
+ *
+ * @param {object} analysis - Normalized segment analysis (mutated in place)
+ * @param {number} segNum - 1-based segment number
+ * @param {string} videoName - Source video file name
+ */
+function tagSegmentSources(analysis, segNum, videoName) {
+  const tagSeg = (arr) => (arr || []).forEach(item => {
+    // Some arrays (e.g. ticket comments/code_changes) legitimately contain
+    // plain strings — skip non-objects or we'd throw "cannot create property
+    // 'source_segment' on string" and crash the whole segment tagging step.
+    if (!item || typeof item !== 'object') return;
+    item.source_segment = segNum;
+    if (!item.source_video) item.source_video = videoName;
+  });
+  tagSeg(analysis.action_items);
+  tagSeg(analysis.change_requests);
+  tagSeg(analysis.blockers);
+  tagSeg(analysis.scope_changes);
+  tagSeg(analysis.file_references);
+  if (analysis.tickets) {
+    analysis.tickets.forEach(t => {
+      t.source_segment = segNum;
+      t.source_video = videoName;
+      tagSeg(t.comments);
+      tagSeg(t.code_changes);
+      tagSeg(t.video_segments);
+    });
+  }
+  if (analysis.your_tasks) {
+    tagSeg(analysis.your_tasks.tasks_todo);
+    tagSeg(analysis.your_tasks.tasks_waiting_on_others);
+    tagSeg(analysis.your_tasks.decisions_needed);
+  }
+}
+
 async function phaseAnalyzeMedia(ctx, prep) {
   const log = getLog();
   const {
@@ -1144,10 +1184,12 @@ async function phaseAnalyzeMedia(ctx, prep) {
         console.log(`    ${c.success(`AI analysis complete (${(geminiRun.run.durationMs / 1000).toFixed(1)}s)`)}${retried ? (retryImproved ? ' [retry improved]' : ' [retried]') : ''}`);
         progress.markAnalyzed(`${baseName}_seg${j}`, geminiRunFile);
       } catch (err) {
-        console.error(`    ${c.error(`Gemini failed: ${err.message}`)}`);
-        log.error(`Gemini FAIL: ${segName} — ${err.message}`);
-        analysis = { error: err.message };
-        segmentReports.push({ segmentName: segName, qualityReport: { grade: 'FAIL', score: 0, issues: [err.message] }, retried: false, retryImproved: false });
+        const why = describeError(err);
+        console.error(`    ${c.error(`Gemini failed: ${why}`)}`);
+        console.warn(`    ${c.dim('→ Queued for the rescue pass — this segment is re-analyzed before compilation.')}`);
+        log.error(`Gemini FAIL: ${segName} — ${why}`);
+        analysis = { error: why };
+        segmentReports.push({ segmentName: segName, qualityReport: { grade: 'FAIL', score: 0, issues: [why] }, retried: false, retryImproved: false });
       }
     }
 
@@ -1165,38 +1207,157 @@ async function phaseAnalyzeMedia(ctx, prep) {
 
     // Collect for final compilation (skip errored)
     if (analysis && !analysis.error) {
-      const segNum = j + 1;
-      const videoName = path.basename(videoPath);
-      const tagSeg = (arr) => (arr || []).forEach(item => {
-        // Some arrays (e.g. ticket comments/code_changes) legitimately contain
-        // plain strings — skip non-objects or we'd throw "cannot create property
-        // 'source_segment' on string" and crash the whole segment tagging step.
-        if (!item || typeof item !== 'object') return;
-        item.source_segment = segNum;
-        if (!item.source_video) item.source_video = videoName;
-      });
-      tagSeg(analysis.action_items);
-      tagSeg(analysis.change_requests);
-      tagSeg(analysis.blockers);
-      tagSeg(analysis.scope_changes);
-      tagSeg(analysis.file_references);
-      if (analysis.tickets) {
-        analysis.tickets.forEach(t => {
-          t.source_segment = segNum;
-          t.source_video = videoName;
-          tagSeg(t.comments);
-          tagSeg(t.code_changes);
-          tagSeg(t.video_segments);
-        });
-      }
-      if (analysis.your_tasks) {
-        tagSeg(analysis.your_tasks.tasks_todo);
-        tagSeg(analysis.your_tasks.tasks_waiting_on_others);
-        tagSeg(analysis.your_tasks.decisions_needed);
-      }
+      tagSegmentSources(analysis, j + 1, path.basename(videoPath));
       segmentAnalyses.push(analysis);
     }
 
+    console.log('');
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  Rescue Pass — a dropped segment is lost work, not a warning
+  // ════════════════════════════════════════════════════════════
+  // Each segment carries tickets and action items nobody recovers by
+  // re-watching the call. When an outage eats every in-call retry, the segment
+  // gets independent attempts here — fresh upload, halved thinking budget, long
+  // cool-off between tries — before the run compiles without it.
+  const RESCUE_ATTEMPTS = 3;
+  const RESCUE_WAIT_MS = 30000;
+
+  const rescueTargets = fileResult.segments
+    .filter(seg => seg.analysis && seg.analysis.error && segmentMeta[seg.segmentIndex])
+    .sort((a, b) => a.segmentIndex - b.segmentIndex);
+
+  if (rescueTargets.length > 0 && ai && !opts.skipGemini && !opts.dryRun && !isShuttingDown()) {
+    console.log(`  ${c.warn(`Rescue pass: ${rescueTargets.length} segment(s) failed — re-analyzing before compilation`)}`);
+    log.step(`Rescue pass starting for ${rescueTargets.length} failed segment(s)`);
+
+    for (const target of rescueTargets) {
+      const j = target.segmentIndex;
+      const { segPath, segName } = segmentMeta[j];
+
+      for (let attempt = 1; attempt <= RESCUE_ATTEMPTS && target.analysis.error; attempt++) {
+        if (isShuttingDown()) break;
+
+        // A corrupt segment fails for a reason no wait will fix — check first.
+        if (!verifySegment(segPath)) {
+          console.error(`  ${c.error(`Cannot rescue ${segName} — the segment file is unreadable. Delete the segment folder and re-run to re-compress.`)}`);
+          break;
+        }
+
+        const waitMs = RESCUE_WAIT_MS * attempt;
+        console.log(`  ${c.cyan('──')} Rescue ${c.highlight(`${attempt}/${RESCUE_ATTEMPTS}`)}: ${c.cyan(segName)} ${c.dim(`(waiting ${(waitMs / 1000).toFixed(0)}s first)`)} ${c.cyan('──')}`);
+        // Wait in 1s slices so Ctrl-C still lands during the cool-off.
+        for (let waited = 0; waited < waitMs && !isShuttingDown(); waited += 1000) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+        if (isShuttingDown()) break;
+
+        try {
+          // Halved budget: a stalled request is usually one that thought for
+          // longer than the connection was willing to wait.
+          const rescueBudget = Math.max(4096, Math.floor((opts.thinkingBudget || config.THINKING_BUDGET) / 2));
+          const rescueRun = await processWithGemini(
+            ai, segPath,
+            `${callName}_${baseName}_seg${String(j).padStart(2, '0')}_rescue${attempt}`,
+            contextDocs,
+            previousAnalyses,
+            userName,
+            PKG_ROOT,
+            {
+              segmentIndex: j,
+              totalSegments: segments.length,
+              segmentStartSec: segmentMeta[j].startTimeSec,
+              segmentEndSec: segmentMeta[j].endTimeSec,
+              thinkingBudget: rescueBudget,
+              storageDownloadUrl: opts.noStorageUrl ? null : (segmentMeta[j].storageUrl || null),
+            }
+          );
+
+          const rescueTs = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const rescueFileName = `segment_${String(j).padStart(2, '0')}_rescue_${rescueTs}.json`;
+          const rescuePath = path.join(geminiRunsDir, rescueFileName);
+          fs.writeFileSync(rescuePath, JSON.stringify(rescueRun, null, 2), 'utf8');
+          const rescueRunFile = path.relative(PROJECT_ROOT, rescuePath);
+
+          const rescued = normalizeAnalysis(rescueRun.output.parsed || { rawResponse: rescueRun.output.raw });
+          rescued._geminiMeta = {
+            model: rescueRun.run.model,
+            processedAt: rescueRun.run.timestamp,
+            durationMs: rescueRun.run.durationMs,
+            tokenUsage: rescueRun.run.tokenUsage || null,
+            runFile: rescueRunFile,
+            parseSuccess: rescueRun.output.parseSuccess,
+            rescuedOnAttempt: attempt,
+          };
+
+          costTracker.addSegment(`${segName}_rescue`, rescueRun.run.tokenUsage, rescueRun.run.durationMs, false);
+
+          const rescueQuality = assessQuality(rescued, {
+            parseSuccess: rescueRun.output.parseSuccess,
+            rawLength: (rescueRun.output.raw || '').length,
+            segmentIndex: j,
+            totalSegments: segments.length,
+          });
+          console.log(formatQualityLine(rescueQuality, segName));
+          console.log(formatSchemaLine(validateAnalysis(rescued, 'segment')));
+
+          tagSegmentSources(rescued, j + 1, path.basename(videoPath));
+
+          target.analysis = rescued;
+          target.geminiRunFile = rescueRunFile;
+          previousAnalyses.push(rescued);
+
+          const report = segmentReports.find(r => r.segmentName === segName);
+          if (report) {
+            report.qualityReport = rescueQuality;
+            report.retried = true;
+            report.retryImproved = true;
+          } else {
+            segmentReports.push({ segmentName: segName, qualityReport: rescueQuality, retried: true, retryImproved: true });
+          }
+
+          progress.markAnalyzed(`${baseName}_seg${j}`, rescueRunFile);
+          const ticketCount = rescued.tickets ? rescued.tickets.length : 0;
+          console.log(`    ${c.success(`Rescued on attempt ${attempt} — ${ticketCount} ticket(s)`)}`);
+          log.step(`Rescue OK: ${segName} on attempt ${attempt} (${ticketCount} ticket(s))`);
+        } catch (err) {
+          const why = describeError(err);
+          console.error(`    ${c.error(`Rescue attempt ${attempt} failed: ${why}`)}`);
+          log.error(`Rescue FAIL: ${segName} attempt ${attempt} — ${why}`);
+          target.analysis = { error: why };
+        }
+      }
+      console.log('');
+    }
+
+    // Rebuild the compilation input in segment order — a rescued segment must
+    // land in its own slot, not appended after the ones that came later.
+    const seenAnalyses = new Set();
+    segmentAnalyses.length = 0;
+    for (const seg of fileResult.segments.slice().sort((a, b) => a.segmentIndex - b.segmentIndex)) {
+      if (!seg.analysis || seg.analysis.error || seenAnalyses.has(seg.analysis)) continue;
+      seenAnalyses.add(seg.analysis);
+      segmentAnalyses.push(seg.analysis);
+    }
+
+    const stillFailed = fileResult.segments.filter(seg => seg.analysis && seg.analysis.error);
+    if (stillFailed.length > 0) {
+      fileResult.failedSegments = stillFailed.map(seg => ({
+        segmentFile: seg.segmentFile,
+        segmentIndex: seg.segmentIndex,
+        durationSeconds: seg.durationSeconds,
+        error: seg.analysis.error,
+      }));
+      console.error(`  ${c.error(`⚠ ${stillFailed.length} segment(s) could NOT be analyzed after ${RESCUE_ATTEMPTS} rescue attempt(s):`)}`);
+      for (const seg of stillFailed) {
+        console.error(`    ${c.error(`• ${seg.segmentFile}`)} ${c.dim(`(${fmtDuration(seg.durationSeconds)}) — ${seg.analysis.error}`)}`);
+      }
+      console.error(`  ${c.error('Those minutes are missing from the output. Re-run with --resume once the connection is stable — analyzed segments are cached, only the failed ones re-run.')}`);
+      log.error(`${stillFailed.length} segment(s) unanalyzed after rescue pass`);
+    } else {
+      console.log(`  ${c.success('Rescue pass recovered every failed segment.')}`);
+    }
     console.log('');
   }
 

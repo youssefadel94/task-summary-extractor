@@ -1,4 +1,11 @@
-const { withRetry, parallelMap, isTransientError } = require('../../src/utils/retry');
+const { withRetry, parallelMap, isTransientError, describeError } = require('../../src/utils/retry');
+
+/** Build the TypeError Node's fetch throws, with the real reason in .cause. */
+const fetchFailure = (code, message = code) => {
+  const err = new TypeError('fetch failed');
+  err.cause = Object.assign(new Error(message), { code });
+  return err;
+};
 
 describe('isTransientError', () => {
   const t = (msg, extra = {}) => isTransientError(Object.assign(new Error(msg), extra));
@@ -11,12 +18,49 @@ describe('isTransientError', () => {
     expect(t('boom', { status: 500 })).toBe(true);
   });
 
+  it('flags fetch failures by the cause hidden under "fetch failed"', () => {
+    // Regression: a segment analysis died on undici's 300s headers timeout, the
+    // bare "fetch failed" message matched no pattern, and the segment was
+    // dropped without a single retry.
+    expect(isTransientError(fetchFailure('UND_ERR_HEADERS_TIMEOUT', 'Headers Timeout Error'))).toBe(true);
+    expect(isTransientError(fetchFailure('ECONNRESET', 'read ECONNRESET'))).toBe(true);
+    expect(isTransientError(fetchFailure('EAI_AGAIN', 'getaddrinfo EAI_AGAIN'))).toBe(true);
+    expect(isTransientError(new TypeError('fetch failed'))).toBe(true);
+  });
+
+  it('flags a transient status buried in the cause chain', () => {
+    const err = new Error('request failed');
+    err.cause = Object.assign(new Error('upstream'), { status: 503 });
+    expect(isTransientError(err)).toBe(true);
+  });
+
+  it('retries a fetch failure instead of giving up on the first attempt', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fn = vi.fn()
+      .mockRejectedValueOnce(fetchFailure('UND_ERR_HEADERS_TIMEOUT', 'Headers Timeout Error'))
+      .mockResolvedValue('analysis');
+    await expect(withRetry(fn, { baseDelay: 10 })).resolves.toBe('analysis');
+    expect(fn).toHaveBeenCalledTimes(2);
+    console.warn.mockRestore();
+  });
+
   it('does not flag permanent errors that merely contain 5xx-like digits', () => {
     // Regression: substring /500/ used to match "5000".
     expect(t('field exceeds 5000 chars')).toBe(false);
     expect(t('invalid id ABC-4290')).toBe(false);
     expect(t('bad request: missing field')).toBe(false);
     expect(t('INVALID_ARGUMENT')).toBe(false);
+  });
+});
+
+describe('describeError', () => {
+  it('surfaces the cause so "fetch failed" is not the whole story', () => {
+    expect(describeError(fetchFailure('UND_ERR_HEADERS_TIMEOUT', 'Headers Timeout Error')))
+      .toBe('fetch failed (UND_ERR_HEADERS_TIMEOUT)');
+  });
+
+  it('returns the message unchanged when there is no cause', () => {
+    expect(describeError(new Error('INVALID_ARGUMENT'))).toBe('INVALID_ARGUMENT');
   });
 });
 

@@ -35,7 +35,7 @@ const {
   estimateDocTokens,
 } = require('../utils/context-manager');
 const { formatHMS } = require('../utils/format');
-const { withRetry, parallelMap } = require('../utils/retry');
+const { withRetry, parallelMap, describeError } = require('../utils/retry');
 const { c } = require('../utils/colors');
 const { isShuttingDown } = require('../phases/_shared');
 
@@ -45,6 +45,29 @@ async function initGemini() {
   const { GoogleGenAI } = require('@google/genai');
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   return ai;
+}
+
+/**
+ * Did the request reach the model and then time out waiting for its answer?
+ *
+ * Node's fetch aborts a request whose headers have not arrived within 300s and
+ * reports only "fetch failed", so the reason lives in err.cause. That case means
+ * the model thought for longer than the connection would wait — the next attempt
+ * needs a smaller thinking budget or it walks into the identical wall.
+ *
+ * A connection that never got that far (reset, refused, DNS, connect timeout)
+ * says nothing about how long the model would have taken: retry it unchanged
+ * rather than paying for the reduced budget with a weaker analysis.
+ *
+ * @param {any} err
+ * @returns {boolean}
+ */
+function isStallError(err) {
+  const text = describeError(err);
+  if (/ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|CONNECT_TIMEOUT|SOCKET_ERROR/i.test(text)) {
+    return false;
+  }
+  return /headers timeout|body timeout|HEADERS_TIMEOUT|BODY_TIMEOUT|deadline exceeded|operation was aborted|AbortError/i.test(text);
 }
 
 // ======================== DOCUMENT PREPARATION ========================
@@ -286,7 +309,7 @@ Use the image filenames as headers. Be thorough — extract ALL visible text con
     try {
       const response = await withRetry(
         () => ai.models.generateContent(requestPayload),
-        { label: `Image batch analysis (${batchLabel})`, maxRetries: 2, baseDelay: 5000 }
+        { label: `Image batch analysis (${batchLabel})`, maxRetries: 3, baseDelay: 5000 }
       );
       const durationMs = Date.now() - t0;
       let rawText;
@@ -475,7 +498,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
         file: filePath,
         config: { mimeType: 'video/mp4', displayName: asciiDisplayName(displayName) },
       }),
-      { label: `Gemini file upload (${displayName})`, maxRetries: 3 }
+      { label: `Gemini file upload (${displayName})`, maxRetries: 5, baseDelay: 3000 }
     );
 
     let waited = 0;
@@ -621,7 +644,21 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   try {
     response = await withRetry(
       () => ai.models.generateContent(requestPayload),
-      { label: `Gemini segment analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+      {
+        label: `Gemini segment analysis (${displayName})`,
+        maxRetries: 4,
+        baseDelay: 5000,
+        onRetry: (attempt, delay, err) => {
+          console.warn(`    ${c.warn(`Segment analysis attempt ${attempt}/5 failed: ${describeError(err).slice(0, 160)}`)}`);
+          if (isStallError(err)) {
+            const cur = (requestPayload.config.thinkingConfig || {}).thinkingBudget ?? thinkingBudget;
+            const reduced = Math.max(2048, Math.floor(cur / 2));
+            requestPayload.config.thinkingConfig = { thinkingBudget: reduced };
+            console.warn(`    ${c.dim(`↓ Thinking budget → ${reduced.toLocaleString()} tokens (request timed out before the model answered)`)}`);
+          }
+          console.warn(`    ${c.dim(`↻ Retrying in ${(delay / 1000).toFixed(1)}s...`)}`);
+        },
+      }
     );
   } catch (apiErr) {
     const errMsg = apiErr.message || '';
@@ -855,7 +892,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
         file: seg.segPath,
         config: { mimeType: 'video/mp4', displayName: `${displayName}_${seg.segName}` },
       }),
-      { label: `Gemini upload (${seg.segName})`, maxRetries: 3 }
+      { label: `Gemini upload (${seg.segName})`, maxRetries: 5, baseDelay: 3000 }
     );
 
     let waited = 0;
@@ -987,7 +1024,7 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   const t0 = Date.now();
   const response = await withRetry(
     () => ai.models.generateContent(requestPayload),
-    { label: `Gemini batch analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+    { label: `Gemini batch analysis (${displayName})`, maxRetries: 4, baseDelay: 5000 }
   );
   const durationMs = Date.now() - t0;
 
@@ -1293,7 +1330,7 @@ ${segmentDumps}`;
   try {
     response = await withRetry(
       () => ai.models.generateContent(requestPayload),
-      { label: 'Gemini final compilation', maxRetries: 2, baseDelay: 5000 }
+      { label: 'Gemini final compilation', maxRetries: 4, baseDelay: 5000 }
     );
   } catch (compileErr) {
     const errMsg = compileErr.message || '';
@@ -1437,7 +1474,7 @@ async function analyzeVideoForContext(ai, filePath, displayName, opts = {}) {
       file: filePath,
       config: { mimeType: 'video/mp4', displayName },
     }),
-    { label: `Gemini video upload (${displayName})`, maxRetries: 3 }
+    { label: `Gemini video upload (${displayName})`, maxRetries: 5, baseDelay: 3000 }
   );
 
   // 2. Poll until processing complete
@@ -1509,7 +1546,7 @@ FORMAT:
   const t0 = Date.now();
   const response = await withRetry(
     () => ai.models.generateContent(requestPayload),
-    { label: `Dynamic video analysis (${displayName})`, maxRetries: 2, baseDelay: 5000 }
+    { label: `Dynamic video analysis (${displayName})`, maxRetries: 4, baseDelay: 5000 }
   );
   const durationMs = Date.now() - t0;
 
