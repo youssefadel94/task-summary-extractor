@@ -36,8 +36,12 @@ class CostTracker {
    * @param {object} tokenUsage - { inputTokens, outputTokens, thoughtTokens, totalTokens }
    * @param {number} durationMs - Wall-clock time
    * @param {boolean} [cached=false] - Whether this was loaded from cache
+   * @param {object} [pricing] - Rates for THIS segment's model. A run can span
+   *   several models (parallel segments, an overload fallback), and the flash
+   *   line is ~6x cheaper than pro — costing every segment at the configured
+   *   model's rate would misreport a mixed run by a wide margin.
    */
-  addSegment(segmentName, tokenUsage, durationMs, cached = false) {
+  addSegment(segmentName, tokenUsage, durationMs, cached = false, pricing = null) {
     if (!tokenUsage) return;
     this.segments.push({
       name: segmentName,
@@ -47,6 +51,7 @@ class CostTracker {
       total: tokenUsage.totalTokens || 0,
       durationMs: durationMs || 0,
       cached,
+      pricing: pricing || null,
     });
   }
 
@@ -54,8 +59,10 @@ class CostTracker {
    * Record token usage for the final compilation step.
    * @param {object} tokenUsage
    * @param {number} durationMs
+   * @param {object} [pricing] - Rates for the model that compiled (it can
+   *   differ from the configured one after an overload fallback)
    */
-  addCompilation(tokenUsage, durationMs) {
+  addCompilation(tokenUsage, durationMs, pricing = null) {
     if (!tokenUsage) return;
     this.compilation = {
       input: tokenUsage.inputTokens || 0,
@@ -63,6 +70,7 @@ class CostTracker {
       thinking: tokenUsage.thoughtTokens || 0,
       total: tokenUsage.totalTokens || 0,
       durationMs: durationMs || 0,
+      pricing: pricing || null,
     };
   }
 
@@ -71,11 +79,12 @@ class CostTracker {
    * @param {number} tokens
    * @param {number} inputTokens - total input tokens (for long-context detection)
    * @param {'input'|'output'|'thinking'} type
+   * @param {object} [override] - Per-entry pricing (a segment's own model)
    * @returns {number} Cost in USD
    */
-  _calcCost(tokens, inputTokens, type) {
+  _calcCost(tokens, inputTokens, type, override = null) {
     if (tokens === 0) return 0;
-    const p = this.pricing;
+    const p = override ? { ...this.pricing, ...override } : this.pricing;
     const isLong = inputTokens > p.longContextThreshold;
 
     let ratePerM;
@@ -116,9 +125,9 @@ class CostTracker {
     let thinkingCost = 0;
 
     for (const entry of all) {
-      inputCost += this._calcCost(entry.input, entry.input, 'input');
-      outputCost += this._calcCost(entry.output, entry.input, 'output');
-      thinkingCost += this._calcCost(entry.thinking, entry.input, 'thinking');
+      inputCost += this._calcCost(entry.input, entry.input, 'input', entry.pricing);
+      outputCost += this._calcCost(entry.output, entry.input, 'output', entry.pricing);
+      thinkingCost += this._calcCost(entry.thinking, entry.input, 'thinking', entry.pricing);
     }
 
     const totalCost = inputCost + outputCost + thinkingCost;
@@ -143,9 +152,9 @@ class CostTracker {
       perSegment: this.segments.map(s => ({
         name: s.name,
         tokens: s.total,
-        cost: this._calcCost(s.input, s.input, 'input')
-          + this._calcCost(s.output, s.input, 'output')
-          + this._calcCost(s.thinking, s.input, 'thinking'),
+        cost: this._calcCost(s.input, s.input, 'input', s.pricing)
+          + this._calcCost(s.output, s.input, 'output', s.pricing)
+          + this._calcCost(s.thinking, s.input, 'thinking', s.pricing),
         durationMs: s.durationMs,
         cached: s.cached,
       })),

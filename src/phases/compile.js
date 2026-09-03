@@ -8,6 +8,7 @@ const { compileFinalResult } = require('../services/gemini');
 
 // --- Utils ---
 const { calculateCompilationBudget } = require('../utils/adaptive-budget');
+const { pricingFor } = require('../utils/model-pool');
 const { assessQuality, THRESHOLDS } = require('../utils/quality-gate');
 const { validateAnalysis, formatSchemaLine, normalizeAnalysis } = require('../utils/schema-validator');
 const { c } = require('../utils/colors');
@@ -48,7 +49,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
 
       // Track compilation cost
       if (compilationRun?.tokenUsage) {
-        costTracker.addCompilation(compilationRun.tokenUsage, compilationRun.durationMs);
+        costTracker.addCompilation(compilationRun.tokenUsage, compilationRun.durationMs, pricingFor(compilationRun.model));
       }
 
       // Validate compilation output
@@ -101,7 +102,7 @@ async function phaseCompile(ctx, allSegmentAnalyses) {
           const retryRun = retryResult.run;
 
           if (retryRun?.tokenUsage) {
-            costTracker.addCompilation(retryRun.tokenUsage, retryRun.durationMs);
+            costTracker.addCompilation(retryRun.tokenUsage, retryRun.durationMs, pricingFor(retryRun.model));
           }
 
           if (retryAnalysis) {

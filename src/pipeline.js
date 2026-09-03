@@ -59,6 +59,7 @@ const { createProgressBar } = require('./utils/progress-bar');
 const { buildHealthReport, printHealthDashboard } = require('./utils/health-dashboard');
 const { saveHistory, buildHistoryEntry } = require('./utils/learning-loop');
 const { loadPreviousCompilation } = require('./utils/diff-engine');
+const { pricingFor } = require('./utils/model-pool');
 
 // --- Modes & renderers (lazy-loaded inside each alternative mode function) ---
 // detectAllChanges, serializeReport, assessProgressLocal, assessProgressWithAI, etc.
@@ -764,7 +765,7 @@ async function runDocOnly(ctx) {
     compilationRun = compilationResult.run;
 
     if (compilationRun?.tokenUsage) {
-      costTracker.addCompilation(compilationRun.tokenUsage, compilationRun.durationMs);
+      costTracker.addCompilation(compilationRun.tokenUsage, compilationRun.durationMs, pricingFor(compilationRun.model));
     }
 
     // Save compilation run

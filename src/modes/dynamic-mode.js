@@ -23,7 +23,7 @@ const path = require('path');
 const config = require('../config');
 // Access config.GEMINI_MODEL at call time (not destructured) for runtime model changes.
 const { extractJson } = require('../utils/json-parser');
-const { withRetry } = require('../utils/retry');
+const { generateWithFallback } = require('../utils/model-pool');
 const { isShuttingDown } = require('../phases/_shared');
 const { MERMAID_RULES, sanitizeMermaidBlocks, buildDocumentMap } = require('../utils/mermaid');
 
@@ -138,10 +138,10 @@ RESPOND WITH ONLY VALID JSON — no markdown fences, no extra text:
   };
 
   const t0 = Date.now();
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: 'Dynamic mode topic planning', maxRetries: 2, baseDelay: 3000 }
-  );
+  const response = await generateWithFallback(ai, requestPayload, {
+    label: 'Dynamic mode topic planning', maxRetries: 2, baseDelay: 3000,
+    onModelSwitch: (from, to) => console.warn(`  ⇄ ${from} has no capacity — switching to ${to}`),
+  });
   const durationMs = Date.now() - t0;
   let rawText;
   try { rawText = response.text; } catch { rawText = ''; }
@@ -258,10 +258,10 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
   };
 
   const t0 = Date.now();
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: `Dynamic doc: ${topic.title}`, maxRetries: 2, baseDelay: 3000 }
-  );
+  const response = await generateWithFallback(ai, requestPayload, {
+    label: `Dynamic doc: ${topic.title}`, maxRetries: 2, baseDelay: 3000,
+    onModelSwitch: (from, to) => console.warn(`  ⇄ ${from} has no capacity — switching to ${to}`),
+  });
   const durationMs = Date.now() - t0;
   let rawText;
   try { rawText = response.text; } catch { rawText = ''; }
@@ -373,10 +373,10 @@ START YOUR RESPONSE DIRECTLY WITH THE MARKDOWN CONTENT (no fences, no preamble):
   };
 
   const t0 = Date.now();
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: 'Dynamic mode unified document', maxRetries: 2, baseDelay: 5000 }
-  );
+  const response = await generateWithFallback(ai, requestPayload, {
+    label: 'Dynamic mode unified document', maxRetries: 2, baseDelay: 5000,
+    onModelSwitch: (from, to) => console.warn(`  ⇄ ${from} has no capacity — switching to ${to}`),
+  });
   const durationMs = Date.now() - t0;
   let rawText;
   try { rawText = response.text; } catch { rawText = ''; }

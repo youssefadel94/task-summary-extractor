@@ -15,6 +15,7 @@ const { c } = require('../utils/colors');
 const { parseArgs, showHelp, selectFolder, selectModel, selectRunMode, selectFormats, selectConfidence, selectFeatureFlags, selectSourceSpeed } = require('../utils/cli');
 const { promptForKey } = require('../utils/global-config');
 const { setInputMode } = require('../utils/input-policy');
+const { resetCooldowns } = require('../utils/model-pool');
 const Logger = require('../logger');
 const Progress = require('../utils/checkpoint');
 const CostTracker = require('../utils/cost-tracker');
@@ -82,7 +83,15 @@ async function phaseInit() {
     outputDir: flags.output || null,
     thinkingBudget: safeInt(flags['thinking-budget'], THINKING_BUDGET),
     compilationThinkingBudget: safeInt(flags['compilation-thinking-budget'], COMPILATION_THINKING_BUDGET),
-    parallelAnalysis: safeInt(flags['parallel-analysis'], 2), // concurrent segment analysis
+    parallelAnalysis: safeInt(flags['parallel-analysis'], 2), // concurrent analysis batches
+    // Analyze several segments at once, each on its own model. Off by default:
+    // concurrent segments cannot see each other's analyses, so the progressive
+    // context that lets a later segment resolve an earlier ticket is lost.
+    parallelSegments: flags['no-parallel-segments'] ? false : !!flags['parallel-segments'],
+    segmentConcurrency: safeInt(flags['segment-concurrency'], 0),
+    // An overloaded model hands the request to the next model in the registry
+    // rather than dropping the segment. --no-model-fallback keeps one model.
+    noModelFallback: !!flags['no-model-fallback'],
     disableFocusedPass: !!flags['no-focused-pass'],
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
@@ -127,6 +136,7 @@ async function phaseInit() {
   const hasExplicitMode = opts.model || opts.updateProgress || opts.dynamic
     || flags['no-focused-pass'] || flags['no-learning'] || flags['no-diff']
     || flags['no-html'] || flags['no-batch'] || flags['no-progress']
+    || flags['parallel-segments'] || flags['segment-concurrency'] || flags['no-model-fallback']
     || flags['deep-summary'] || flags['deep-dive']
     || opts.format || opts.minConfidence;
   const isNonInteractive = !process.stdin.isTTY;
@@ -467,6 +477,10 @@ async function phaseInit() {
   // --- Print run summary ---
   _printRunSummary(opts, config.GEMINI_MODEL, GEMINI_MODELS, targetDir);
 
+  // A model marked contended by an earlier run in this process should not be
+  // skipped on this one — a demand spike lasts minutes, not a session.
+  resetCooldowns();
+
   // --- Initialize progress tracking ---
   const progress = new Progress(targetDir);
   const costTracker = new CostTracker(getActiveModelPricing());
@@ -521,6 +535,11 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.disableProgress) disabled.push(c.dim('no-progress'));
   if (opts.noDiagrams) disabled.push(c.dim('no-diagrams'));
   if (opts.noBatch) features.push(c.green('per-segment'));
+  if (opts.parallelSegments || opts.segmentConcurrency > 1) {
+    const n = opts.segmentConcurrency > 0 ? opts.segmentConcurrency : 3;
+    features.push(c.cyan(`parallel-segments ×${n}`));
+  }
+  if (opts.noModelFallback) disabled.push(c.dim('no-model-fallback'));
 
   if (features.length > 0) {
     console.log(`    ${c.dim('Features:')}    ${features.join(c.dim(' · '))}`);

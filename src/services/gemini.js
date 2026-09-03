@@ -36,6 +36,7 @@ const {
 } = require('../utils/context-manager');
 const { formatHMS } = require('../utils/format');
 const { withRetry, parallelMap, describeError } = require('../utils/retry');
+const { generateWithFallback, clampThinkingBudget } = require('../utils/model-pool');
 const { c } = require('../utils/colors');
 const { isShuttingDown } = require('../phases/_shared');
 
@@ -331,10 +332,12 @@ Use the image filenames as headers. Be thorough — extract ALL visible text con
 
     const t0 = Date.now();
     try {
-      const response = await withRetry(
-        () => ai.models.generateContent(requestPayload),
-        { label: `Image batch analysis (${batchLabel})`, maxRetries: 3, baseDelay: 5000 }
-      );
+      const response = await generateWithFallback(ai, requestPayload, {
+        label: `Image batch analysis (${batchLabel})`,
+        maxRetries: 3,
+        baseDelay: 5000,
+        onModelSwitch: (from, to) => console.warn(`    ${c.dim(`⇄ ${from} has no capacity — switching to ${to}`)}`),
+      });
       const durationMs = Date.now() - t0;
       let rawText;
       try { rawText = response.text; } catch { rawText = ''; }
@@ -502,7 +505,12 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   const { segmentIndex = 0, totalSegments = 1, segmentStartSec, segmentEndSec, thinkingBudget = 24576,
           boundaryContext = null, retryHints = [],
           existingFileUri = null, existingFileMime = 'video/mp4', existingGeminiFileName = null,
-          storageDownloadUrl = null } = segmentOpts;
+          storageDownloadUrl = null,
+          modelId = null, modelFallback = true } = segmentOpts;
+
+  // The model this segment is dealt. Parallel runs hand different segments
+  // different models on purpose; a sequential run just uses the active one.
+  const primaryModel = config.GEMINI_MODELS[modelId] ? modelId : config.GEMINI_MODEL;
 
   // 1. Load structured prompt
   const { systemInstruction, promptText } = loadPrompt(scriptDir);
@@ -576,7 +584,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   }
 
   // 4. Build content parts with SMART CONTEXT MANAGEMENT
-  console.log(`    Analyzing with ${config.GEMINI_MODEL} [segment ${segmentIndex + 1}/${totalSegments}]...`);
+  console.log(`    Analyzing with ${primaryModel} [segment ${segmentIndex + 1}/${totalSegments}]...`);
 
   const contentParts = [
     { fileData: { mimeType: file.mimeType, fileUri: file.uri }, ...videoSampling(segmentOpts) },
@@ -653,13 +661,15 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
 
   // 5. Send request with thinking budget
   const requestPayload = {
-    model: config.GEMINI_MODEL,
+    model: primaryModel,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
       systemInstruction,
       maxOutputTokens: 65536,
       temperature: 0,
-      thinkingConfig: { thinkingBudget },
+      // A budget sized for one model can exceed another model's ceiling, and an
+      // over-budget request is rejected outright rather than trimmed.
+      thinkingConfig: { thinkingBudget: clampThinkingBudget(thinkingBudget, primaryModel) },
       ...mediaDetailConfig(segmentOpts),
     },
   };
@@ -673,24 +683,28 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   const t0 = Date.now();
   let response;
   try {
-    response = await withRetry(
-      () => ai.models.generateContent(requestPayload),
-      {
-        label: `Gemini segment analysis (${displayName})`,
-        maxRetries: 4,
-        baseDelay: 5000,
-        onRetry: (attempt, delay, err) => {
-          console.warn(`    ${c.warn(`Segment analysis attempt ${attempt}/5 failed: ${describeError(err).slice(0, 160)}`)}`);
-          if (isStallError(err)) {
-            const cur = (requestPayload.config.thinkingConfig || {}).thinkingBudget ?? thinkingBudget;
-            const reduced = Math.max(2048, Math.floor(cur / 2));
-            requestPayload.config.thinkingConfig = { thinkingBudget: reduced };
-            console.warn(`    ${c.dim(`↓ Thinking budget → ${reduced.toLocaleString()} tokens (request timed out before the model answered)`)}`);
-          }
-          console.warn(`    ${c.dim(`↻ Retrying in ${(delay / 1000).toFixed(1)}s...`)}`);
-        },
-      }
-    );
+    response = await generateWithFallback(ai, requestPayload, {
+      label: `Gemini segment analysis (${displayName})`,
+      maxRetries: 4,
+      baseDelay: 5000,
+      fallback: modelFallback,
+      onRetry: (attempt, delay, err) => {
+        console.warn(`    ${c.warn(`Segment analysis attempt ${attempt}/5 failed: ${describeError(err).slice(0, 160)}`)}`);
+        if (isStallError(err)) {
+          const cur = (requestPayload.config.thinkingConfig || {}).thinkingBudget ?? thinkingBudget;
+          const reduced = Math.max(2048, Math.floor(cur / 2));
+          requestPayload.config.thinkingConfig = { thinkingBudget: reduced };
+          console.warn(`    ${c.dim(`↓ Thinking budget → ${reduced.toLocaleString()} tokens (request timed out before the model answered)`)}`);
+        }
+        console.warn(`    ${c.dim(`↻ Retrying in ${(delay / 1000).toFixed(1)}s...`)}`);
+      },
+      // An overloaded model does not recover on the timescale of a backoff, so
+      // the segment moves to another model instead of being abandoned.
+      onModelSwitch: (from, to, err) => {
+        console.warn(`    ${c.warn(`${from} has no capacity (${describeError(err).slice(0, 90)})`)}`);
+        console.warn(`    ${c.dim(`⇄ Switching model → ${to}`)}`);
+      },
+    });
   } catch (apiErr) {
     const errMsg = apiErr.message || '';
 
@@ -779,7 +793,7 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
           return `  [${i}] unknown part`;
         });
         console.error(`    ${c.error('Request diagnostics:')}`);
-        console.error(`    Model: ${config.GEMINI_MODEL} | Parts: ${contentParts.length} | maxOutput: 65536`);
+        console.error(`    Model: ${requestPayload.model} | Parts: ${contentParts.length} | maxOutput: 65536`);
         partSummary.forEach(s => console.error(`    ${s}`));
         throw apiErr;
       }
@@ -853,7 +867,9 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
 
   return {
     run: {
-      model: config.GEMINI_MODEL,
+      // The model that actually answered — after a capacity switch this is not
+      // the model the segment started on.
+      model: requestPayload.model,
       displayName,
       userName,
       timestamp: new Date().toISOString(),
@@ -907,7 +923,11 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
     segmentTimes = [],
     thinkingBudget = 24576,
     noStorageUrl = false,
+    modelId = null,
+    modelFallback = true,
   } = batchOpts;
+
+  const primaryModel = config.GEMINI_MODELS[modelId] ? modelId : config.GEMINI_MODEL;
 
   const { systemInstruction, promptText } = loadPrompt(scriptDir);
 
@@ -1039,25 +1059,31 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   contentParts.push({ text: promptText });
 
   // ── Send request ──────────────────────────────────────────────────────────
-  console.log(`    Analyzing batch [segments ${segmentIndices[0] + 1}–${segmentIndices[segmentIndices.length - 1] + 1}] with ${config.GEMINI_MODEL}...`);
+  console.log(`    Analyzing batch [segments ${segmentIndices[0] + 1}–${segmentIndices[segmentIndices.length - 1] + 1}] with ${primaryModel}...`);
 
   const requestPayload = {
-    model: config.GEMINI_MODEL,
+    model: primaryModel,
     contents: [{ role: 'user', parts: contentParts }],
     config: {
       systemInstruction,
       maxOutputTokens: 65536,
       temperature: 0,
-      thinkingConfig: { thinkingBudget },
+      thinkingConfig: { thinkingBudget: clampThinkingBudget(thinkingBudget, primaryModel) },
       ...mediaDetailConfig(batchOpts),
     },
   };
 
   const t0 = Date.now();
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: `Gemini batch analysis (${displayName})`, maxRetries: 4, baseDelay: 5000 }
-  );
+  const response = await generateWithFallback(ai, requestPayload, {
+    label: `Gemini batch analysis (${displayName})`,
+    maxRetries: 4,
+    baseDelay: 5000,
+    fallback: modelFallback,
+    onModelSwitch: (from, to, err) => {
+      console.warn(`    ${c.warn(`${from} has no capacity (${describeError(err).slice(0, 90)})`)}`);
+      console.warn(`    ${c.dim(`⇄ Switching model → ${to}`)}`);
+    },
+  });
   const durationMs = Date.now() - t0;
 
   let rawText;
@@ -1127,7 +1153,9 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
 
   return {
     run: {
-      model: config.GEMINI_MODEL,
+      // The model that actually answered — a capacity switch can move a batch
+      // off the model it started on.
+      model: requestPayload.model,
       displayName,
       userName,
       timestamp: new Date().toISOString(),
@@ -1357,13 +1385,18 @@ ${segmentDumps}`;
   };
 
   const t0 = Date.now();
-  console.log(`  Compiling with ${config.GEMINI_MODEL}...`);
+  console.log(`  Compiling with ${requestPayload.model}...`);
   let response;
   try {
-    response = await withRetry(
-      () => ai.models.generateContent(requestPayload),
-      { label: 'Gemini final compilation', maxRetries: 4, baseDelay: 5000 }
-    );
+    response = await generateWithFallback(ai, requestPayload, {
+      label: 'Gemini final compilation',
+      maxRetries: 4,
+      baseDelay: 5000,
+      onModelSwitch: (from, to, err) => {
+        console.warn(`  ${c.warn(`${from} has no capacity (${describeError(err).slice(0, 90)})`)}`);
+        console.warn(`  ${c.dim(`⇄ Compiling with ${to} instead`)}`);
+      },
+    });
   } catch (compileErr) {
     const errMsg = compileErr.message || '';
     if (errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('429') || errMsg.includes('quota')) {
@@ -1473,7 +1506,7 @@ ${segmentDumps}`;
     compiled,
     raw: rawText,
     run: {
-      model: config.GEMINI_MODEL,
+      model: requestPayload.model,
       type: 'compilation',
       timestamp: new Date().toISOString(),
       durationMs,
@@ -1577,10 +1610,15 @@ FORMAT:
   };
 
   const t0 = Date.now();
-  const response = await withRetry(
-    () => ai.models.generateContent(requestPayload),
-    { label: `Dynamic video analysis (${displayName})`, maxRetries: 4, baseDelay: 5000 }
-  );
+  const response = await generateWithFallback(ai, requestPayload, {
+    label: `Dynamic video analysis (${displayName})`,
+    maxRetries: 4,
+    baseDelay: 5000,
+    onModelSwitch: (from, to, err) => {
+      console.warn(`    ${c.warn(`${from} has no capacity (${describeError(err).slice(0, 90)})`)}`);
+      console.warn(`    ${c.dim(`⇄ Switching model → ${to}`)}`);
+    },
+  });
   const durationMs = Date.now() - t0;
 
   let summaryText;

@@ -12,7 +12,7 @@
 'use strict';
 
 const { extractJson } = require('../utils/json-parser');
-const { withRetry } = require('../utils/retry');
+const { generateWithFallback } = require('../utils/model-pool');
 const config = require('../config');
 const { c } = require('../utils/colors');
 // Access config.GEMINI_MODEL / config.GEMINI_CONTEXT_WINDOW at call time for runtime model changes.
@@ -216,10 +216,10 @@ Output ONLY valid JSON.`;
   };
 
   try {
-    const response = await withRetry(
-      () => ai.models.generateContent(requestPayload),
-      { label: `Focused re-analysis (seg ${segmentIndex + 1}/${totalSegments})`, maxRetries: 1, baseDelay: 3000 }
-    );
+    const response = await generateWithFallback(ai, requestPayload, {
+      label: `Focused re-analysis (seg ${segmentIndex + 1}/${totalSegments})`, maxRetries: 1, baseDelay: 3000,
+      onModelSwitch: (from, to) => console.warn(`    ⇄ ${from} has no capacity — switching to ${to}`),
+    });
 
     const rawText = response.text;
     const parsed = extractJson(rawText);

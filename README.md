@@ -293,7 +293,10 @@ In interactive runs on a folder containing media, a **🎬 Source Recording Spee
 | `--thinking-budget <n>` | `24576` | AI thinking tokens per segment — higher = more thorough, slower, costlier |
 | `--compilation-thinking-budget <n>` | `10240` | AI thinking tokens for the final cross-segment compilation |
 | `--parallel <n>` | `3` | Max concurrent Firebase uploads |
-| `--parallel-analysis <n>` | `2` | Max concurrent AI segment analyses |
+| `--parallel-analysis <n>` | `2` | Max concurrent analysis batches |
+| `--parallel-segments` | disabled | Analyze segments at the same time, each on a different Gemini model. Sidesteps one model's demand spikes and cuts wall-clock time; the trade-off is that concurrent segments cannot read each other's analyses |
+| `--segment-concurrency <n>` | `3` when parallel | How many segments run at once (implies `--parallel-segments`) |
+| `--no-model-fallback` | enabled | Stay on the chosen model. By default a model that answers "high demand" (503) hands the request to the next model in the registry rather than losing the segment |
 | `--log-level <level>` | `info` | `debug` / `info` / `warn` / `error` |
 | `--output <dir>` | auto | Custom output directory (default: `runs/{timestamp}`) |
 | `--no-focused-pass` | enabled | Disable targeted re-analysis of weak segments |
@@ -329,7 +332,8 @@ VIDEO      --no-compress  --speed <n>  --source-speed <n>  --segment-time <n>
 DYNAMIC    --request <text>
 PROGRESS   --repo <path>
 TUNING     --thinking-budget  --compilation-thinking-budget  --parallel
-           --parallel-analysis  --log-level  --output
+           --parallel-analysis  --parallel-segments  --segment-concurrency
+           --no-model-fallback  --log-level  --output
            --no-focused-pass  --no-learning  --no-diff  --no-batch
 INFO       --help (-h)  --version (-v)
 ```

@@ -21,6 +21,7 @@
 
 const { extractJson } = require('../utils/json-parser');
 const { withRetry } = require('../utils/retry');
+const { generateWithFallback } = require('../utils/model-pool');
 const { estimateTokens } = require('../utils/context-manager');
 const { c } = require('../utils/colors');
 const config = require('../config');
@@ -272,10 +273,10 @@ ${docEntries.join('\n\n')}`;
       ? `Deep summary batch ${batchIndex + 1}/${totalBatches}`
       : 'Deep summary';
 
-    const response = await withRetry(
-      () => ai.models.generateContent(requestPayload),
-      { label, maxRetries: 2, baseDelay: 3000 }
-    );
+    const response = await generateWithFallback(ai, requestPayload, {
+      label, maxRetries: 2, baseDelay: 3000,
+      onModelSwitch: (from, to) => console.warn(`    ⇄ ${from} has no capacity — switching to ${to}`),
+    });
 
     let rawText = response.text;
 

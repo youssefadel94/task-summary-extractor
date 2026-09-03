@@ -13,7 +13,7 @@
 'use strict';
 
 const { extractJson } = require('../utils/json-parser');
-const { withRetry } = require('../utils/retry');
+const { generateWithFallback } = require('../utils/model-pool');
 const config = require('../config');
 // Access config.GEMINI_MODEL at call time for runtime model changes.
 
@@ -206,7 +206,7 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
   const prompt = buildProgressPrompt(items, changeReport, localAssessments);
   const thinkingBudget = opts.thinkingBudget || 16384;
 
-  const result = await withRetry(() => ai.models.generateContent({
+  const result = await generateWithFallback(ai, {
     model: config.GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
@@ -214,7 +214,10 @@ async function assessProgressWithAI(ai, items, changeReport, localAssessments, o
       maxOutputTokens: 32768,
       thinkingConfig: { thinkingBudget },
     },
-  }), { label: 'AI progress assessment', maxRetries: 2, baseDelay: 3000 });
+  }, {
+    label: 'AI progress assessment', maxRetries: 2, baseDelay: 3000,
+    onModelSwitch: (from, to) => console.warn(`  ⇄ ${from} has no capacity — switching to ${to}`),
+  });
 
   const rawText = result.text || '';
   const usage = result.usageMetadata || {};

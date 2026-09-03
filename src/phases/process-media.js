@@ -16,6 +16,8 @@ const { compressAndSegment, compressAndSegmentAudio, splitOnly, probeFormat, ver
 const { fmtDuration, fmtBytes } = require('../utils/format');
 const { promptUser } = require('../utils/cli');
 const { parallelMap, describeError } = require('../utils/retry');
+const { assignSegmentModels, pricingFor } = require('../utils/model-pool');
+const { withLogPrefix } = require('../utils/log-prefix');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('../utils/quality-gate');
 const { validateAnalysis, formatSchemaLine, schemaScore, normalizeAnalysis } = require('../utils/schema-validator');
 const { calculateThinkingBudget } = require('../utils/adaptive-budget');
@@ -821,11 +823,67 @@ async function phaseAnalyzeMedia(ctx, prep) {
     fileResult.segments.filter(s => s.analysis).map(s => s.segmentIndex)
   );
 
-  for (let j = 0; j < segments.length; j++) {
-    if (isShuttingDown()) break;
-    if (alreadyDone.has(j)) continue;
+  // ── Parallel segment analysis ─────────────────────────────────────────────
+  // One model's demand spike stalls every segment queued behind it. Running
+  // segments concurrently on DIFFERENT models turns that into one retry
+  // instead of a stalled run, and cuts wall-clock time by roughly the pool
+  // size. The cost is context: concurrent segments cannot read each other's
+  // analyses, so the progressive context that lets segment 4 resolve a ticket
+  // segment 2 opened is only partially available. Hence opt-in.
+  const requestedConcurrency = opts.segmentConcurrency > 0
+    ? opts.segmentConcurrency
+    : (opts.parallelSegments ? 3 : 1);
+  const segmentConcurrency = Math.max(1, Math.min(requestedConcurrency, segments.length));
+  const parallelSegments = segmentConcurrency > 1;
+  const modelFallback = !opts.noModelFallback;
+
+  // Model per segment. Sequential runs keep the chosen model throughout;
+  // parallel runs rotate so concurrent requests hit separate capacity pools.
+  const segmentModels = parallelSegments
+    ? assignSegmentModels(segments.length, {
+        primary: config.GEMINI_MODEL,
+        poolSize: segmentConcurrency,
+      })
+    : segments.map(() => config.GEMINI_MODEL);
+
+  // Analyses keyed by segment index. previousAnalyses records completion order,
+  // which is meaningless once segments run concurrently — this keeps the
+  // "everything before segment j" view the context builder expects.
+  const analysisByIndex = new Map();
+  const recordAnalysis = (index, analysis) => {
+    if (analysis && !analysis.error) analysisByIndex.set(index, analysis);
+  };
+  // Seed with anything an earlier batch already analyzed, so a segment running
+  // here still sees the segments before it even on the batch-fallback path.
+  for (const seg of fileResult.segments) recordAnalysis(seg.segmentIndex, seg.analysis);
+  /** Prior-segment context for segment j — in order, and only what is ready. */
+  const contextFor = (j) => {
+    if (!parallelSegments) return previousAnalyses;
+    const prior = [];
+    for (let k = 0; k < j; k++) {
+      const a = analysisByIndex.get(k);
+      if (a) prior.push(a);
+    }
+    return prior;
+  };
+
+  if (parallelSegments) {
+    const distinct = [...new Set(segmentModels)];
+    console.log(`  ${c.cyan('⚡ Parallel segments:')} ${segmentConcurrency} at a time across ${distinct.length} model(s)`);
+    for (const m of distinct) {
+      const owned = segmentModels.reduce((n, id, i) => n + (id === m && !alreadyDone.has(i) ? 1 : 0), 0);
+      console.log(`    ${c.dim(`${m} → ${owned} segment(s)`)}`);
+    }
+    console.log(`  ${c.dim('Cross-segment context is reduced in this mode — compilation still deduplicates.')}`);
+    console.log('');
+  }
+
+  const analyzeSegment = async (j) => {
+    if (isShuttingDown()) return;
+    if (alreadyDone.has(j)) return;
 
     const { segPath, segName, storagePath, storageUrl, durSec, sizeMB } = segmentMeta[j];
+    const segModel = segmentModels[j] || config.GEMINI_MODEL;
 
     console.log(`  ${c.cyan('──')} Segment ${c.highlight(`${j + 1}/${segments.length}`)}: ${c.cyan(segName)} ${c.dim('(AI)')} ${c.cyan('──')}`);
 
@@ -838,11 +896,11 @@ async function phaseAnalyzeMedia(ctx, prep) {
         fileSizeMB: parseFloat(sizeMB), geminiRunFile: null, analysis: null,
       });
       console.log('');
-      continue;
+      return;
     }
 
     if (opts.dryRun) {
-      console.log(`    ${c.dim(`[DRY-RUN] Would analyze with ${c.cyan(config.GEMINI_MODEL)}`)}`);
+      console.log(`    ${c.dim(`[DRY-RUN] Would analyze with ${c.cyan(segModel)}`)}`);
       fileResult.segments.push({
         segmentFile: segName, segmentIndex: j,
         storagePath, storageUrl,
@@ -850,7 +908,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
         fileSizeMB: parseFloat(sizeMB), geminiRunFile: null, analysis: null,
       });
       console.log('');
-      continue;
+      return;
     }
 
     const runPrefix = `segment_${String(j).padStart(2, '0')}_`;
@@ -879,9 +937,10 @@ async function phaseAnalyzeMedia(ctx, prep) {
           skipped: true,
         };
         previousAnalyses.push(analysis);
+        recordAnalysis(j, analysis);
         // Track cached run costs too
         if (existingRun.run.tokenUsage) {
-          costTracker.addSegment(segName, existingRun.run.tokenUsage, existingRun.run.durationMs, true);
+          costTracker.addSegment(segName, existingRun.run.tokenUsage, existingRun.run.durationMs, true, pricingFor(existingRun.run.model));
         }
 
         // Quality gate on cached results
@@ -919,7 +978,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
           fileSizeMB: parseFloat(sizeMB), geminiRunFile: null, analysis,
         });
         console.log('');
-        continue;
+        return;
       }
 
       // === ADAPTIVE THINKING BUDGET ===
@@ -935,7 +994,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
       const budgetResult = calculateThinkingBudget({
         segmentIndex: j,
         totalSegments: segments.length,
-        previousAnalyses,
+        previousAnalyses: contextFor(j),
         contextDocs,
         vttContent: vttContentForAnalysis,
         baseBudget: opts.thinkingBudget,
@@ -947,7 +1006,9 @@ async function phaseAnalyzeMedia(ctx, prep) {
       }
 
       // === SMART BOUNDARY CONTEXT ===
-      const prevAnalysis = previousAnalyses.length > 0 ? previousAnalyses[previousAnalyses.length - 1] : null;
+      const prevAnalysis = parallelSegments
+        ? (analysisByIndex.get(j - 1) || null)
+        : (previousAnalyses.length > 0 ? previousAnalyses[previousAnalyses.length - 1] : null);
       const boundaryCtx = detectBoundaryContext(
         vttContentForAnalysis,
         segmentMeta[j].startTimeSec || 0,
@@ -968,7 +1029,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
           ai, segPath,
           `${callName}_${baseName}_seg${String(j).padStart(2, '0')}`,
           contextDocs,
-          previousAnalyses,
+          contextFor(j),
           userName,
           PKG_ROOT,
           {
@@ -979,6 +1040,8 @@ async function phaseAnalyzeMedia(ctx, prep) {
             thinkingBudget: adaptiveBudget,
             boundaryContext: boundaryCtx,
             storageDownloadUrl: opts.noStorageUrl ? null : (storageUrl || null),
+            modelId: segModel,
+            modelFallback,
           }
         );
 
@@ -1007,7 +1070,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
         };
 
         // Track cost
-        costTracker.addSegment(segName, geminiRun.run.tokenUsage, geminiRun.run.durationMs, false);
+        costTracker.addSegment(segName, geminiRun.run.tokenUsage, geminiRun.run.durationMs, false, pricingFor(geminiRun.run.model));
 
         // === QUALITY GATE ===
         const qualityReport = assessQuality(analysis, {
@@ -1052,7 +1115,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
               ai, segPath,
               `${callName}_${baseName}_seg${String(j).padStart(2, '0')}_retry`,
               contextDocs,
-              previousAnalyses,
+              contextFor(j),
               userName,
               PKG_ROOT,
               {
@@ -1066,6 +1129,8 @@ async function phaseAnalyzeMedia(ctx, prep) {
                 existingFileUri: geminiFileUri,
                 existingFileMime: geminiFileMime,
                 existingGeminiFileName: geminiFileName,
+                modelId: segModel,
+                modelFallback,
               }
             );
 
@@ -1087,7 +1152,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
             console.log(formatSchemaLine(retrySchema));
 
             // Track retry cost
-            costTracker.addSegment(`${segName}_retry`, retryRun.run.tokenUsage, retryRun.run.durationMs, false);
+            costTracker.addSegment(`${segName}_retry`, retryRun.run.tokenUsage, retryRun.run.durationMs, false, pricingFor(retryRun.run.model));
 
             // Use retry result if better
             if (retryQuality.score > qualityReport.score) {
@@ -1158,6 +1223,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
         }
 
         previousAnalyses.push(analysis);
+        recordAnalysis(j, analysis);
 
         // === CLEANUP: delete Gemini File API upload after all passes ===
         // Skip cleanup when external URL was used — no Gemini file was uploaded
@@ -1212,6 +1278,42 @@ async function phaseAnalyzeMedia(ctx, prep) {
     }
 
     console.log('');
+  };
+
+  const segmentQueue = Array.from({ length: segments.length }, (_, j) => j)
+    .filter(j => !alreadyDone.has(j));
+
+  if (parallelSegments) {
+    // Concurrent segments write to the same console, so each one's lines are
+    // tagged with its segment number — otherwise the log reads as one garbled
+    // segment and a failure cannot be traced to the segment it belongs to.
+    await parallelMap(
+      segmentQueue,
+      (j) => withLogPrefix(c.dim(`[seg ${j + 1}] `), () => analyzeSegment(j)),
+      segmentConcurrency
+    );
+
+    // Concurrent workers finish out of order, so both the per-file record and
+    // the compilation input are re-sorted into segment order — a later segment
+    // that finished first must not be compiled as if it came earlier.
+    fileResult.segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+    segmentAnalyses.length = 0;
+    for (const seg of fileResult.segments) {
+      if (seg.analysis && !seg.analysis.error) segmentAnalyses.push(seg.analysis);
+    }
+    // previousAnalyses feeds the rescue pass below; give it the same order.
+    const ordered = [];
+    for (let j = 0; j < segments.length; j++) {
+      const a = analysisByIndex.get(j);
+      if (a) ordered.push(a);
+    }
+    previousAnalyses.length = 0;
+    previousAnalyses.push(...ordered);
+  } else {
+    for (const j of segmentQueue) {
+      if (isShuttingDown()) break;
+      await analyzeSegment(j);
+    }
   }
 
   // ════════════════════════════════════════════════════════════
@@ -1223,6 +1325,9 @@ async function phaseAnalyzeMedia(ctx, prep) {
   // cool-off between tries — before the run compiles without it.
   const RESCUE_ATTEMPTS = 3;
   const RESCUE_WAIT_MS = 30000;
+  // Attempt 1 retries the model the run was configured with; later attempts
+  // move down the chain rather than queueing behind the same outage.
+  const rescueChain = assignSegmentModels(RESCUE_ATTEMPTS, { primary: config.GEMINI_MODEL });
 
   const rescueTargets = fileResult.segments
     .filter(seg => seg.analysis && seg.analysis.error && segmentMeta[seg.segmentIndex])
@@ -1271,6 +1376,10 @@ async function phaseAnalyzeMedia(ctx, prep) {
               segmentEndSec: segmentMeta[j].endTimeSec,
               thinkingBudget: rescueBudget,
               storageDownloadUrl: opts.noStorageUrl ? null : (segmentMeta[j].storageUrl || null),
+              // Each rescue attempt starts on a different model: the one that
+              // dropped this segment is the least likely to answer next.
+              modelId: rescueChain[(attempt - 1) % rescueChain.length],
+              modelFallback: !opts.noModelFallback,
             }
           );
 
@@ -1291,7 +1400,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
             rescuedOnAttempt: attempt,
           };
 
-          costTracker.addSegment(`${segName}_rescue`, rescueRun.run.tokenUsage, rescueRun.run.durationMs, false);
+          costTracker.addSegment(`${segName}_rescue`, rescueRun.run.tokenUsage, rescueRun.run.durationMs, false, pricingFor(rescueRun.run.model));
 
           const rescueQuality = assessQuality(rescued, {
             parseSuccess: rescueRun.output.parseSuccess,

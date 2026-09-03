@@ -11,6 +11,7 @@ const { setLog } = require('../src/phases/_shared');
 const CostTracker = require('../src/utils/cost-tracker');
 const Progress = require('../src/utils/checkpoint');
 const { makeMockAI } = require('./helpers/mock-ai');
+const config = require('../src/config');
 
 // Mock AI that also stubs the File API used to upload the video segment, so the
 // REAL processWithGemini runs end-to-end (upload → generateContent → parse).
@@ -182,6 +183,94 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
       for (const s of fileResult.segments) expect(s.analysis).toBeTruthy();
     } finally {
       fs.rmSync(bdir, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
+    }
+  }, 120000);
+
+  it('parallel segments run concurrently on different models, in segment order', async () => {
+    const pdir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmp-'));
+    const callName = path.basename(pdir);
+    try {
+      const longClip = makeClip(pdir, 'meeting.mp4', 6);
+      const segDir = path.join(pdir, 'compressed', 'meeting');
+      const pre = await video.splitOnly(longClip, segDir, { segTime: 2 });
+      expect(pre.length).toBeGreaterThan(1); // fixture sanity
+
+      const ctx = makeCtx(pdir, longClip, {
+        skipGemini: false, skipUpload: true, noBatch: true,
+        disableFocusedPass: true, noStorageUrl: true,
+        parallelSegments: true, segmentConcurrency: 2,
+      });
+
+      const models = [];
+      let inFlight = 0;
+      let peakInFlight = 0;
+      ctx.ai = makeVideoMockAI(() => SEGMENT_ANALYSIS);
+      // Hold each request open long enough for the overlap to be observable.
+      const respond = ctx.ai.models.generateContent;
+      ctx.ai.models.generateContent = async (payload) => {
+        models.push(payload.model);
+        inFlight++;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        try {
+          await new Promise(r => setTimeout(r, 40));
+          return await respond(payload);
+        } finally {
+          inFlight--;
+        }
+      };
+
+      const { fileResult, segmentAnalyses } = await phaseProcessVideo(ctx, longClip, 0);
+
+      // Two segments were in flight at once — the point of the mode.
+      expect(peakInFlight).toBe(2);
+      // ...and they were sent to different models, so one model's demand spike
+      // cannot stall the whole run.
+      expect(new Set(models).size).toBeGreaterThan(1);
+
+      // Results are re-sorted into segment order regardless of who finished first.
+      expect(fileResult.segments.length).toBe(pre.length);
+      expect(fileResult.segments.map(sg => sg.segmentIndex))
+        .toEqual([...fileResult.segments.map(sg => sg.segmentIndex)].sort((a, b) => a - b));
+      expect(segmentAnalyses.length).toBe(pre.length);
+      for (const a of segmentAnalyses) expect(a.tickets.length).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(pdir, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
+    }
+  }, 120000);
+
+  it('an overloaded model hands the segment to another one instead of dropping it', async () => {
+    const odir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmo-'));
+    const callName = path.basename(odir);
+    try {
+      const clipo = makeClip(odir, 'meeting.mp4', 2);
+      const ctx = makeCtx(odir, clipo, {
+        skipGemini: false, skipUpload: true, noBatch: true,
+        disableFocusedPass: true, noStorageUrl: true,
+      });
+
+      // The configured model answers 503 every time, as during a demand spike.
+      const dead = config.GEMINI_MODEL;
+      const models = [];
+      ctx.ai = makeVideoMockAI((payload) => {
+        models.push(payload.model);
+        if (payload.model === dead) {
+          return new Error('{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}');
+        }
+        return SEGMENT_ANALYSIS;
+      });
+
+      const { fileResult, segmentAnalyses } = await phaseProcessVideo(ctx, clipo, 0);
+
+      // The segment survived on another model rather than reaching the rescue pass.
+      expect(segmentAnalyses.length).toBe(1);
+      expect(fileResult.segments[0].analysis.error).toBeUndefined();
+      expect(fileResult.segments[0].analysis._geminiMeta.model).not.toBe(dead);
+      expect(models[0]).toBe(dead);
+      expect(new Set(models).size).toBeGreaterThan(1);
+    } finally {
+      fs.rmSync(odir, { recursive: true, force: true });
       fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
     }
   }, 120000);

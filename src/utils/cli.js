@@ -40,6 +40,7 @@ function parseArgs(argv) {
     'no-focused-pass', 'no-learning', 'no-diff',
     'no-html', 'no-batch', 'batch', 'no-progress', 'no-diagrams',
     'no-input', 'yes',
+    'parallel-segments', 'no-parallel-segments', 'no-model-fallback',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -344,6 +345,13 @@ ${f2('  • File API limit: 2 GB (free) / 20 GB (paid) per file')}
   ${h('TUNING')}
 ${f('--parallel <n>', 'Max parallel uploads (default: 3)')}
 ${f('--parallel-analysis <n>', 'Concurrent analysis batches (default: 2)')}
+${f('--parallel-segments', 'Analyze segments concurrently, each on a different model')}
+${f2('Sidesteps a single model\'s demand spikes and cuts wall-clock time.')}
+${f2('Trade-off: a segment sees less of the segments analyzed before it.')}
+${f('--segment-concurrency <n>', 'How many segments at once (implies --parallel-segments)')}
+${f('--no-model-fallback', 'Stay on the chosen model even when it is overloaded')}
+${f2('By default an overloaded model hands the request to the next model')}
+${f2('in the registry instead of losing the segment.')}
 ${f('--media-resolution <level>', 'Video detail: low, medium, high (default: high — reads on-screen text)')}
 ${f('--video-fps <n>', 'Frames sampled per second of video (default: API default, 1)')}
 ${f('--thinking-budget <n>', 'Thinking tokens per segment (default: 24576)')}
@@ -872,6 +880,25 @@ const FEATURE_FLAGS = [
     desc: 'Group segments into one call — cheaper, but merges detail across segments',
     category: 'processing',
     default: false,
+    inverted: true,
+  },
+  {
+    key: 'parallelSegments',
+    flag: '--parallel-segments',
+    icon: '⚡',
+    label: 'Parallel Segments',
+    desc: 'Analyze segments at once on different models — much faster, no cross-segment context',
+    category: 'processing',
+    default: false,
+  },
+  {
+    key: 'noModelFallback',
+    flag: '--no-model-fallback',
+    icon: '⇄',
+    label: 'Model Fallback',
+    desc: 'Switch to another Gemini model when the chosen one is overloaded',
+    category: 'processing',
+    default: true,
     inverted: true,
   },
   {
