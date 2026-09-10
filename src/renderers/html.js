@@ -480,7 +480,9 @@ function renderResultsHtml({ compiled, meta }) {
       ln('<h3>🔀 Scope Changes You Decided</h3><ul>');
       for (const sc of personScope.scopeChanges) {
         const ts = sc.referenced_at ? ` @ ${tsHtml(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
-        ln(`<li><strong>${e(sc.id || '—')}</strong> <em>${e((sc.change_type || 'change').replace(/_/g, ' '))}</em>: ${e(sc.description || sc.new_scope || '')}${ts}</li>`);
+        const scText = sc.new_scope || sc.description || sc.title || sc.what || 'No description';
+        const scType = (sc.type || sc.change_type || 'change').replace(/_/g, ' ');
+        ln(`<li><strong>${e(sc.id || '—')}</strong> <em>${e(scType)}</em>: ${e(scText)}${ts}</li>`);
       }
       ln('</ul>');
     }

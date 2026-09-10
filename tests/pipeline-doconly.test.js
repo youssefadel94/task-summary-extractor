@@ -128,6 +128,16 @@ describe('runDocOnly (offline integration, stubbed compilation)', () => {
     expect(results.audit.status).toBe(report.status);
   });
 
+  it('attributes a nameless run to the first speaker in the call', async () => {
+    const ctx = makeCtx();
+    ctx.userName = null;
+    await pipeline.runDocOnly(ctx);
+
+    const md = fs.readFileSync(path.join(outDir, 'results.md'), 'utf8');
+    // COMPILED has no quotes, so this falls through to the configured default.
+    expect(md).toContain('⭐ Your Tasks — Agent 1');
+  });
+
   it('skips both when the run asked for neither', async () => {
     const ctx = makeCtx();
     ctx.opts.noChangeRequests = true;

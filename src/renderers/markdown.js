@@ -459,8 +459,14 @@ function renderResultsMarkdown({ compiled, meta }) {
       ln('');
       for (const sc of personScope.scopeChanges) {
         const ts = sc.referenced_at ? ` @ ${fmtTs(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
-        ln(`- **${sc.id || '—'}** _${(sc.change_type || 'change').replace(/_/g, ' ')}_: ${sc.description}${ts}`);
-        if (sc.rationale) ln(`  - Rationale: ${sc.rationale}`);
+        // Real data carries `new_scope` and `type`; `description`/`change_type`
+        // are the shapes older fixtures use. Falling through both keeps this from
+        // rendering "undefined" against a live analysis.
+        const scText = sc.new_scope || sc.description || sc.title || sc.what || 'No description';
+        const scType = (sc.type || sc.change_type || 'change').replace(/_/g, ' ');
+        ln(`- **${sc.id || '—'}** _${scType}_: ${scText}${ts}`);
+        if (sc.original_scope && sc.original_scope !== 'not documented') ln(`  - Was: ${sc.original_scope}`);
+        if (sc.reason || sc.rationale) ln(`  - Reason: ${sc.reason || sc.rationale}`);
         if (sc.impact) ln(`  - Impact: ${sc.impact}`);
       }
       ln('');

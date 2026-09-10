@@ -44,7 +44,7 @@ const phaseCompile     = require('./phases/compile');
 const phaseOutput      = require('./phases/output');
 const { renderChangeRequestHandoff } = require('./renderers/change-requests');
 const { auditRun, renderAuditMarkdown, formatAuditLine } = require('./utils/coverage-audit');
-const { buildPersonScope } = require('./utils/person-scope');
+const { buildPersonScope, buildNameMatcher, resolveFirstSpeaker } = require('./utils/person-scope');
 const phaseSummary     = require('./phases/summary');
 const phaseDeepDive    = require('./phases/deep-dive');
 
@@ -178,15 +178,9 @@ async function run() {
     if (initCtx.opts.userName) log.step(`User: ${initCtx.opts.userName}`);
   }
 
-  // Nobody said who this run is for. The personal half of the report — owned
-  // tickets, the to-do list, who is waiting on you — is keyed entirely off a
-  // name, so with none it renders nothing at all. Falling back to the configured
-  // identity keeps that section alive for unattended runs; --name overrides it.
-  if (!initCtx.opts.userName) {
-    initCtx.opts.userName = config.DEFAULT_USER_NAME;
-    console.log(`  ${c.dim(`No name given — attributing this run to "${config.DEFAULT_USER_NAME}" (pass --name, or set DEFAULT_USER_NAME, to change it)`)}`);
-    log.step(`User defaulted to: ${config.DEFAULT_USER_NAME}`);
-  }
+  // Nobody said who this run is for. The name is not defaulted here on purpose:
+  // the best answer is the first voice in the call, and that is not known until
+  // the analysis exists. reportUserName() resolves it at render time.
 
   // Phase 2: Discover
   bar.setPhase('discover');
@@ -870,11 +864,20 @@ async function runDocOnly(ctx) {
 
   // Declared out here because the change-request handoff and the audit below
   // render from the same metadata as the report itself.
+  // Same rule as the media pipeline: --name, else the first voice in the call,
+  // else the configured default.
+  const reportUserName = userName
+    || resolveFirstSpeaker(compiledAnalysis)
+    || config.DEFAULT_USER_NAME;
+  if (!userName) {
+    console.log(`  ${c.dim(`No --name given — report scoped to "${reportUserName}"`)}`);
+  }
+
   const mdMeta = {
     callName,
     processedAt: results.processedAt,
     geminiModel: config.GEMINI_MODEL,
-    userName,
+    userName: reportUserName,
     segmentCount: 0,
     compilation: compilationRun || null,
     costSummary: results.costSummary,
@@ -952,9 +955,11 @@ async function runDocOnly(ctx) {
 
   if (compiledAnalysis && !opts.noAudit) {
     try {
-      const personScope = userName
+      const nameMatcher = reportUserName ? buildNameMatcher(reportUserName, compiledAnalysis) : null;
+      const personScope = reportUserName
         ? buildPersonScope({
-          person: userName,
+          person: nameMatcher.canonical,
+          matches: nameMatcher.matches,
           tickets: compiledAnalysis.tickets || [],
           changeRequests: compiledAnalysis.change_requests || [],
           actionItems: compiledAnalysis.action_items || [],

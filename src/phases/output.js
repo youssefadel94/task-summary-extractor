@@ -20,7 +20,7 @@ const { renderChangeRequestHandoff } = require('../renderers/change-requests');
 const { loadPreviousCompilation, generateDiff, renderDiffMarkdown } = require('../utils/diff-engine');
 const { filterByConfidence } = require('../utils/confidence-filter');
 const { auditRun, renderAuditMarkdown, formatAuditLine } = require('../utils/coverage-audit');
-const { buildPersonScope } = require('../utils/person-scope');
+const { buildPersonScope, buildNameMatcher, resolveFirstSpeaker } = require('../utils/person-scope');
 const { c } = require('../utils/colors');
 
 // --- Shared state ---
@@ -89,12 +89,24 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
     }
   }
 
+  // Who the report is written for. `--name` wins; with none, the first voice in
+  // the call is the closest thing the data has to an owner, and the configured
+  // default is the last resort for a call with no attributed quotes at all.
+  const reportUserName = userName
+    || resolveFirstSpeaker(compiledAnalysis)
+    || config.DEFAULT_USER_NAME;
+  if (!userName) {
+    const how = resolveFirstSpeaker(compiledAnalysis) ? 'first speaker in the call' : 'default';
+    console.log(`  ${c.dim(`No --name given — report scoped to "${reportUserName}" (${how})`)}`);
+    log.step(`Report user resolved to "${reportUserName}" (${how})`);
+  }
+
   // Build shared meta for renderers
   const renderMeta = {
     callName: results.callName,
     processedAt: results.processedAt,
     geminiModel: config.GEMINI_MODEL,
-    userName,
+    userName: reportUserName,
     segmentCount: totalSegs,
     compilation: compilationRun || null,
     costSummary: results.costSummary,
@@ -217,9 +229,13 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
   let auditPaths = null;
   if (!opts.noAudit && renderData) {
     try {
-      const personScope = userName
+      // Cluster the name the way the renderers do, or the audit reports that
+      // someone who owns half the call owns none of it.
+      const nameMatcher = reportUserName ? buildNameMatcher(reportUserName, renderData) : null;
+      const personScope = reportUserName
         ? buildPersonScope({
-          person: userName,
+          person: nameMatcher.canonical,
+          matches: nameMatcher.matches,
           tickets: renderData.tickets || [],
           changeRequests: renderData.change_requests || [],
           actionItems: renderData.action_items || [],

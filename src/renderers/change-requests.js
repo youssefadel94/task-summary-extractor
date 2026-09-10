@@ -17,7 +17,7 @@
 'use strict';
 
 const { packChangeRequests, priorityCounts } = require('../utils/cr-pack');
-const { resolve, clusterNames, fmtTs } = require('./shared');
+const { resolve, clusterNames, shortVideo } = require('./shared');
 
 /** Escape a value for a Markdown table cell. */
 const esc = s => (s == null ? '' : String(s).replace(/\s*[\r\n]+\s*/g, ' ').replace(/\|/g, '\\|'));
@@ -179,12 +179,19 @@ function renderChangeRequestHandoff({ compiled, meta = {} }) {
       if ((cr.dependencies || []).length) { ln(`**Depends on** — ${cr.dependencies.join(', ')}`); ln(''); }
       if (cr.blocked_by) { ln(`⛔ **Blocked by** — ${cr.blocked_by}`); ln(''); }
 
+      // Plain text, not italics: fmtTs already emits its own emphasis, and
+      // wrapping it again produced broken `_raised at \`ts\` _(Seg 1)_ ·` markup.
       const trace = [];
-      if (cr.referenced_at) trace.push(`raised at ${fmtTs(cr.referenced_at, cr.source_segment, cr.source_video)}`);
-      else if ((cr.sources || []).length) trace.push((cr.sources || []).join(', '));
+      if (cr.referenced_at) {
+        const where = [cr.source_video ? shortVideo(cr.source_video) : null, cr.source_segment ? `Seg ${cr.source_segment}` : null]
+          .filter(Boolean).join(' · ');
+        trace.push(`raised at \`${cr.referenced_at}\`${where ? ` (${where})` : ''}`);
+      } else if ((cr.sources || []).length) {
+        trace.push(`from ${(cr.sources || []).join(', ')}`);
+      }
       if ((cr.merged_ids || []).length) trace.push(`merged duplicates: ${cr.merged_ids.join(', ')}`);
       if (cr.confidence_reason) trace.push(cr.confidence_reason);
-      if (trace.length) { ln(`> _${trace.join(' · ')}_`); ln(''); }
+      if (trace.length) { ln(`> ${trace.join(' · ')}`); ln(''); }
     }
 
     ln('---');

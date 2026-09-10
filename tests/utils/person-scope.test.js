@@ -1,4 +1,4 @@
-const { buildPersonScope, buildMentionMatcher } = require('../../src/utils/person-scope');
+const { buildPersonScope, buildMentionMatcher, resolveFirstSpeaker } = require('../../src/utils/person-scope');
 
 /** A call where Jane owns work in every collection. */
 const compiled = () => ({
@@ -177,5 +177,50 @@ describe('buildMentionMatcher', () => {
 
   it('returns false for an empty person', () => {
     expect(buildMentionMatcher('')('anything')).toBe(false);
+  });
+});
+
+describe('resolveFirstSpeaker', () => {
+  it('returns whoever spoke first in the call', () => {
+    expect(resolveFirstSpeaker({
+      tickets: [
+        { comments: [{ speaker: 'Agent 2', timestamp: '00:05:00', source_segment: 2 }] },
+        { comments: [{ speaker: 'Agent 1', timestamp: '00:00:30', source_segment: 1 }] },
+      ],
+    })).toBe('Agent 1');
+  });
+
+  it('orders by segment before timestamp', () => {
+    // Each segment's clock restarts, so a bare timestamp sort gets this backwards.
+    expect(resolveFirstSpeaker({
+      tickets: [{
+        comments: [
+          { speaker: 'Later', timestamp: '00:00:05', source_segment: 3 },
+          { speaker: 'Earlier', timestamp: '00:09:50', source_segment: 1 },
+        ],
+      }],
+    })).toBe('Earlier');
+  });
+
+  it('skips labels that name nobody', () => {
+    expect(resolveFirstSpeaker({
+      tickets: [{
+        comments: [
+          { speaker: 'Unknown', timestamp: '00:00:01', source_segment: 1 },
+          { speaker: '  ', timestamp: '00:00:02', source_segment: 1 },
+          { speaker: 'Jane Doe', timestamp: '00:00:03', source_segment: 1 },
+        ],
+      }],
+    })).toBe('Jane Doe');
+  });
+
+  it('returns null when the call has no attributed quotes', () => {
+    expect(resolveFirstSpeaker({ tickets: [{ comments: [] }] })).toBe(null);
+    expect(resolveFirstSpeaker({ tickets: [] })).toBe(null);
+    expect(resolveFirstSpeaker(null)).toBe(null);
+  });
+
+  it('handles comments with no segment or timestamp at all', () => {
+    expect(resolveFirstSpeaker({ tickets: [{ comments: [{ speaker: 'Sam' }] }] })).toBe('Sam');
   });
 });

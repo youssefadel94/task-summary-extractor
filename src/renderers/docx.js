@@ -296,7 +296,7 @@ function renderYourTasks(scope, clusterMap, fallbackName = null) {
   if (scope.scopeChanges.length) {
     elements.push(heading('Scope Changes You Decided', 3));
     for (const sc of scope.scopeChanges) {
-      elements.push(bulletItem(`${sc.id || '—'}: ${sc.description || sc.new_scope || ''}`));
+      elements.push(bulletItem(`${sc.id || '—'}: ${sc.new_scope || sc.description || sc.title || ''}`));
     }
   }
 

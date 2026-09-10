@@ -26,8 +26,12 @@ const RECONCILED_FIELDS = [
   { field: 'action_items', key: item => normalizeTaskDesc(item.description), idPrefix: 'AI', fuzzy: true },
   { field: 'blockers', key: item => normalizeDesc(item.description), idPrefix: 'BLK', fuzzy: true },
   { field: 'change_requests', key: item => (item.id || '').toLowerCase() || normalizeDesc(item.description || item.what), idPrefix: 'CR', fuzzy: true },
-  { field: 'scope_changes', key: item => normalizeDesc(item.description), idPrefix: 'SC', fuzzy: true },
-  { field: 'file_references', key: item => (item.resolved_path || item.path || '').toLowerCase(), idPrefix: null, fuzzy: false },
+  // Scope changes carry `new_scope`, not `description` — keying on the latter
+  // alone returned '' for every real item, so none could ever be recovered.
+  { field: 'scope_changes', key: item => normalizeDesc(item.description || item.new_scope || item.reason), idPrefix: 'SC', fuzzy: true },
+  // A file reference is often mentioned by name with no path resolved; without
+  // the name fallback those all keyed to '' and were invisible here.
+  { field: 'file_references', key: item => (item.resolved_path || item.path || item.file_name || '').toLowerCase(), idPrefix: null, fuzzy: false },
 ];
 
 /**
