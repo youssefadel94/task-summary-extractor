@@ -33,6 +33,27 @@ function safeInt(raw, defaultVal) {
 }
 
 /**
+ * Parse `--models a,b,c` into an ordered list of registered model ids.
+ *
+ * An unknown id is reported and dropped rather than thrown: a typo should cost
+ * that one model, not the whole run — the rest of the pool still works.
+ *
+ * @param {string|boolean|undefined} raw
+ * @returns {string[]|null} null when the flag was absent or named nothing usable
+ */
+function parseModelPool(raw) {
+  if (!raw || raw === true) return null;
+  const ids = String(raw).split(',').map(s => s.trim()).filter(Boolean);
+  const known = ids.filter(id => config.GEMINI_MODELS[id]);
+  const unknown = ids.filter(id => !config.GEMINI_MODELS[id]);
+  if (unknown.length > 0) {
+    console.log(c.warn(`  ⚠  Unknown model(s) ignored: ${unknown.join(', ')}`));
+    console.log(c.dim(`     Registered: ${Object.keys(config.GEMINI_MODELS).join(', ')}`));
+  }
+  return known.length > 0 ? [...new Set(known)] : null;
+}
+
+/**
  * Does this folder hold anything that gets encoded? Matches phaseDiscover's
  * top-level-only scan, so the answer agrees with what the run will process.
  */
@@ -84,19 +105,29 @@ async function phaseInit() {
     thinkingBudget: safeInt(flags['thinking-budget'], THINKING_BUDGET),
     compilationThinkingBudget: safeInt(flags['compilation-thinking-budget'], COMPILATION_THINKING_BUDGET),
     parallelAnalysis: safeInt(flags['parallel-analysis'], 2), // concurrent analysis batches
-    // Analyze several segments at once, each on its own model. Off by default:
-    // concurrent segments cannot see each other's analyses, so the progressive
-    // context that lets a later segment resolve an earlier ticket is lost.
-    parallelSegments: flags['no-parallel-segments'] ? false : !!flags['parallel-segments'],
+    // Analyze several segments at once, each on its own model. ON by default:
+    // one model's demand spike otherwise stalls every segment queued behind it,
+    // and a long call spends most of its wall-clock waiting on one capacity pool.
+    // Concurrent segments see less of each other's analyses, which compilation,
+    // backfill and the focused pass all exist to reconcile — so the trade is
+    // worth taking by default. --no-parallel-segments restores strict sequence.
+    parallelSegments: !flags['no-parallel-segments'],
     segmentConcurrency: safeInt(flags['segment-concurrency'], 0),
     // An overloaded model hands the request to the next model in the registry
     // rather than dropping the segment. --no-model-fallback keeps one model.
     noModelFallback: !!flags['no-model-fallback'],
+    // --models narrows or reorders the pool that parallel segments rotate over
+    // and that an overloaded request falls back through.
+    modelPool: parseModelPool(flags.models),
     disableFocusedPass: !!flags['no-focused-pass'],
     disableLearning: !!flags['no-learning'],
     disableDiff: !!flags['no-diff'],
     noHtml: !!flags['no-html'],
     noDiagrams: !!flags['no-diagrams'],
+    // The coverage audit is on by default — a run that silently drops work is
+    // the failure mode nobody notices, so proving it did not is not opt-in.
+    noAudit: !!flags['no-audit'],
+    noChangeRequests: !!flags['no-change-requests'],
     // Batching off by default: one Gemini call per batch produces ONE merged
     // analysis for several segments, so per-segment detail is lost before
     // compilation even sees it. --batch opts back in for cheaper, coarser runs.
@@ -536,8 +567,11 @@ function _printRunSummary(opts, modelId, models, targetDir) {
   if (opts.noDiagrams) disabled.push(c.dim('no-diagrams'));
   if (opts.noBatch) features.push(c.green('per-segment'));
   if (opts.parallelSegments || opts.segmentConcurrency > 1) {
-    const n = opts.segmentConcurrency > 0 ? opts.segmentConcurrency : 3;
+    const { defaultPoolSize } = require('../utils/model-pool');
+    const n = opts.segmentConcurrency > 0 ? opts.segmentConcurrency : defaultPoolSize();
     features.push(c.cyan(`parallel-segments ×${n}`));
+  } else {
+    disabled.push(c.dim('sequential-segments'));
   }
   if (opts.noModelFallback) disabled.push(c.dim('no-model-fallback'));
 

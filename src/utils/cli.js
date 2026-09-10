@@ -41,6 +41,7 @@ function parseArgs(argv) {
     'no-html', 'no-batch', 'batch', 'no-progress', 'no-diagrams',
     'no-input', 'yes',
     'parallel-segments', 'no-parallel-segments', 'no-model-fallback',
+    'no-audit', 'no-change-requests',
   ]);
 
   for (let i = 0; i < argv.length; i++) {
@@ -345,10 +346,14 @@ ${f2('  • File API limit: 2 GB (free) / 20 GB (paid) per file')}
   ${h('TUNING')}
 ${f('--parallel <n>', 'Max parallel uploads (default: 3)')}
 ${f('--parallel-analysis <n>', 'Concurrent analysis batches (default: 2)')}
-${f('--parallel-segments', 'Analyze segments concurrently, each on a different model')}
-${f2('Sidesteps a single model\'s demand spikes and cuts wall-clock time.')}
-${f2('Trade-off: a segment sees less of the segments analyzed before it.')}
-${f('--segment-concurrency <n>', 'How many segments at once (implies --parallel-segments)')}
+${f('--no-parallel-segments', 'Analyze segments strictly one at a time')}
+${f2('Parallel analysis is ON by default: segments run concurrently across')}
+${f2('every registered model, which sidesteps one model\'s demand spikes and')}
+${f2('cuts wall-clock time. Trade-off: a segment sees less of the segments')}
+${f2('analyzed before it — compilation and backfill reconcile the rest.')}
+${f('--segment-concurrency <n>', 'How many segments at once (default: one per registered model)')}
+${f('--models <a,b,c>', 'Models to spread work across (default: every registered model)')}
+${f2('Sets both the parallel rotation and the overload fallback order.')}
 ${f('--no-model-fallback', 'Stay on the chosen model even when it is overloaded')}
 ${f2('By default an overloaded model hands the request to the next model')}
 ${f2('in the registry instead of losing the segment.')}
@@ -356,6 +361,9 @@ ${f('--media-resolution <level>', 'Video detail: low, medium, high (default: hig
 ${f('--video-fps <n>', 'Frames sampled per second of video (default: API default, 1)')}
 ${f('--thinking-budget <n>', 'Thinking tokens per segment (default: 24576)')}
 ${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (default: 10240)')}
+${f('--no-audit', 'Skip the coverage audit (audit.md / audit.json)')}
+${f2('The audit checks that every item found in every segment survived')}
+${f2('compilation and is visible in the rendered report.')}
 ${f('--no-focused-pass', 'Disable focused re-analysis')}
 ${f('--no-learning', 'Disable learning loop')}
 ${f('--no-diff', 'Disable diff comparison')}
@@ -884,12 +892,32 @@ const FEATURE_FLAGS = [
   },
   {
     key: 'parallelSegments',
-    flag: '--parallel-segments',
+    flag: '--no-parallel-segments',
     icon: '⚡',
     label: 'Parallel Segments',
-    desc: 'Analyze segments at once on different models — much faster, no cross-segment context',
+    desc: 'Analyze segments at once across every model — much faster, less cross-segment context',
     category: 'processing',
-    default: false,
+    default: true,
+  },
+  {
+    key: 'noChangeRequests',
+    flag: '--no-change-requests',
+    icon: '🔧',
+    label: 'Change Request Handoff',
+    desc: 'Write change-requests.md + .csv — every CR once, priority-sorted, to send to another team',
+    category: 'quality',
+    default: true,
+    inverted: true,
+  },
+  {
+    key: 'noAudit',
+    flag: '--no-audit',
+    icon: '🔍',
+    label: 'Coverage Audit',
+    desc: 'Prove nothing was dropped: every segment item accounted for in audit.md',
+    category: 'quality',
+    default: true,
+    inverted: true,
   },
   {
     key: 'noModelFallback',

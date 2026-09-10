@@ -16,7 +16,7 @@ const { compressAndSegment, compressAndSegmentAudio, splitOnly, probeFormat, ver
 const { fmtDuration, fmtBytes } = require('../utils/format');
 const { promptUser } = require('../utils/cli');
 const { parallelMap, describeError } = require('../utils/retry');
-const { assignSegmentModels, pricingFor } = require('../utils/model-pool');
+const { assignSegmentModels, defaultPoolSize, pricingFor } = require('../utils/model-pool');
 const { withLogPrefix } = require('../utils/log-prefix');
 const { assessQuality, formatQualityLine, getConfidenceStats, THRESHOLDS } = require('../utils/quality-gate');
 const { validateAnalysis, formatSchemaLine, schemaScore, normalizeAnalysis } = require('../utils/schema-validator');
@@ -829,10 +829,12 @@ async function phaseAnalyzeMedia(ctx, prep) {
   // instead of a stalled run, and cuts wall-clock time by roughly the pool
   // size. The cost is context: concurrent segments cannot read each other's
   // analyses, so the progressive context that lets segment 4 resolve a ticket
-  // segment 2 opened is only partially available. Hence opt-in.
+  // segment 2 opened is only partially available — which compilation, backfill
+  // and the focused pass reconcile afterwards. On by default; the width follows
+  // how many models are registered, so a new model widens every run.
   const requestedConcurrency = opts.segmentConcurrency > 0
     ? opts.segmentConcurrency
-    : (opts.parallelSegments ? 3 : 1);
+    : (opts.parallelSegments ? (opts.modelPool?.length || defaultPoolSize()) : 1);
   const segmentConcurrency = Math.max(1, Math.min(requestedConcurrency, segments.length));
   const parallelSegments = segmentConcurrency > 1;
   const modelFallback = !opts.noModelFallback;
@@ -843,6 +845,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
     ? assignSegmentModels(segments.length, {
         primary: config.GEMINI_MODEL,
         poolSize: segmentConcurrency,
+        models: opts.modelPool,
       })
     : segments.map(() => config.GEMINI_MODEL);
 

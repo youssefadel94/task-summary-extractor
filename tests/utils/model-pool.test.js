@@ -1,5 +1,7 @@
 const config = require('../../src/config');
 const {
+  resolvePool,
+  defaultPoolSize,
   isOverloadError,
   markOverloaded,
   isCoolingDown,
@@ -210,5 +212,47 @@ describe('pricingFor', () => {
   it('returns the model rates used to cost a mixed-model run', () => {
     expect(pricingFor(PRO)).toBe(config.GEMINI_MODELS[PRO].pricing);
     expect(pricingFor('nope')).toBe(null);
+  });
+});
+
+describe('defaultPoolSize', () => {
+  it('spreads across every registered model, within a sane band', () => {
+    const registered = Object.keys(config.GEMINI_MODELS).length;
+    expect(defaultPoolSize()).toBe(Math.max(2, Math.min(4, registered)));
+  });
+});
+
+describe('resolvePool', () => {
+  it('keeps the order the caller asked for', () => {
+    expect(resolvePool([LITE, PRO])).toEqual([LITE, PRO]);
+  });
+
+  it('drops an unknown id rather than failing the run', () => {
+    // A typo in --models should cost that one model, not the whole run.
+    expect(resolvePool(['not-a-model', FLASH])).toEqual([FLASH]);
+  });
+
+  it('returns null when nothing usable is left, so callers fall back', () => {
+    expect(resolvePool(['nope'])).toBe(null);
+    expect(resolvePool([])).toBe(null);
+    expect(resolvePool(null)).toBe(null);
+  });
+
+  it('deduplicates a repeated model', () => {
+    expect(resolvePool([FLASH, FLASH, PRO])).toEqual([FLASH, PRO]);
+  });
+});
+
+describe('assignSegmentModels with an explicit pool', () => {
+  it('rotates only over the models the caller named', () => {
+    expect(assignSegmentModels(4, { models: [PRO, LITE] })).toEqual([PRO, LITE, PRO, LITE]);
+  });
+
+  it('ignores the primary when an explicit pool is given', () => {
+    expect(assignSegmentModels(1, { primary: FLASH, models: [PRO] })).toEqual([PRO]);
+  });
+
+  it('falls back to the registry chain when the pool names nothing usable', () => {
+    expect(assignSegmentModels(1, { primary: FLASH, models: ['nope'] })).toEqual([FLASH]);
   });
 });

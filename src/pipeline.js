@@ -42,6 +42,9 @@ const phaseProcessVideo = require('./phases/process-media');
 const { phasePrepareMedia, phaseAnalyzeMedia, promptReanalyzeCached } = require('./phases/process-media');
 const phaseCompile     = require('./phases/compile');
 const phaseOutput      = require('./phases/output');
+const { renderChangeRequestHandoff } = require('./renderers/change-requests');
+const { auditRun, renderAuditMarkdown, formatAuditLine } = require('./utils/coverage-audit');
+const { buildPersonScope } = require('./utils/person-scope');
 const phaseSummary     = require('./phases/summary');
 const phaseDeepDive    = require('./phases/deep-dive');
 
@@ -851,23 +854,30 @@ async function runDocOnly(ctx) {
 
   const shouldRender = (type) => opts.formats ? opts.formats.has(type) : (opts.format === 'all' || opts.format === type);
 
-  if (compiledAnalysis) {
-    const mdMeta = {
-      callName,
-      processedAt: results.processedAt,
-      geminiModel: config.GEMINI_MODEL,
-      userName,
-      segmentCount: 0,
-      compilation: compilationRun || null,
-      costSummary: results.costSummary,
-      integrityWarnings: results.integrityWarnings || null,
-      segments: [],
-      settings: results.settings,
-      diagrams: !opts.noDiagrams,
-    };
+  // Kept so the coverage audit can check that every compiled item is visible in
+  // the document, not merely present in the data behind it.
+  let renderedMarkdown = '';
 
+  // Declared out here because the change-request handoff and the audit below
+  // render from the same metadata as the report itself.
+  const mdMeta = {
+    callName,
+    processedAt: results.processedAt,
+    geminiModel: config.GEMINI_MODEL,
+    userName,
+    segmentCount: 0,
+    compilation: compilationRun || null,
+    costSummary: results.costSummary,
+    integrityWarnings: results.integrityWarnings || null,
+    segments: [],
+    settings: results.settings,
+    diagrams: !opts.noDiagrams,
+  };
+
+  if (compiledAnalysis) {
     if (shouldRender('md')) {
       const mdContent = renderResultsMarkdown({ compiled: compiledAnalysis, meta: mdMeta });
+      renderedMarkdown = mdContent;
       const mdPath = path.join(runDir, 'results.md');
       fs.writeFileSync(mdPath, mdContent, 'utf8');
       console.log(`  ${c.success(`Markdown report → ${c.cyan(path.basename(mdPath))}`)}`); 
@@ -911,6 +921,55 @@ async function runDocOnly(ctx) {
       } catch (docxErr) {
         console.warn(`  ${c.warn('DOCX generation failed:')} ${docxErr.message}`);
       }
+    }
+  }
+
+  // Change requests and the coverage audit — the same two artifacts the media
+  // pipeline writes. A document-only run raises change requests too, and the
+  // team implementing them should not have to be handed a different file shape
+  // depending on whether the source was a recording or a folder of specs.
+  if (compiledAnalysis && !opts.noChangeRequests) {
+    try {
+      const handoff = renderChangeRequestHandoff({ compiled: compiledAnalysis, meta: mdMeta });
+      fs.writeFileSync(path.join(runDir, 'change-requests.md'), handoff.markdown, 'utf8');
+      fs.writeFileSync(path.join(runDir, 'change-requests.csv'), handoff.csv, 'utf8');
+      const cts = handoff.counts;
+      console.log(`  ${c.success('Change requests → change-requests.md + .csv')} ${c.dim(`(${handoff.changeRequests.length} deduplicated · ${cts.critical} critical · ${cts.high} high)`)}`);
+    } catch (crErr) {
+      console.warn(`  ${c.warn('Change request handoff failed:')} ${crErr.message}`);
+    }
+  }
+
+  if (compiledAnalysis && !opts.noAudit) {
+    try {
+      const personScope = userName
+        ? buildPersonScope({
+          person: userName,
+          tickets: compiledAnalysis.tickets || [],
+          changeRequests: compiledAnalysis.change_requests || [],
+          actionItems: compiledAnalysis.action_items || [],
+          blockers: compiledAnalysis.blockers || [],
+          scopeChanges: compiledAnalysis.scope_changes || [],
+          fileReferences: compiledAnalysis.file_references || [],
+          yourTasks: compiledAnalysis.your_tasks || null,
+        })
+        : null;
+      const report = auditRun({
+        results,
+        compiled: compiledAnalysis,
+        renderedText: renderedMarkdown,
+        meta: mdMeta,
+        personScope,
+      });
+      fs.writeFileSync(path.join(runDir, 'audit.md'), renderAuditMarkdown(report), 'utf8');
+      fs.writeFileSync(path.join(runDir, 'audit.json'), JSON.stringify(report, null, 2), 'utf8');
+      results.audit = { status: report.status, totals: report.totals, issues: report.issues };
+      // results.json was written before the audit ran — rewrite it so the verdict
+      // is in the machine-readable output too, not only in audit.md.
+      fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
+      console.log(`  ${formatAuditLine(report)} → ${c.cyan('audit.md')}`);
+    } catch (auditErr) {
+      console.warn(`  ${c.warn('Coverage audit failed:')} ${auditErr.message}`);
     }
   }
 

@@ -131,6 +131,22 @@ function fallbackChain(primary) {
 }
 
 /**
+ * How many models to spread work across when nothing was asked for explicitly.
+ *
+ * Every registered model is its own capacity pool, so the useful default is
+ * "all of them" — adding a model to the registry widens parallelism without
+ * anyone having to pass a flag. Clamped to a sane band: one model is not
+ * parallel at all, and beyond four the per-request rate limits bite before the
+ * extra concurrency pays off.
+ *
+ * @returns {number}
+ */
+function defaultPoolSize() {
+  const registered = Object.keys(config.GEMINI_MODELS).length;
+  return Math.max(2, Math.min(4, registered));
+}
+
+/**
  * Deal one model per segment, round-robin over the pool.
  *
  * Spreading segments across models is what makes parallel analysis worth
@@ -143,13 +159,30 @@ function fallbackChain(primary) {
  * @param {object} [opts]
  * @param {string} [opts.primary] - Model for segment 0 (defaults to active model)
  * @param {number} [opts.poolSize] - Cap on how many distinct models to use
+ * @param {string[]} [opts.models] - Explicit model list (--models); unknown ids ignored
  * @returns {string[]} Model id per segment index
  */
 function assignSegmentModels(count, opts = {}) {
-  const { primary, poolSize } = opts;
-  const chain = fallbackChain(primary);
+  const { primary, poolSize, models } = opts;
+  const chain = resolvePool(models) || fallbackChain(primary);
   const pool = poolSize > 0 ? chain.slice(0, Math.max(1, poolSize)) : chain;
   return Array.from({ length: Math.max(0, count) }, (_, i) => pool[i % pool.length]);
+}
+
+/**
+ * Turn a user-supplied model list into a usable pool.
+ *
+ * Unknown ids are dropped rather than thrown: a typo in --models should cost
+ * that one model, not the run. Returns null when nothing usable is left, so
+ * callers fall back to the registry-derived chain.
+ *
+ * @param {string[]|null} models
+ * @returns {string[]|null}
+ */
+function resolvePool(models) {
+  if (!Array.isArray(models) || models.length === 0) return null;
+  const usable = [...new Set(models.filter(id => config.GEMINI_MODELS[id]))];
+  return usable.length > 0 ? usable : null;
 }
 
 /**
@@ -278,6 +311,8 @@ module.exports = {
   isCoolingDown,
   resetCooldowns,
   fallbackChain,
+  resolvePool,
+  defaultPoolSize,
   assignSegmentModels,
   clampThinkingBudget,
   pricingFor,

@@ -25,6 +25,13 @@ const {
   buildWorkItemMap, buildConfidencePie, buildOwnershipMap, buildBlockerMap,
 } = require('../utils/mermaid');
 
+// Change requests are merged and priority-ordered before anything renders them,
+// so the same change never appears twice and urgent work sits at the top.
+const { packChangeRequests } = require('../utils/cr-pack');
+
+// Everything a single --name is on the hook for, gathered from every collection.
+const { buildPersonScope } = require('../utils/person-scope');
+
 /** Escape pipe characters in Markdown table cells to prevent column corruption. */
 // Escape a value for use inside a Markdown table cell: escape pipes AND collapse
 // newlines to spaces (a raw \n splits the cell across rows and corrupts the table).
@@ -49,7 +56,7 @@ function renderResultsMarkdown({ compiled, meta }) {
 
   // ── Extract & deduplicate all data ──
   const allTickets = dedupBy(compiled.tickets || [], t => t.ticket_id);
-  const allCRs = dedupBy(compiled.change_requests || [], cr => cr.id);
+  const allCRs = packChangeRequests(compiled.change_requests || []);
   const allActions = dedupBy(compiled.action_items || [], ai => ai.id);
   const allBlockers = dedupBy(compiled.blockers || [], b => b.id);
   const allScope = dedupBy(compiled.scope_changes || [], sc => sc.id);
@@ -285,47 +292,66 @@ function renderResultsMarkdown({ compiled, meta }) {
   // ══════════════════════════════════════════════════════
   //  YOUR TASKS (current user — prominent top section)
   // ══════════════════════════════════════════════════════
-  if (currentUserCanonical && yourTasks) {
+  // Built from every collection, not just the AI's `your_tasks` object: a call
+  // can assign someone six tickets and four CRs while the model returns no
+  // `your_tasks` at all, and the person still needs to see all ten.
+  const personScope = currentUserCanonical
+    ? buildPersonScope({
+      person: currentUserCanonical,
+      matches: raw => nameMatch(raw, currentUserCanonical),
+      tickets: allTickets,
+      changeRequests: allCRs,
+      actionItems: allActions,
+      blockers: allBlockers,
+      scopeChanges: allScope,
+      fileReferences: allFiles,
+      yourTasks,
+    })
+    : null;
+
+  if (personScope && !personScope.isEmpty) {
+    const pc = personScope.counts;
     ln(`## ⭐ Your Tasks — ${currentUserCanonical}`);
     ln('');
 
-    // Your overall summary
-    if (yourTasks.summary) {
-      ln(`> ${yourTasks.summary}`);
+    if (personScope.summary) {
+      ln(`> ${personScope.summary}`);
+      ln('');
+    }
+
+    // A one-line ledger so the size of the workload is visible before the detail.
+    const ledger = [];
+    if (pc.tickets) ledger.push(`${pc.tickets} ticket${pc.tickets > 1 ? 's' : ''}`);
+    if (pc.reviewing) ledger.push(`${pc.reviewing} to review`);
+    if (pc.todo) ledger.push(`${pc.todo} to do`);
+    if (pc.changeRequests) ledger.push(`${pc.changeRequests} change request${pc.changeRequests > 1 ? 's' : ''}`);
+    if (pc.blockers) ledger.push(`${pc.blockers} blocker${pc.blockers > 1 ? 's' : ''}`);
+    if (pc.blockingMe) ledger.push(`${pc.blockingMe} blocking you`);
+    if (pc.decisionsNeeded) ledger.push(`${pc.decisionsNeeded} decision${pc.decisionsNeeded > 1 ? 's' : ''} needed`);
+    if (pc.waitingOn) ledger.push(`${pc.waitingOn} waiting on others`);
+    if (pc.othersWaitingOnMe) ledger.push(`${pc.othersWaitingOnMe} others waiting on you`);
+    if (pc.mentions) ledger.push(`${pc.mentions} mention${pc.mentions > 1 ? 's' : ''}`);
+    if (ledger.length) {
+      ln(`**On your plate**: ${ledger.join(' · ')}`);
       ln('');
     }
 
     // Owned tickets (compact)
-    const myTickets = dedupBy(
-      allTickets.filter(t => nameMatch(t.assignee, currentUserCanonical)),
-      t => t.ticket_id
-    );
-    if (myTickets.length > 0) {
-      ln(`**🎫 Your Tickets**: ${myTickets.map(t => `${t.ticket_id} (${(t.status || '?').replace(/_/g, ' ')})`).join(' · ')}`);
+    if (personScope.ownedTickets.length > 0) {
+      ln(`**🎫 Your Tickets**: ${personScope.ownedTickets.map(t => `${t.ticket_id} (${(t.status || '?').replace(/_/g, ' ')})`).join(' · ')}`);
       ln('');
     }
 
-    // To-do items (merged from your_tasks.tasks_todo + action_items assigned to user)
-    const todoItems = dedupByDesc(yourTasks.tasks_todo || []);
-    const myActions = allActions.filter(ai =>
-      nameMatch(ai.assigned_to, currentUserCanonical) &&
-      (ai.status === 'todo' || ai.status === 'in_progress')
-    );
-    const allTodos = [...todoItems];
-    // Add action items not already in todo list. Match on the actor-stripped
-    // form so "Clean up code" and "Youssef to clean up code" count as one task.
-    const todoDescKeys = new Set(allTodos.map(t => normalizeTaskDesc(t.description)));
-    for (const ai of myActions) {
-      const dk = normalizeTaskDesc(ai.description);
-      if (!todoDescKeys.has(dk)) {
-        allTodos.push(ai);
-        todoDescKeys.add(dk);
-      }
+    // Tickets waiting on this person's review — assigned elsewhere, blocked here.
+    if (personScope.reviewingTickets.length > 0) {
+      ln(`**👀 Awaiting Your Review**: ${personScope.reviewingTickets.map(t => `${t.ticket_id} (${(t.status || '?').replace(/_/g, ' ')}${t.assignee ? ` — ${resolve(t.assignee, clusterMap)}` : ''})`).join(' · ')}`);
+      ln('');
     }
-    if (allTodos.length > 0) {
+
+    if (personScope.todo.length > 0) {
       ln('### 📌 To Do');
       ln('');
-      for (const item of allTodos) {
+      for (const item of personScope.todo) {
         const pri = priBadge(item.priority);
         const conf = confBadge(item.confidence);
         const source = item.source ? ` _(${item.source})_` : '';
@@ -334,20 +360,17 @@ function renderResultsMarkdown({ compiled, meta }) {
         const relTickets = (item.related_tickets || []).length > 0 ? `\n  - Tickets: ${item.related_tickets.join(', ')}` : '';
         const relChanges = (item.related_changes || []).length > 0 ? `\n  - Changes: ${item.related_changes.join(', ')}` : '';
         const effort = item.estimated_effort ? ` ⏱ \`${item.estimated_effort}\`` : '';
-        ln(`- [ ] ${item.description}${pri}${effort}${conf}${source}${ts}${blocker}${relTickets}${relChanges}`);
+        const due = item.due ? ` 📅 \`${item.due}\`` : '';
+        ln(`- [ ] ${item.description}${pri}${effort}${due}${conf}${source}${ts}${blocker}${relTickets}${relChanges}`);
       }
       ln('');
     }
 
-    // CRs assigned to user
-    const myCRs = dedupBy(
-      allCRs.filter(cr => nameMatch(cr.assigned_to, currentUserCanonical) && cr.status !== 'completed'),
-      cr => cr.id
-    );
-    if (myCRs.length > 0) {
+    // CRs assigned to the user — already priority-ordered by the CR packer.
+    if (personScope.changeRequests.length > 0) {
       ln('### 🔧 Your Change Requests');
       ln('');
-      for (const cr of myCRs) {
+      for (const cr of personScope.changeRequests) {
         const status = cr.status ? ` \`${cr.status}\`` : '';
         const pri = priBadge(cr.priority);
         const where = cr.where?.file_path ? ` → \`${cr.where.file_path}\`` : '';
@@ -365,11 +388,10 @@ function renderResultsMarkdown({ compiled, meta }) {
     }
 
     // Waiting on others
-    const waitingItems = dedupByDesc(yourTasks.tasks_waiting_on_others || []);
-    if (waitingItems.length > 0) {
+    if (personScope.waitingOn.length > 0) {
       ln('### ⏳ Waiting On Others');
       ln('');
-      for (const w of waitingItems) {
+      for (const w of personScope.waitingOn) {
         const resolvedWho = w.waiting_on ? resolve(w.waiting_on, clusterMap) : 'someone';
         const ts = w.referenced_at ? ` @ ${fmtTs(w.referenced_at, w.source_segment, w.source_video)}` : '';
         ln(`- ⏳ ${w.description} → waiting on **${resolvedWho}**${w.source ? ` _(${w.source})_` : ''}${ts}`);
@@ -377,12 +399,23 @@ function renderResultsMarkdown({ compiled, meta }) {
       ln('');
     }
 
+    // The inverse: work other people cannot finish until this person delivers.
+    if (personScope.othersWaitingOnMe.length > 0) {
+      ln('### 📣 Others Waiting On You');
+      ln('');
+      for (const a of personScope.othersWaitingOnMe) {
+        const owner = a.assigned_to ? resolve(a.assigned_to, clusterMap) : 'someone';
+        const ts = a.referenced_at ? ` @ ${fmtTs(a.referenced_at, a.source_segment, a.source_video)}` : '';
+        ln(`- **${owner}** is blocked on you: ${a.description}${priBadge(a.priority)}${ts}`);
+      }
+      ln('');
+    }
+
     // Decisions needed
-    const decisionItems = dedupByDesc(yourTasks.decisions_needed || []);
-    if (decisionItems.length > 0) {
+    if (personScope.decisionsNeeded.length > 0) {
       ln('### ❓ Decisions Needed');
       ln('');
-      for (const d of decisionItems) {
+      for (const d of personScope.decisionsNeeded) {
         const resolvedWho = d.from_whom ? resolve(d.from_whom, clusterMap) : 'someone';
         const ts = d.referenced_at ? ` @ ${fmtTs(d.referenced_at, d.source_segment, d.source_video)}` : '';
         ln(`- ${d.description} → from **${resolvedWho}**${d.source ? ` _(${d.source})_` : ''}${ts}`);
@@ -391,14 +424,10 @@ function renderResultsMarkdown({ compiled, meta }) {
     }
 
     // Blockers owned by user
-    const myBlockers = dedupBy(
-      allBlockers.filter(b => nameMatch(b.owner, currentUserCanonical)),
-      b => b.id
-    );
-    if (myBlockers.length > 0) {
+    if (personScope.blockers.length > 0) {
       ln('### 🚫 Your Blockers');
       ln('');
-      for (const b of myBlockers) {
+      for (const b of personScope.blockers) {
         const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
         const status = b.status ? ` (${b.status})` : '';
         const type = b.type ? ` _[${b.type.replace(/_/g, ' ')}]_` : '';
@@ -411,6 +440,74 @@ function renderResultsMarkdown({ compiled, meta }) {
       ln('');
     }
 
+    // Blockers owned by someone else that stand in front of this person's work.
+    if (personScope.blockingMe.length > 0) {
+      ln('### ⛔ Blocking Your Work');
+      ln('');
+      for (const b of personScope.blockingMe) {
+        const owner = b.owner ? resolve(b.owner, clusterMap) : 'unowned';
+        const ts = b.referenced_at ? ` @ ${fmtTs(b.referenced_at, b.source_segment, b.source_video)}` : '';
+        ln(`- **${b.id}**: ${b.description} — owned by **${owner}**${ts}`);
+        if (b.blocks?.length > 0) ln(`  - Blocks: ${b.blocks.join(', ')}`);
+      }
+      ln('');
+    }
+
+    // Scope changes this person decided — their calls, on the record.
+    if (personScope.scopeChanges.length > 0) {
+      ln('### 🔀 Scope Changes You Decided');
+      ln('');
+      for (const sc of personScope.scopeChanges) {
+        const ts = sc.referenced_at ? ` @ ${fmtTs(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
+        ln(`- **${sc.id || '—'}** _${(sc.change_type || 'change').replace(/_/g, ' ')}_: ${sc.description}${ts}`);
+        if (sc.rationale) ln(`  - Rationale: ${sc.rationale}`);
+        if (sc.impact) ln(`  - Impact: ${sc.impact}`);
+      }
+      ln('');
+    }
+
+    // Files this person's tickets and CRs touch.
+    if (personScope.files.length > 0) {
+      ln('### 📂 Files You Will Touch');
+      ln('');
+      for (const f of personScope.files) {
+        const role = f.role ? ` _(${String(f.role).replace(/_/g, ' ')})_` : '';
+        ln(`- \`${f.resolved_path || f.file_name}\`${role}`);
+      }
+      ln('');
+    }
+
+    // Named in the call without being assigned — context they must not miss.
+    if (personScope.mentions.length > 0) {
+      ln('<details>');
+      ln(`<summary>💬 Mentioned You (${personScope.mentions.length}) — not assigned to you, but you were named</summary>`);
+      ln('');
+      for (const m of personScope.mentions) {
+        const owner = m.owner ? resolve(m.owner, clusterMap) : 'unassigned';
+        const ts = m.referenced_at ? ` @ ${fmtTs(m.referenced_at, m.source_segment, m.source_video)}` : '';
+        ln(`- _${m.kind.replace(/_/g, ' ')}_ ${m.id ? `**${m.id}** ` : ''}${m.label} — ${owner}${ts}`);
+      }
+      ln('');
+      ln('</details>');
+      ln('');
+    }
+
+    // Closed out during the call — so nobody re-does finished work.
+    if (personScope.completedChangeRequests.length > 0) {
+      ln(`**✅ Your completed change requests**: ${personScope.completedChangeRequests.map(cr => cr.id).join(', ')}`);
+      ln('');
+    }
+
+    hr();
+    ln('');
+  } else if (meta.userName) {
+    // The name was given but nothing in the call is attributed to it. Resolving
+    // an unknown name returns the name itself, so this is the only place the
+    // mismatch is visible — say so instead of rendering an empty report.
+    ln(`## ⭐ Your Tasks — ${meta.userName}`);
+    ln('');
+    ln(`> ⚠️ No work in this call is attributed to **${meta.userName}**. Participants found: ${people.join(', ') || 'none'}. Check the spelling passed to \`--name\`.`);
+    ln('');
     hr();
     ln('');
   }

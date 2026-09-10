@@ -24,6 +24,12 @@ const COMPILED = {
   summary: 'Doc-only integration test summary.',
   tickets: [{ ticket_id: 'T-1', title: 'Do the thing', status: 'open', confidence: 'HIGH' }],
   action_items: [{ id: 'AI-1', description: 'Follow up', assigned_to: 'Youssef', status: 'todo', confidence: 'MEDIUM' }],
+  // Two ids, one change — the handoff must publish it once.
+  change_requests: [
+    { id: 'CR-1', title: 'Rework the export scheduler', what: 'move it onto the queue', priority: 'low', assigned_to: 'Youssef' },
+    { id: 'CR-2', title: 'Rework the export scheduler', why: 'the nightly run times out', priority: 'critical' },
+    { id: 'CR-3', title: 'Add rate limiting to the public API', priority: 'high', status: 'pending_decision' },
+  ],
   your_tasks: { tasks_todo: [{ description: 'Review the doc' }], completed_in_call: [] },
 };
 
@@ -91,6 +97,46 @@ describe('runDocOnly (offline integration, stubbed compilation)', () => {
     const md = fs.readFileSync(path.join(outDir, 'results.md'), 'utf8');
     expect(md).toContain('Do the thing');     // ticket rendered
     expect(md).toContain('Follow up');        // action item rendered
+  });
+
+  it('writes the change-request handoff, deduplicated and priority-sorted', async () => {
+    await pipeline.runDocOnly(makeCtx());
+
+    const crMd = path.join(outDir, 'change-requests.md');
+    const crCsv = path.join(outDir, 'change-requests.csv');
+    expect(fs.existsSync(crMd)).toBe(true);
+    expect(fs.existsSync(crCsv)).toBe(true);
+
+    const md = fs.readFileSync(crMd, 'utf8');
+    expect(md).toContain('**Change requests**: 2');   // CR-1 and CR-2 are one change
+    expect(md).toContain('the nightly run times out'); // detail from the absorbed copy
+    expect(md.indexOf('CR-1')).toBeLessThan(md.indexOf('CR-3')); // critical before high
+
+    // One header row plus one row per surviving change.
+    expect(fs.readFileSync(crCsv, 'utf8').trim().split('\n')).toHaveLength(3);
+  });
+
+  it('writes the coverage audit next to the report', async () => {
+    await pipeline.runDocOnly(makeCtx());
+
+    expect(fs.existsSync(path.join(outDir, 'audit.md'))).toBe(true);
+    const report = JSON.parse(fs.readFileSync(path.join(outDir, 'audit.json'), 'utf8'));
+    expect(['PASS', 'WARN', 'FAIL']).toContain(report.status);
+    expect(report.changeRequests).toMatchObject({ before: 3, after: 2, collapsed: 1 });
+
+    const results = JSON.parse(fs.readFileSync(path.join(outDir, 'results.json'), 'utf8'));
+    expect(results.audit.status).toBe(report.status);
+  });
+
+  it('skips both when the run asked for neither', async () => {
+    const ctx = makeCtx();
+    ctx.opts.noChangeRequests = true;
+    ctx.opts.noAudit = true;
+    await pipeline.runDocOnly(ctx);
+
+    expect(fs.existsSync(path.join(outDir, 'change-requests.md'))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, 'audit.md'))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, 'results.md'))).toBe(true);
   });
 
   it('honors the format set (no html when not requested)', async () => {

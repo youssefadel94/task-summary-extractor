@@ -14,7 +14,7 @@ const { getLog } = require('./_shared');
 /**
  * Print the final summary with timing, cost, and file locations.
  */
-function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun }) {
+function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun, crPaths, auditPaths, audit }) {
   const log = getLog();
   const { opts, firebaseReady, callName, docStorageUrls, costTracker } = ctx;
   const totalSegs = results.files.reduce((s, f) => s + f.segmentCount, 0);
@@ -25,6 +25,13 @@ function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun })
   console.log(c.cyan('══════════════════════════════════════════════'));
   console.log(`  Results JSON : ${c.cyan(jsonPath)}`);
   console.log(`  Results MD   : ${c.cyan(mdPath)}`);
+  if (crPaths?.md) {
+    console.log(`  Change reqs  : ${c.cyan(crPaths.md)} ${c.dim(`(${crPaths.count} CRs — send this one on)`)}`);
+  }
+  if (auditPaths?.md) {
+    const verdict = audit ? ` (${audit.status})` : '';
+    console.log(`  Audit        : ${c.cyan(auditPaths.md)}${c.dim(verdict)}`);
+  }
   console.log(`  Files        : ${c.highlight(results.files.length)}`);
   console.log(`  Segments     : ${c.highlight(totalSegs)}`);
   console.log(`  Elapsed      : ${c.yellow(log.elapsed())}`);
@@ -52,7 +59,10 @@ function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun })
     console.log(`  ${c.heading('Firebase Storage:')}`);
     console.log(`    ${c.dim(`calls/${callName}/documents/`)}  → ${c.yellow(Object.keys(docStorageUrls).length)} doc(s)`);
     console.log(`    ${c.dim(`calls/${callName}/segments/`)}   → ${c.yellow(totalSegs)} segment(s)`);
-    console.log(`    ${c.dim(`calls/${callName}/runs/${runTs}/`)}  → results.json + results.md`);
+    const uploaded = ['results.json', 'results.md'];
+    if (crPaths?.md) uploaded.push('change-requests.md', 'change-requests.csv');
+    if (auditPaths?.md) uploaded.push('audit.md');
+    console.log(`    ${c.dim(`calls/${callName}/runs/${runTs}/`)}  → ${uploaded.join(' + ')}`);
     if (results.storageUrl) {
       console.log(`    Results URL: ${c.link(results.storageUrl)}`);
     }
@@ -74,6 +84,8 @@ function phaseSummary(ctx, results, { jsonPath, mdPath, runTs, compilationRun })
     ...results.files.map(f => `  ${f.originalFile}: ${f.originalSizeMB}MB → ${f.compressedTotalMB}MB (${f.compressionRatio})`),
     `Results JSON: ${jsonPath}`,
     `Results MD: ${mdPath}`,
+    ...(crPaths?.md ? [`Change requests: ${crPaths.md} (${crPaths.count})`] : []),
+    ...(audit ? [`Audit: ${audit.status} — ${audit.totals.missing} missing, ${audit.totals.renderMissing} unrendered`] : []),
     `Logs: ${log.detailedPath}`,
   ]);
   log.step('DONE');

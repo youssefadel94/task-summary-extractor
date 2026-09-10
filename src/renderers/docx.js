@@ -17,6 +17,9 @@ const {
   dedupBy,
 } = require('./shared');
 
+// Same merge-and-sort as the Markdown report: one CR per change, urgent first.
+const { packChangeRequests } = require('../utils/cr-pack');
+
 // ════════════════════════════════════════════════════════════
 //  Lazy-load docx package
 // ════════════════════════════════════════════════════════════
@@ -377,7 +380,7 @@ async function renderResultsDocx({ compiled, meta }) {
 
   // Deduplicate data
   const allTickets = dedupBy(compiled.tickets || [], t => t.ticket_id);
-  const allCRs = dedupBy(compiled.change_requests || [], cr => cr.id);
+  const allCRs = packChangeRequests(compiled.change_requests || []);
   const allActions = dedupBy(compiled.action_items || [], ai => ai.id);
   const allBlockers = dedupBy(compiled.blockers || [], b => b.id);
   const allScope = dedupBy(compiled.scope_changes || [], sc => sc.id);

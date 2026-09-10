@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v10.7.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.8.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-3%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-10.7.0-brightgreen" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-573%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-10.8.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-926%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -176,7 +176,7 @@ These are the ones you'll actually use:
 
 | Flag | What It Does | Example |
 |------|-------------|---------|
-| `--name <name>` | Set your name (skips prompt) | `--name "Jane"` |
+| `--name <name>` | Scope the report to one person — every ticket they own or review, their change requests, to-dos, blockers (theirs and the ones in their way), scope calls, files, who is waiting on them, and where they were named without being assigned | `--name "Jane"` |
 | `--model <id>` | Pick a Gemini model (skips selector) | `--model gemini-3.1-pro-preview` |
 | `--skip-upload` | Don't upload to Firebase (local only) | `--skip-upload` |
 | `--force-upload` | Re-upload files even if they already exist | `--force-upload` |
@@ -211,7 +211,7 @@ Choose what the tool does. Only use one at a time:
 
 | Flag | Mode | What You Get |
 |------|------|-------------|
-| *(none)* | **Content analysis** | `results.md` + `results.html` + `results.json` + `results.pdf` + `results.docx` — structured task document (all formats by default) |
+| *(none)* | **Content analysis** | `results.md` + `results.html` + `results.json` + `results.pdf` + `results.docx` — structured task document (all formats by default), plus `change-requests.md`/`.csv` and `audit.md` |
 | `--dynamic` | **Doc generation** | `INDEX.md` + 3–15 topic documents |
 | `--deep-dive` | **Topic explainers** | `INDEX.md` + per-topic deep-dive docs |
 | `--deep-summary` | **Token-efficient analysis** | Same as content analysis, but context docs pre-summarized (60-80% savings) |
@@ -294,9 +294,12 @@ In interactive runs on a folder containing media, a **🎬 Source Recording Spee
 | `--compilation-thinking-budget <n>` | `10240` | AI thinking tokens for the final cross-segment compilation |
 | `--parallel <n>` | `3` | Max concurrent Firebase uploads |
 | `--parallel-analysis <n>` | `2` | Max concurrent analysis batches |
-| `--parallel-segments` | disabled | Analyze segments at the same time, each on a different Gemini model. Sidesteps one model's demand spikes and cuts wall-clock time; the trade-off is that concurrent segments cannot read each other's analyses |
-| `--segment-concurrency <n>` | `3` when parallel | How many segments run at once (implies `--parallel-segments`) |
+| `--no-parallel-segments` | **parallel is on** | Analyze segments strictly one at a time. By default segments run concurrently, each dealt a different Gemini model — this sidesteps one model's demand spikes and cuts wall-clock time; the trade-off is that concurrent segments read less of each other's analyses, which compilation and backfill reconcile |
+| `--segment-concurrency <n>` | one per registered model | How many segments run at once |
+| `--models <a,b,c>` | every registered model | Which models to spread work across. Sets both the parallel rotation and the overload fallback order |
 | `--no-model-fallback` | enabled | Stay on the chosen model. By default a model that answers "high demand" (503) hands the request to the next model in the registry rather than losing the segment |
+| `--no-change-requests` | enabled | Skip `change-requests.md` / `.csv` — the standalone handoff for the team implementing the changes |
+| `--no-audit` | enabled | Skip `audit.md` / `audit.json` — the check that every item found in every segment survived into the report |
 | `--log-level <level>` | `info` | `debug` / `info` / `warn` / `error` |
 | `--output <dir>` | auto | Custom output directory (default: `runs/{timestamp}`) |
 | `--no-focused-pass` | enabled | Disable targeted re-analysis of weak segments |
@@ -332,9 +335,10 @@ VIDEO      --no-compress  --speed <n>  --source-speed <n>  --segment-time <n>
 DYNAMIC    --request <text>
 PROGRESS   --repo <path>
 TUNING     --thinking-budget  --compilation-thinking-budget  --parallel
-           --parallel-analysis  --parallel-segments  --segment-concurrency
-           --no-model-fallback  --log-level  --output
+           --parallel-analysis  --no-parallel-segments  --segment-concurrency
+           --models <a,b,c>  --no-model-fallback  --log-level  --output
            --no-focused-pass  --no-learning  --no-diff  --no-batch
+           --no-change-requests  --no-audit
 INFO       --help (-h)  --version (-v)
 ```
 
@@ -347,10 +351,18 @@ INFO       --help (-h)  --version (-v)
 ```
 my-meeting/runs/{timestamp}/
 ├── results.md            ← Open this — your task document
+├── change-requests.md    ← Send this one to the team doing the work
+├── change-requests.csv   ← Same change requests, for a tracker import
+├── audit.md              ← Proof nothing extracted was dropped
+├── audit.json            ← Same audit, machine-readable
 ├── results.html          ← Interactive HTML report (self-contained)
 ├── results.json          ← Full pipeline data
 └── compilation.json      ← All extracted items (JSON)
 ```
+
+**`change-requests.md`** is the handoff document. Every change appears exactly once — copies raised in different segments under different ids are merged, keeping the detail each copy carried — and they are ordered critical → high → medium → low. Each entry carries what changes, how, why, where (file, module, component), the related tickets, the dependencies, the owner and the point in the recording it was raised, so the receiving team never has to open the call report. A closing **Before You Start** section lists what is blocked, what is awaiting a decision and what has no owner yet.
+
+**`audit.md`** accounts for every item end to end: how many of each kind the segments found, how many are distinct, how many reached the report, how many the backfill recovered, and — by name — anything that did not make it. It also checks that every compiled item is actually *visible* in the rendered document, lists the segments that produced no analysis, and names the models that answered. The verdict (PASS / WARN / FAIL) is also written into `results.json` under `audit`.
 
 ### Dynamic Mode
 
@@ -637,6 +649,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.8.0** | **Complete handoff, complete name scope, parallel by default** — change requests are merged so one change appears exactly once (copies raised in different segments under different ids collapse, keeping every copy's detail) and are sorted critical → high → medium → low everywhere they render; new `change-requests.md` + `.csv` standalone handoff for the team implementing them; `--name` now gathers a person's slice from every collection — owned and reviewed tickets, change requests, to-dos, their blockers and the ones blocking them, scope calls, files, who is waiting on them, and mentions — and renders even when the model returns no `your_tasks`, saying so plainly when a name matches nobody; new `audit.md` / `audit.json` account for every extracted item end to end, including whether it is visible in the rendered report and which models answered; parallel segment analysis and multi-model rotation are now ON by default (`--no-parallel-segments` to opt out), with `--models a,b,c` to choose the pool; test suite 573 → 926 |
 | **v10.7.0** | **Flow hardening, model refresh & security** — retired the `gemini-2.5-*` models (now 404 for new API keys) and set the default to `gemini-3-flash-preview`; fixed Custom-flow confidence filter erasing `your_tasks`, boolean `--flag=value` parsing, wizard flag-skip, Markdown table newlines; hardened Dynamic mode (`writeDynamicOutput` malformed-topic crash, duplicate image context, image-only TDZ crash); repaired git progress tracking (null-byte format arg broke commit listing on Node ≥20, rename detection, root-commit diff); fixed Gemini prompt `$`-corruption and `response.text` guards; env precedence; resolved 18 dependency vulnerabilities; test suite 423 → 573 (+ opt-in live smoke test) |
 | **v10.6.10** | **Model registry → April 2026** — added `gemini-3.1-flash-lite-preview` and refreshed the model list |
 | **v10.6.9** | **JSON file support** — `.json` files now discovered and sent to Gemini as inline text context (same pipeline as `.txt`/`.md`/`.csv`); added to `DOC_EXTS`, `INLINE_TEXT_EXTS`, and all supported-format docs |

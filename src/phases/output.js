@@ -14,10 +14,13 @@ const { renderResultsMarkdown } = require('../renderers/markdown');
 const { renderResultsHtml } = require('../renderers/html');
 const { renderResultsPdf } = require('../renderers/pdf');
 const { renderResultsDocx } = require('../renderers/docx');
+const { renderChangeRequestHandoff } = require('../renderers/change-requests');
 
 // --- Utils ---
 const { loadPreviousCompilation, generateDiff, renderDiffMarkdown } = require('../utils/diff-engine');
 const { filterByConfidence } = require('../utils/confidence-filter');
+const { auditRun, renderAuditMarkdown, formatAuditLine } = require('../utils/coverage-audit');
+const { buildPersonScope } = require('../utils/person-scope');
 const { c } = require('../utils/colors');
 
 // --- Shared state ---
@@ -70,6 +73,9 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
 
   // Generate Markdown
   const mdPath = path.join(runDir, 'results.md');
+  // Kept for the coverage audit below: it checks that every compiled item is
+  // actually visible in the document, not merely present in the data.
+  let renderedMarkdown = '';
   const totalSegs = results.files.reduce((s, f) => s + (f.segmentCount || 0), 0);
 
   // Apply confidence filter for rendered output (MD/HTML) — results.json keeps full data
@@ -119,6 +125,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
     // --- Markdown report ---
     if (shouldRender(opts, 'md')) {
       const mdContent = renderResultsMarkdown({ compiled: renderData, meta: renderMeta });
+      renderedMarkdown = mdContent;
       fs.writeFileSync(mdPath, mdContent, 'utf8');
       log.step(`Results MD saved (compiled) → ${mdPath}`);
       console.log(`  ${c.success('Markdown report (AI-compiled)')} → ${c.cyan(path.basename(mdPath))}`);
@@ -174,9 +181,88 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
   } else if (shouldRender(opts, 'md')) {
     const { renderResultsMarkdownLegacy } = require('../renderers/markdown');
     const mdContent = renderResultsMarkdownLegacy(results);
+    renderedMarkdown = mdContent;
     fs.writeFileSync(mdPath, mdContent, 'utf8');
     log.step(`Results MD saved (legacy merge) → ${mdPath}`);
     console.log(`  ${c.success('Markdown report (legacy merge)')} → ${c.cyan(path.basename(mdPath))}`);
+  }
+
+  // === CHANGE REQUEST HANDOFF ===
+  // The other team implementing these changes was not on the call and should not
+  // have to read a call report to find their work. Same data, standalone, deduped
+  // and priority-ordered: Markdown to read, CSV to import into a tracker.
+  let crPaths = null;
+  if (renderData && !opts.noChangeRequests) {
+    try {
+      const handoff = renderChangeRequestHandoff({ compiled: renderData, meta: renderMeta });
+      const crMdPath = path.join(runDir, 'change-requests.md');
+      const crCsvPath = path.join(runDir, 'change-requests.csv');
+      fs.writeFileSync(crMdPath, handoff.markdown, 'utf8');
+      fs.writeFileSync(crCsvPath, handoff.csv, 'utf8');
+      crPaths = { md: crMdPath, csv: crCsvPath, count: handoff.changeRequests.length };
+      const cts = handoff.counts;
+      log.step(`Change request handoff saved → ${crMdPath} (${handoff.changeRequests.length} CRs)`);
+      console.log(`  ${c.success('Change requests (send to the other team)')} → ${c.cyan('change-requests.md')} + ${c.cyan('change-requests.csv')}`);
+      console.log(`    ${c.dim(`${handoff.changeRequests.length} deduplicated · ${cts.critical} critical · ${cts.high} high · ${cts.medium} medium · ${cts.low} low${cts.unset ? ` · ${cts.unset} unprioritized` : ''}`)}`);
+    } catch (crErr) {
+      console.warn(`  ${c.warn('Change request handoff failed:')} ${crErr.message}`);
+      log.warn(`Change request handoff error: ${crErr.message}`);
+    }
+  }
+
+  // === COVERAGE AUDIT ===
+  // Verifies the pipeline did not silently drop work: every item found in every
+  // segment must survive compilation and be visible in the rendered report.
+  let auditReport = null;
+  let auditPaths = null;
+  if (!opts.noAudit && renderData) {
+    try {
+      const personScope = userName
+        ? buildPersonScope({
+          person: userName,
+          tickets: renderData.tickets || [],
+          changeRequests: renderData.change_requests || [],
+          actionItems: renderData.action_items || [],
+          blockers: renderData.blockers || [],
+          scopeChanges: renderData.scope_changes || [],
+          fileReferences: renderData.file_references || [],
+          yourTasks: renderData.your_tasks || null,
+        })
+        : null;
+
+      auditReport = auditRun({
+        results,
+        // Audited against the UNFILTERED analysis: an item --min-confidence
+        // withheld is reported as withheld, never as work that went missing.
+        compiled: compiledAnalysis || renderData,
+        filteredCompiled: renderData,
+        renderedText: renderedMarkdown,
+        meta: renderMeta,
+        personScope,
+      });
+
+      const auditMdPath = path.join(runDir, 'audit.md');
+      const auditJsonPath = path.join(runDir, 'audit.json');
+      fs.writeFileSync(auditMdPath, renderAuditMarkdown(auditReport), 'utf8');
+      fs.writeFileSync(auditJsonPath, JSON.stringify(auditReport, null, 2), 'utf8');
+      auditPaths = { md: auditMdPath, json: auditJsonPath };
+      results.audit = { status: auditReport.status, totals: auditReport.totals, issues: auditReport.issues };
+      // results.json was written before the audit ran — rewrite it so the verdict
+      // is in the machine-readable output too, not only in audit.md.
+      fs.writeFileSync(jsonPath, JSON.stringify(results, null, 2), 'utf8');
+
+      log.step(`Coverage audit: ${auditReport.status} — ${JSON.stringify(auditReport.totals)}`);
+      console.log(`  ${formatAuditLine(auditReport)} → ${c.cyan('audit.md')}`);
+      for (const issue of auditReport.issues.slice(0, 5)) {
+        console.log(`    ${c.dim('· ' + issue)}`);
+      }
+      if (auditReport.issues.length > 5) {
+        console.log(`    ${c.dim(`· …${auditReport.issues.length - 5} more in audit.md`)}`);
+      }
+    } catch (auditErr) {
+      console.warn(`  ${c.warn('Coverage audit failed:')} ${auditErr.message}`);
+      log.warn(`Coverage audit error: ${auditErr.message}`);
+    }
   }
 
   // === DIFF ENGINE (v6) ===
@@ -223,6 +309,15 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
         await uploadToStorage(storage, mdPath, mdStoragePath);
         console.log(`  ${c.success('Results MD uploaded')} → ${c.dim(mdStoragePath)}`);
       }
+
+      // The handoff and the audit are the two files people forward on, so they
+      // upload with the report rather than living only on the machine that ran.
+      for (const extra of [crPaths?.md, crPaths?.csv, auditPaths?.md]) {
+        if (!extra || !fs.existsSync(extra)) continue;
+        const name = path.basename(extra);
+        await uploadToStorage(storage, extra, `calls/${callName}/runs/${runTs}/${name}`);
+        console.log(`  ${c.success(`${name} uploaded`)} → ${c.dim(`calls/${callName}/runs/${runTs}/${name}`)}`);
+      }
     } catch (err) {
       console.warn(`  ${c.warn('Results upload failed:')} ${err.message}`);
     }
@@ -233,7 +328,7 @@ async function phaseOutput(ctx, results, compiledAnalysis, compilationRun, compi
   }
 
   timer.end();
-  return { runDir, jsonPath, mdPath, runTs };
+  return { runDir, jsonPath, mdPath, runTs, crPaths, auditPaths, audit: auditReport };
 }
 
 module.exports = phaseOutput;

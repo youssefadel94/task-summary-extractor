@@ -24,6 +24,7 @@ const config = require('../config');
 // Access config.GEMINI_MODEL at call time (not destructured) for runtime model changes.
 const { extractJson } = require('../utils/json-parser');
 const { generateWithFallback } = require('../utils/model-pool');
+const { packChangeRequests } = require('../utils/cr-pack');
 const { isShuttingDown } = require('../phases/_shared');
 const { MERMAID_RULES, sanitizeMermaidBlocks, buildDocumentMap } = require('../utils/mermaid');
 
@@ -785,11 +786,13 @@ function compiledToContext(compiled) {
     }
   }
 
-  // Change Requests
-  if (compiled.change_requests?.length) {
+  // Change Requests — packed first, so the generated docs never plan the same
+  // change twice and read the urgent ones first.
+  const packedCRs = packChangeRequests(compiled.change_requests || []);
+  if (packedCRs.length) {
     s.push('## Change Requests');
-    for (const cr of compiled.change_requests) {
-      s.push(`- **${cr.id}**: ${cr.title || cr.what || '?'} (${cr.status || '?'}) → ${cr.assigned_to || 'unassigned'}`);
+    for (const cr of packedCRs) {
+      s.push(`- **${cr.id}**: ${cr.title || cr.what || '?'} (${cr.status || '?'}, priority: ${cr.priority || 'unset'}) → ${cr.assigned_to || 'unassigned'}`);
       if (cr.how) s.push(`  How: ${cr.how}`);
       if (cr.why) s.push(`  Why: ${cr.why}`);
       if (cr.where?.file_path) s.push(`  File: ${cr.where.file_path}`);
