@@ -131,3 +131,40 @@ Overall ~**59%** lines / 65% functions / 51% branches, **729 tests + 3 gated liv
 - `gemini.js`/`context-manager.js`: VTT budget is estimated on full (unsliced) transcript, can crowd out other docs (efficiency, not correctness).
 - `retry.js`: `/500/`,`/502/`,`/503/` substring patterns can over-classify permanent errors as transient (wastes retries; still throws).
 - Hard-to-unit-test orchestration remains lower coverage: `gemini.js` (7%), `pipeline.js` run()/runDocOnly, `init.js`, `phases/*` — exercised by the live smoke test and manual runs.
+
+
+### Round 3 — deliverables, name scope, and defaults (v10.8.0 → v10.9.0)
+
+New modules, all covered on arrival:
+
+| Module | What it does | Coverage |
+|---|---|---|
+| `src/utils/cr-pack.js` | Merges duplicate change requests (same change, different ids) and orders them by priority. Runs once at compile time so the data itself carries one CR per change | 94% |
+| `src/utils/person-scope.js` | Everything a `--name` is on the hook for, gathered from every collection; also resolves the first speaker in a call and clusters name spellings | 94% |
+| `src/utils/coverage-audit.js` | End-to-end accounting: segments → compilation → backfill → confidence filter → rendered document, plus which models answered | 96% |
+| `src/renderers/change-requests.js` | The standalone `change-requests.md` / `.csv` handoff for the team implementing the changes | 96% |
+
+Coverage after round 3: **63.6%** statements, **955 tests + 3 gated live**.
+Also improved: `model-pool.js` 97%, `mermaid.js` 98%, `diff-engine.js` 90%,
+`compilation-backfill.js` 100%.
+
+Defaults changed (all reversible with a flag): multi-segment batching is on and
+batches run concurrently across models (`--no-batch`, `--batch-concurrency`);
+parallel segment analysis is on (`--no-parallel-segments`); the coverage audit
+and the change-request handoff are written every run (`--no-audit`,
+`--no-change-requests`); a run with no `--name` is attributed to the first
+speaker in the call, falling back to `DEFAULT_USER_NAME` ("Agent 1").
+
+#### Bugs found by replaying a real 7-segment run through the renderers
+- [FIXED] `coverage-audit.js`: the audit built its person scope with an exact name comparison, so `--name youssef` against a call that writes "Youssef Adel" reported 0 tickets / 0 CRs / 0 blockers for someone who owned 6 / 3 / 1 — contradicting the report rendered beside it. `buildNameMatcher()` now gives every caller the renderers' clustering.
+- [FIXED] `compilation-backfill.js`: scope changes were keyed on `description` and file references on `resolved_path`. Real items carry `new_scope` and often no resolved path, so both keyed to `''` — a scope change dropped by compilation could never be recovered, and the audit counted 1 scope change as 0 distinct and 26 file references as 3.
+- [FIXED] `person-scope.js`: the personal to-do list showed one action item up to twice when compilation and backfill phrased it differently. Deduping on the source id before the text collapsed 11 lines to 9 on the real run.
+- [FIXED] `markdown.js` / `html.js` / `docx.js`: the personal scope-change line read `sc.description`, which live analyses do not set — it rendered "undefined". All three now fall through `new_scope` → `description` → `title`.
+- [FIXED] `change-requests.js`: the provenance line wrapped `fmtTs`'s own italics in more italics, breaking the markup in every entry.
+- [FIXED] `diff-engine.js`: with CRs merged at compile time, an id can vanish between runs without the work moving (last run's CR-7 is this run's CR-1). The diff announced a removal and an addition; it now follows `merged_ids`.
+
+#### Bugs found by a live run on a 30-minute recording
+- [FIXED] `gemini.js`: both batches were lost to `state: FAILED` from the File API — the upload succeeded and Google's server-side processing gave up (behind a 500 "Failed to convert server response to JSON" on the status poll). The code threw immediately, discarding four already-encoded segments. Uploads now retry up to three times on FAILED, delete the unusable file, and report the API's reason. Polling timeouts and malformed requests still fail immediately.
+- [FIXED] `gemini.js`: a batch upload rejected on the first failure and left its sibling uploads running unattended — their progress lines printed over the next phase and their bytes were paid for and discarded. Uploads now settle before the batch gives up.
+- [FIXED] `process-media.js`: when a partially successful batch fell through to parallel single-segment analysis, the rebuild pushed the batch's single analysis once per segment it covered, handing compilation the same tickets several times. Deduped by object identity.
+- [FIXED] tests left a `gemini_runs/<callName>` directory in the repo on every run (184 had accumulated). Every temp-dir test now cleans up what it wrote.
