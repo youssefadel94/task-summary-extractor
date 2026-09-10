@@ -292,3 +292,31 @@ describe('renderDiffMarkdown', () => {
     expect(md).toContain('done');
   });
 });
+
+describe('change requests that were merged since the previous run', () => {
+  it('follows an absorbed id instead of reporting a removal and an addition', () => {
+    // Last run raised this change as CR-7; this run merged it into CR-1.
+    const previous = { change_requests: [{ id: 'CR-7', title: 'Fix the login redirect loop', priority: 'high' }] };
+    const current = { change_requests: [{ id: 'CR-1', title: 'Fix the login redirect loop', priority: 'high', merged_ids: ['CR-7'] }] };
+    const diff = generateDiff(current, previous);
+    expect(diff.changeRequests.added).toHaveLength(0);
+    expect(diff.changeRequests.removed).toHaveLength(0);
+    expect(diff.changeRequests.unchanged).toHaveLength(1);
+  });
+
+  it('still reports a real change on the merged item', () => {
+    const previous = { change_requests: [{ id: 'CR-7', title: 'Fix the login redirect loop', priority: 'low' }] };
+    const current = { change_requests: [{ id: 'CR-1', title: 'Fix the login redirect loop', priority: 'critical', merged_ids: ['CR-7'] }] };
+    const diff = generateDiff(current, previous);
+    expect(diff.changeRequests.changed).toHaveLength(1);
+    expect(diff.changeRequests.removed).toHaveLength(0);
+  });
+
+  it('still reports a genuine removal', () => {
+    const previous = { change_requests: [{ id: 'CR-7', title: 'Retire the legacy export' }] };
+    const current = { change_requests: [{ id: 'CR-1', title: 'Something else entirely' }] };
+    const diff = generateDiff(current, previous);
+    expect(diff.changeRequests.removed).toHaveLength(1);
+    expect(diff.changeRequests.added).toHaveLength(1);
+  });
+});

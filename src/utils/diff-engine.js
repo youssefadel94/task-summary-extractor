@@ -160,12 +160,29 @@ function diffArray(currentArr, previousArr, idField) {
   const unchanged = [];
   const removed = [];
 
+  // Ids this run absorbed when it merged duplicate change requests. Last run's
+  // CR-7 and this run's CR-1 can be the same change; without the alias the diff
+  // announces one removal and one addition for work that never moved.
+  const aliasOf = new Map();
+  for (const [id, item] of currMap) {
+    for (const absorbed of (item.merged_ids || [])) {
+      if (absorbed && !currMap.has(absorbed)) aliasOf.set(absorbed, id);
+    }
+  }
+  const prevFor = (id, item) => {
+    if (prevMap.has(id)) return prevMap.get(id);
+    for (const absorbed of (item.merged_ids || [])) {
+      if (prevMap.has(absorbed)) return prevMap.get(absorbed);
+    }
+    return null;
+  };
+
   // Find added and changed
   for (const [id, currItem] of currMap) {
-    if (!prevMap.has(id)) {
+    const prevItem = prevFor(id, currItem);
+    if (!prevItem) {
       added.push({ id, item: currItem, _diffStatus: 'new' });
     } else {
-      const prevItem = prevMap.get(id);
       const changes = detectFieldChanges(currItem, prevItem, idField);
       if (changes.length > 0) {
         changed.push({ id, item: currItem, changes, _diffStatus: 'changed' });
@@ -177,9 +194,8 @@ function diffArray(currentArr, previousArr, idField) {
 
   // Find removed
   for (const [id, prevItem] of prevMap) {
-    if (!currMap.has(id)) {
-      removed.push({ id, item: prevItem, _diffStatus: 'removed' });
-    }
+    if (currMap.has(id) || aliasOf.has(id)) continue;
+    removed.push({ id, item: prevItem, _diffStatus: 'removed' });
   }
 
   return { added, removed, changed, unchanged };
