@@ -497,6 +497,85 @@ function buildDocBridgeText(contextDocs) {
 // ======================== SEGMENT ANALYSIS ========================
 
 /**
+ * How many times a file is re-uploaded when Gemini's own processing of it fails.
+ *
+ * A live run lost both batches of a 7-segment call to `state: FAILED` on the
+ * File API — the upload itself succeeded and Google's server-side processing
+ * then gave up. That is transient often enough to be worth a fresh upload
+ * before writing the segment off: the alternative is discarding a whole batch
+ * of already-encoded video over a condition that clears on its own.
+ */
+const UPLOAD_ATTEMPTS = 3;
+
+/** Whatever the API said about why it could not process the file. */
+function fileFailureReason(file) {
+  const err = file && (file.error || file.status);
+  if (!err) return '';
+  const msg = typeof err === 'string' ? err : (err.message || err.reason || '');
+  return msg ? ` — ${String(msg).slice(0, 200)}` : '';
+}
+
+/**
+ * Upload a file to the Gemini File API and wait until it is usable.
+ *
+ * Retries the whole upload when the API reports FAILED processing; a PROCESSING
+ * timeout and any other error are thrown straight through, since neither is
+ * fixed by uploading the same bytes again.
+ *
+ * @param {object} ai - GoogleGenAI instance
+ * @param {object} o
+ * @param {string} o.filePath - Local file to upload
+ * @param {string} o.displayName - Display name sent to the API
+ * @param {string} o.label - Retry/heartbeat label for logs
+ * @param {string} [o.progressLabel] - Prefix for the "Processing…" ticker
+ * @param {string} [o.mimeType='video/mp4']
+ * @returns {Promise<object>} The ACTIVE file record
+ */
+async function uploadAndAwaitFile(ai, { filePath, displayName, label, progressLabel = '', mimeType = 'video/mp4' }) {
+  let lastFailure = null;
+
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt++) {
+    let uploaded = await withRetry(
+      () => ai.files.upload({ file: filePath, config: { mimeType, displayName: asciiDisplayName(displayName) } }),
+      { label: attempt === 1 ? label : `${label} [attempt ${attempt}]`, maxRetries: 5, baseDelay: 3000 }
+    );
+
+    let waited = 0;
+    const pollStart = Date.now();
+    while (uploaded.state === 'PROCESSING') {
+      if (isShuttingDown()) throw new Error('Upload polling aborted: process shutting down');
+      if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
+        throw new Error(`File "${displayName}" still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s. Try again, or raise GEMINI_POLL_TIMEOUT_MS in your .env.`);
+      }
+      process.stdout.write(`    Processing ${progressLabel}${'.'.repeat((waited % 3) + 1)}   \r`);
+      await new Promise(r => setTimeout(r, 5000));
+      waited++;
+      uploaded = await withRetry(
+        () => ai.files.get({ name: uploaded.name }),
+        { label: 'Gemini file status', maxRetries: 2, baseDelay: 1000 }
+      );
+    }
+
+    if (uploaded.state !== 'FAILED') return uploaded;
+
+    lastFailure = uploaded;
+    // The dead file still counts against the account's storage — drop it.
+    if (uploaded.name) {
+      try { await ai.files.delete({ name: uploaded.name }); } catch { /* best effort */ }
+    }
+    if (attempt < UPLOAD_ATTEMPTS) {
+      console.warn(`    ${c.warn(`Gemini could not process ${displayName}${fileFailureReason(uploaded)} — re-uploading (${attempt + 1}/${UPLOAD_ATTEMPTS})`)}`);
+      await new Promise(r => setTimeout(r, 2000 * attempt));
+    }
+  }
+
+  throw new Error(
+    `Gemini could not process ${displayName} after ${UPLOAD_ATTEMPTS} uploads${fileFailureReason(lastFailure)}. ` +
+    'The file may be corrupt or in an unsupported format — try re-compressing or converting to MP4.'
+  );
+}
+
+/**
  * Process a single video segment with Gemini.
  * Returns a complete model run record (run, input, output).
  */
@@ -525,34 +604,12 @@ async function processWithGemini(ai, filePath, displayName, contextDocs = [], pr
   // Helper: upload via Gemini File API with polling (Strategy C)
   async function uploadViaFileApi() {
     console.log(`    Uploading to Gemini File API...`);
-    let uploaded = await withRetry(
-      () => ai.files.upload({
-        file: filePath,
-        config: { mimeType: 'video/mp4', displayName: asciiDisplayName(displayName) },
-      }),
-      { label: `Gemini file upload (${displayName})`, maxRetries: 5, baseDelay: 3000 }
-    );
-
-    let waited = 0;
-    const pollStart = Date.now();
-    while (uploaded.state === 'PROCESSING') {
-      if (isShuttingDown()) throw new Error('Upload polling aborted: process shutting down');
-      if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-        throw new Error(`File "${displayName}" is still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s. Try again or increase the wait time by setting GEMINI_POLL_TIMEOUT_MS in your .env file.`);
-      }
-      process.stdout.write(`    Processing${'.'.repeat((waited % 3) + 1)}   \r`);
-      await new Promise(r => setTimeout(r, 5000));
-      waited++;
-      uploaded = await withRetry(
-        () => ai.files.get({ name: uploaded.name }),
-        { label: 'Gemini file status check', maxRetries: 2, baseDelay: 1000 }
-      );
-    }
+    const uploaded = await uploadAndAwaitFile(ai, {
+      filePath,
+      displayName,
+      label: `Gemini file upload (${displayName})`,
+    });
     console.log('    Processing complete.        ');
-
-    if (uploaded.state === 'FAILED') {
-      throw new Error(`Gemini file processing failed for ${displayName}. The file may be corrupt or in an unsupported format — try re-compressing or converting to MP4.`);
-    }
     return uploaded;
   }
 
@@ -938,32 +995,12 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
   // Helper: upload a single segment to Gemini File API and poll until ready
   const uploadAndPoll = async (seg) => {
     console.log(`    ${seg.segName}: uploading to Gemini File API...`);
-    let uploaded = await withRetry(
-      () => ai.files.upload({
-        file: seg.segPath,
-        config: { mimeType: 'video/mp4', displayName: `${displayName}_${seg.segName}` },
-      }),
-      { label: `Gemini upload (${seg.segName})`, maxRetries: 5, baseDelay: 3000 }
-    );
-
-    let waited = 0;
-    const pollStart = Date.now();
-    while (uploaded.state === 'PROCESSING') {
-      if (isShuttingDown()) throw new Error('Upload polling aborted: process shutting down');
-      if (Date.now() - pollStart > GEMINI_POLL_TIMEOUT_MS) {
-        throw new Error(`File "${seg.segName}" still processing after ${(GEMINI_POLL_TIMEOUT_MS / 1000).toFixed(0)}s`);
-      }
-      process.stdout.write(`    Processing ${seg.segName}${'.'.repeat((waited % 3) + 1)}   \r`);
-      await new Promise(r => setTimeout(r, 5000));
-      waited++;
-      uploaded = await withRetry(
-        () => ai.files.get({ name: uploaded.name }),
-        { label: 'Gemini file status', maxRetries: 2, baseDelay: 1000 }
-      );
-    }
-    if (uploaded.state === 'FAILED') {
-      throw new Error(`Gemini processing failed for ${seg.segName}`);
-    }
+    const uploaded = await uploadAndAwaitFile(ai, {
+      filePath: seg.segPath,
+      displayName: `${displayName}_${seg.segName}`,
+      label: `Gemini upload (${seg.segName})`,
+      progressLabel: seg.segName,
+    });
     console.log(`    ${seg.segName}: upload complete`);
     return { uri: uploaded.uri, mimeType: uploaded.mimeType || 'video/mp4', name: uploaded.name, usedExternalUrl: false };
   };
@@ -984,12 +1021,23 @@ async function processSegmentBatch(ai, batchSegments, displayName, contextDocs, 
     }
   }
 
-  // Upload pending segments in parallel (concurrency 3)
+  // Upload pending segments in parallel (concurrency 3).
+  //
+  // Every upload runs to completion even when one fails: rejecting immediately
+  // left the siblings running unattended, so their progress lines kept printing
+  // over whatever phase came next and their bytes were paid for and discarded.
   if (uploadQueue.length > 0) {
     console.log(`    Uploading ${uploadQueue.length} segment(s) via File API (parallel)...`);
-    await parallelMap(uploadQueue, async ({ index, seg }) => {
-      segRefs[index] = await uploadAndPoll(seg);
+    const outcomes = await parallelMap(uploadQueue, async ({ index, seg }) => {
+      try {
+        segRefs[index] = await uploadAndPoll(seg);
+        return null;
+      } catch (err) {
+        return err;
+      }
     }, 3);
+    const failure = outcomes.find(Boolean);
+    if (failure) throw failure;
   }
 
   const fileRefs = segRefs;
@@ -1700,6 +1748,7 @@ async function cleanupGeminiFiles(ai, geminiFileName, contextDocs = []) {
 module.exports = {
   initGemini,
   asciiDisplayName,
+  uploadAndAwaitFile,
   prepareDocsForGemini,
   analyzeImageBatches,
   loadPrompt,
