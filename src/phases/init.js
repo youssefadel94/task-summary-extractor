@@ -98,6 +98,8 @@ async function phaseInit() {
     resume: !!flags.resume,
     reanalyze: !!flags.reanalyze,
     dryRun: !!flags['dry-run'],
+    // Falls back to config.DEFAULT_USER_NAME ("Agent 1") only after the
+    // interactive prompt has had its turn — see resolveUserName().
     userName: flags.name || null,
     parallel: safeInt(flags.parallel, MAX_PARALLEL_UPLOADS),
     logLevel: flags['log-level'] || LOG_LEVEL,
@@ -113,6 +115,8 @@ async function phaseInit() {
     // worth taking by default. --no-parallel-segments restores strict sequence.
     parallelSegments: !flags['no-parallel-segments'],
     segmentConcurrency: safeInt(flags['segment-concurrency'], 0),
+    // How many batches run at once. 0 = follow the model pool, same as segments.
+    batchConcurrency: safeInt(flags['batch-concurrency'], 0),
     // An overloaded model hands the request to the next model in the registry
     // rather than dropping the segment. --no-model-fallback keeps one model.
     noModelFallback: !!flags['no-model-fallback'],
@@ -128,10 +132,13 @@ async function phaseInit() {
     // the failure mode nobody notices, so proving it did not is not opt-in.
     noAudit: !!flags['no-audit'],
     noChangeRequests: !!flags['no-change-requests'],
-    // Batching off by default: one Gemini call per batch produces ONE merged
-    // analysis for several segments, so per-segment detail is lost before
-    // compilation even sees it. --batch opts back in for cheaper, coarser runs.
-    noBatch: flags.batch ? false : true,
+    // Batching ON by default: one Gemini call covers several segments, which
+    // is the difference between one request per 7 minutes of meeting and one
+    // per 7 minutes times four. Batches now run concurrently across models, so
+    // the wall-clock saving compounds. The cost is per-segment granularity —
+    // a batch returns one analysis for its segments — which compilation,
+    // backfill and source-segment tagging reconcile. --no-batch opts out.
+    noBatch: !!flags['no-batch'],
     // Video processing flags
     noCompress: !!flags['no-compress'],
     speed: flags.speed ? parseFloat(flags.speed) : null,

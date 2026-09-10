@@ -176,16 +176,27 @@ function auditRendered(compiled, renderedText) {
   return results;
 }
 
-/** How many duplicate change requests the packer collapsed. */
+/**
+ * How many duplicate change requests were collapsed.
+ *
+ * Compilation packs the CRs into the data, so by the time the audit runs there
+ * is usually nothing left to collapse — re-running the packer here would report
+ * a truthful-looking zero and hide the merge entirely. When compilation left its
+ * receipt (`_cr_pack`), that is the number; the local computation is the
+ * fallback for analyses that never went through it (an older results.json, a
+ * fixture, a fallback merge).
+ */
 function auditChangeRequestDedup(compiled) {
   const raw = Array.isArray(compiled?.change_requests) ? compiled.change_requests : [];
   const packed = normalizeChangeRequests(raw);
+  const receipt = compiled?._cr_pack;
   const merged = packed.filter(cr => (cr.merged_ids || []).length > 0);
+
   return {
-    before: raw.length,
-    after: packed.length,
-    collapsed: raw.length - packed.length,
-    mergedIds: merged.map(cr => ({ id: cr.id, absorbed: cr.merged_ids })),
+    before: receipt ? receipt.before : raw.length,
+    after: receipt ? receipt.after : packed.length,
+    collapsed: receipt ? receipt.collapsed : raw.length - packed.length,
+    mergedIds: receipt ? receipt.mergedIds : merged.map(cr => ({ id: cr.id, absorbed: cr.merged_ids })),
     unprioritized: packed.filter(cr => !cr.priority).length,
   };
 }

@@ -178,6 +178,16 @@ async function run() {
     if (initCtx.opts.userName) log.step(`User: ${initCtx.opts.userName}`);
   }
 
+  // Nobody said who this run is for. The personal half of the report — owned
+  // tickets, the to-do list, who is waiting on you — is keyed entirely off a
+  // name, so with none it renders nothing at all. Falling back to the configured
+  // identity keeps that section alive for unattended runs; --name overrides it.
+  if (!initCtx.opts.userName) {
+    initCtx.opts.userName = config.DEFAULT_USER_NAME;
+    console.log(`  ${c.dim(`No name given — attributing this run to "${config.DEFAULT_USER_NAME}" (pass --name, or set DEFAULT_USER_NAME, to change it)`)}`);
+    log.step(`User defaulted to: ${config.DEFAULT_USER_NAME}`);
+  }
+
   // Phase 2: Discover
   bar.setPhase('discover');
   const ctx = await phaseDiscover(initCtx);

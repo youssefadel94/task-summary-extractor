@@ -217,6 +217,43 @@ function packChangeRequests(crs) {
   return sortChangeRequests(normalizeChangeRequests(crs));
 }
 
+/**
+ * Pack a compiled analysis's change requests IN PLACE, once, at compile time.
+ *
+ * Renderers pack defensively too (packing is idempotent), but doing it here is
+ * what makes the rest of the system agree: the diff engine compares runs by CR
+ * id, progress tracking looks items up by id, deep dive matches CRs to topics,
+ * and results.json is what a person greps. If duplicates survive into the data,
+ * every one of those sees the same change twice even when the report does not.
+ *
+ * The collapse is recorded on `_cr_pack` so the audit can report what happened
+ * here rather than re-deriving it from data that is already deduplicated.
+ *
+ * @param {object} compiled - Compiled analysis (mutated)
+ * @returns {{before: number, after: number, collapsed: number, mergedIds: object[]}}
+ */
+function packCompiledChangeRequests(compiled) {
+  const empty = { before: 0, after: 0, collapsed: 0, mergedIds: [] };
+  if (!compiled || typeof compiled !== 'object') return empty;
+
+  const raw = Array.isArray(compiled.change_requests) ? compiled.change_requests : null;
+  if (!raw) return empty;
+
+  const packed = packChangeRequests(raw);
+  const stats = {
+    before: raw.length,
+    after: packed.length,
+    collapsed: raw.length - packed.length,
+    mergedIds: packed
+      .filter(cr => (cr.merged_ids || []).length > 0)
+      .map(cr => ({ id: cr.id, absorbed: cr.merged_ids })),
+  };
+
+  compiled.change_requests = packed;
+  compiled._cr_pack = stats;
+  return stats;
+}
+
 /** Count CRs per priority bucket, for summary lines. */
 function priorityCounts(crs) {
   const counts = { critical: 0, high: 0, medium: 0, low: 0, unset: 0 };
@@ -240,5 +277,6 @@ module.exports = {
   normalizeChangeRequests,
   sortChangeRequests,
   packChangeRequests,
+  packCompiledChangeRequests,
   sourceLabel,
 };

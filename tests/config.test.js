@@ -108,3 +108,10 @@ describe('model registry integrity', () => {
     }
   });
 });
+
+describe('DEFAULT_USER_NAME', () => {
+  it('gives a nameless run someone to attribute the work to', () => {
+    // Without it the whole personal half of the report renders empty.
+    expect(config.DEFAULT_USER_NAME).toBe('Agent 1');
+  });
+});

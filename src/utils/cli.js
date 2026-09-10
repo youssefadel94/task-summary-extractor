@@ -361,6 +361,11 @@ ${f('--media-resolution <level>', 'Video detail: low, medium, high (default: hig
 ${f('--video-fps <n>', 'Frames sampled per second of video (default: API default, 1)')}
 ${f('--thinking-budget <n>', 'Thinking tokens per segment (default: 24576)')}
 ${f('--compilation-thinking-budget <n>', 'Thinking tokens for compilation (default: 10240)')}
+${f('--no-batch', 'Analyze one segment per request instead of batching')}
+${f2('Batching is ON by default: one call covers several segments and')}
+${f2('batches run concurrently across models. --no-batch trades that cost')}
+${f2('and speed for per-segment granularity.')}
+${f('--batch-concurrency <n>', 'How many batches at once (default: one per registered model)')}
 ${f('--no-audit', 'Skip the coverage audit (audit.md / audit.json)')}
 ${f2('The audit checks that every item found in every segment survived')}
 ${f2('compilation and is visible in the rendered report.')}
@@ -882,12 +887,12 @@ const FEATURE_FLAGS = [
   },
   {
     key: 'noBatch',
-    flag: '--batch',
+    flag: '--no-batch',
     icon: '📦',
     label: 'Batch Processing',
-    desc: 'Group segments into one call — cheaper, but merges detail across segments',
+    desc: 'Group segments into one call, run batches concurrently — much cheaper and faster',
     category: 'processing',
-    default: false,
+    default: true,
     inverted: true,
   },
   {

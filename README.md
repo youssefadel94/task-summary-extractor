@@ -1,13 +1,13 @@
 # Task Summary Extractor
 
-> **v10.8.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
+> **v10.9.0** — AI-powered content analysis CLI — meetings, recordings, documents, or any mix. Install globally, run anywhere.
 
 <p align="center">
   <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-green" alt="Node.js" />
   <img src="https://img.shields.io/badge/gemini-3%2B-blue" alt="Gemini" />
   <img src="https://img.shields.io/badge/firebase-12.x-orange" alt="Firebase" />
-  <img src="https://img.shields.io/badge/version-10.8.0-brightgreen" alt="Version" />
-  <img src="https://img.shields.io/badge/tests-926%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/version-10.9.0-brightgreen" alt="Version" />
+  <img src="https://img.shields.io/badge/tests-940%20passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/npm-task--summary--extractor-red" alt="npm" />
 </p>
 
@@ -176,7 +176,7 @@ These are the ones you'll actually use:
 
 | Flag | What It Does | Example |
 |------|-------------|---------|
-| `--name <name>` | Scope the report to one person — every ticket they own or review, their change requests, to-dos, blockers (theirs and the ones in their way), scope calls, files, who is waiting on them, and where they were named without being assigned | `--name "Jane"` |
+| `--name <name>` | Scope the report to one person — every ticket they own or review, their change requests, to-dos, blockers (theirs and the ones in their way), scope calls, files, who is waiting on them, and where they were named without being assigned. With no name the run is attributed to `Agent 1` (set `DEFAULT_USER_NAME` to change), so the personal section always renders | `--name "Jane"` |
 | `--model <id>` | Pick a Gemini model (skips selector) | `--model gemini-3.1-pro-preview` |
 | `--skip-upload` | Don't upload to Firebase (local only) | `--skip-upload` |
 | `--force-upload` | Re-upload files even if they already exist | `--force-upload` |
@@ -294,6 +294,8 @@ In interactive runs on a folder containing media, a **🎬 Source Recording Spee
 | `--compilation-thinking-budget <n>` | `10240` | AI thinking tokens for the final cross-segment compilation |
 | `--parallel <n>` | `3` | Max concurrent Firebase uploads |
 | `--parallel-analysis <n>` | `2` | Max concurrent analysis batches |
+| `--no-batch` | **batching is on** | Analyze one segment per request. By default several segments share one call and the batches run concurrently across models — far fewer requests and far less wall-clock. The trade is per-segment granularity: a batch returns one analysis for its segments |
+| `--batch-concurrency <n>` | one per registered model | How many batches run at once |
 | `--no-parallel-segments` | **parallel is on** | Analyze segments strictly one at a time. By default segments run concurrently, each dealt a different Gemini model — this sidesteps one model's demand spikes and cuts wall-clock time; the trade-off is that concurrent segments read less of each other's analyses, which compilation and backfill reconcile |
 | `--segment-concurrency <n>` | one per registered model | How many segments run at once |
 | `--models <a,b,c>` | every registered model | Which models to spread work across. Sets both the parallel rotation and the overload fallback order |
@@ -336,8 +338,9 @@ DYNAMIC    --request <text>
 PROGRESS   --repo <path>
 TUNING     --thinking-budget  --compilation-thinking-budget  --parallel
            --parallel-analysis  --no-parallel-segments  --segment-concurrency
-           --models <a,b,c>  --no-model-fallback  --log-level  --output
-           --no-focused-pass  --no-learning  --no-diff  --no-batch
+           --no-batch  --batch-concurrency  --models <a,b,c>
+           --no-model-fallback  --log-level  --output
+           --no-focused-pass  --no-learning  --no-diff
            --no-change-requests  --no-audit
 INFO       --help (-h)  --version (-v)
 ```
@@ -649,6 +652,7 @@ task-summary-extractor/
 
 | Version | Highlights |
 |---------|-----------|
+| **v10.9.0** | **Batching on by default, batches in parallel, a name for every run** — multi-segment batching is now the default and batches run concurrently, each on its own model (`--batch-concurrency`, `--no-batch`), with results re-sorted into segment order and one batch analysis reaching compilation exactly once; change requests are now merged into the compiled data itself, so the diff engine, progress tracking, deep dive and `results.json` all see one CR per change; the `--name` section is built from the person scope in **all** formats (Markdown, HTML and DOCX — the HTML and DOCX versions previously showed a fraction of it, or nothing at all when the model returned no `your_tasks`); a run with no `--name` is attributed to `Agent 1` (`DEFAULT_USER_NAME`) so the personal section always renders; the audit reports what `--min-confidence` withheld separately from what went missing, and names the models that answered; test suite 926 → 940 |
 | **v10.8.0** | **Complete handoff, complete name scope, parallel by default** — change requests are merged so one change appears exactly once (copies raised in different segments under different ids collapse, keeping every copy's detail) and are sorted critical → high → medium → low everywhere they render; new `change-requests.md` + `.csv` standalone handoff for the team implementing them; `--name` now gathers a person's slice from every collection — owned and reviewed tickets, change requests, to-dos, their blockers and the ones blocking them, scope calls, files, who is waiting on them, and mentions — and renders even when the model returns no `your_tasks`, saying so plainly when a name matches nobody; new `audit.md` / `audit.json` account for every extracted item end to end, including whether it is visible in the rendered report and which models answered; parallel segment analysis and multi-model rotation are now ON by default (`--no-parallel-segments` to opt out), with `--models a,b,c` to choose the pool; test suite 573 → 926 |
 | **v10.7.0** | **Flow hardening, model refresh & security** — retired the `gemini-2.5-*` models (now 404 for new API keys) and set the default to `gemini-3-flash-preview`; fixed Custom-flow confidence filter erasing `your_tasks`, boolean `--flag=value` parsing, wizard flag-skip, Markdown table newlines; hardened Dynamic mode (`writeDynamicOutput` malformed-topic crash, duplicate image context, image-only TDZ crash); repaired git progress tracking (null-byte format arg broke commit listing on Node ≥20, rename detection, root-commit diff); fixed Gemini prompt `$`-corruption and `response.text` guards; env precedence; resolved 18 dependency vulnerabilities; test suite 423 → 573 (+ opt-in live smoke test) |
 | **v10.6.10** | **Model registry → April 2026** — added `gemini-3.1-flash-lite-preview` and refreshed the model list |

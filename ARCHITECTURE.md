@@ -291,9 +291,10 @@ flowchart TB
 | **Video cost** | ~300 tokens/sec × segment duration |
 | **Bin-packing** | Greedy: add consecutive segments until budget or max batch size (8) reached |
 | **Deep summary synergy** | Deep summary frees 60–80% of doc tokens → more room for video → larger batches |
-| **Fallback** | Any batch failure → entire remaining file falls back to single-segment processing |
+| **Concurrency** | Batches run in parallel, each dealt its own model from the registry (`--batch-concurrency`, default: one per registered model). Results are re-sorted into segment order afterwards; one batch analysis reaches compilation once, not once per segment |
+| **Fallback** | A failed batch leaves its segments unanalyzed; the single-segment path picks up exactly those (batches that already succeeded are kept) |
 | **Cache aware** | Cached segment runs are loaded from disk; only uncached batches hit the API |
-| **Disable** | `--no-batch` forces original single-segment behavior |
+| **Default** | On. `--no-batch` forces single-segment behavior when per-segment granularity matters more than cost |
 
 ### Token Math Example
 

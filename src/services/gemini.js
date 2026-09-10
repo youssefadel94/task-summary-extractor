@@ -1499,6 +1499,20 @@ ${segmentDumps}`;
       const detail = Object.entries(recovered).map(([f, n]) => `${n} ${f.replace(/_/g, ' ')}`).join(', ');
       console.log(`  ${c.warn(`Restored ${totalRecovered} item(s) the merge dropped:`)} ${c.dim(detail)}`);
     }
+
+    // Collapse duplicate change requests into the DATA, not just the report.
+    // Backfill runs first on purpose: it restores CRs the merge dropped, and
+    // some of those are re-phrasings of ones already there. Packing after it
+    // means the recovered copies merge instead of stacking up as near-duplicates.
+    const { packCompiledChangeRequests } = require('../utils/cr-pack');
+    const crStats = packCompiledChangeRequests(compiled);
+    if (crStats.collapsed > 0) {
+      const detail = crStats.mergedIds
+        .map(m => `${m.id} ← ${m.absorbed.join(', ')}`)
+        .join(' · ');
+      console.log(`  ${c.success(`Merged ${crStats.collapsed} duplicate change request(s):`)} ${c.dim(detail)}`);
+    }
+
     console.log(`  ${c.success('Final compilation complete')}`);
   }
 

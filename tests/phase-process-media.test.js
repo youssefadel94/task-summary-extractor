@@ -70,7 +70,13 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pm-'));
     clip = makeClip(dir);
   }, 60000);
-  afterAll(() => { setLog(null); fs.rmSync(dir, { recursive: true, force: true }); });
+  afterAll(() => {
+    setLog(null);
+    // Runs write model records under <cwd>/gemini_runs/<callName>; without this
+    // every test run leaves another directory behind in the repo.
+    fs.rmSync(path.join(process.cwd(), 'gemini_runs', path.basename(dir)), { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   it('compresses, segments, and assembles a fileResult (AI skipped)', async () => {
     const ctx = makeCtx(dir, clip);
@@ -240,6 +246,61 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
     }
   }, 120000);
 
+  it('batches run concurrently on different models, and results stay in segment order', async () => {
+    const bpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmbp-'));
+    const callName = path.basename(bpdir);
+    try {
+      // 5 segments: the batch planner caps a batch at 4, so this is 2 batches.
+      const longClip = makeClip(bpdir, 'meeting.mp4', 10);
+      const segDir = path.join(bpdir, 'compressed', 'meeting');
+      const pre = await video.splitOnly(longClip, segDir, { segTime: 2 });
+      expect(pre.length).toBeGreaterThan(4); // fixture sanity
+
+      const ctx = makeCtx(bpdir, longClip, {
+        skipGemini: false, skipUpload: true, noBatch: false,
+        disableFocusedPass: true, noStorageUrl: true,
+        parallelSegments: true,
+      });
+
+      const models = [];
+      let inFlight = 0;
+      let peakInFlight = 0;
+      ctx.ai = makeVideoMockAI(() => SEGMENT_ANALYSIS);
+      const respond = ctx.ai.models.generateContent;
+      ctx.ai.models.generateContent = async (payload) => {
+        models.push(payload.model);
+        inFlight++;
+        peakInFlight = Math.max(peakInFlight, inFlight);
+        try {
+          await new Promise(r => setTimeout(r, 40));
+          return await respond(payload);
+        } finally {
+          inFlight--;
+        }
+      };
+
+      const { fileResult, segmentAnalyses } = await phaseProcessVideo(ctx, longClip, 0);
+
+      // Both batches were in flight at once, on different models.
+      expect(peakInFlight).toBeGreaterThan(1);
+      expect(new Set(models).size).toBeGreaterThan(1);
+
+      // Every segment is present, in order, and carries an analysis.
+      expect(fileResult.segments.length).toBe(pre.length);
+      expect(fileResult.segments.map(sg => sg.segmentIndex))
+        .toEqual([...Array(pre.length).keys()]);
+      for (const sg of fileResult.segments) expect(sg.analysis).toBeTruthy();
+
+      // One batch analysis covers several segments, so compilation must receive
+      // it ONCE — not once per segment it happens to be attached to.
+      expect(segmentAnalyses.length).toBeLessThan(pre.length);
+      expect(new Set(segmentAnalyses).size).toBe(segmentAnalyses.length);
+    } finally {
+      fs.rmSync(bpdir, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
+    }
+  }, 180000);
+
   it('an overloaded model hands the segment to another one instead of dropping it', async () => {
     const odir = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pmo-'));
     const callName = path.basename(odir);
@@ -277,6 +338,7 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
 
   it('raw mode (--no-compress) stream-copies without re-encoding', async () => {
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'tsx-pm2-'));
+    const callName = path.basename(dir2);
     try {
       const clip2 = makeClip(dir2);
       const ctx = makeCtx(dir2, clip2, { noCompress: true });
@@ -287,6 +349,7 @@ d('phaseProcessVideo (real ffmpeg, skipGemini)', () => {
       expect(segFiles.length).toBeGreaterThanOrEqual(1);
     } finally {
       fs.rmSync(dir2, { recursive: true, force: true });
+      fs.rmSync(path.join(process.cwd(), 'gemini_runs', callName), { recursive: true, force: true });
     }
   }, 120000);
 });

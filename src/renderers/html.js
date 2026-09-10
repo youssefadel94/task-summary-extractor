@@ -21,6 +21,9 @@ const {
 // Same merge-and-sort as the Markdown report: one CR per change, urgent first.
 const { packChangeRequests } = require('../utils/cr-pack');
 
+// Everything a single --name is on the hook for, gathered from every collection.
+const { buildPersonScope } = require('../utils/person-scope');
+
 // ════════════════════════════════════════════════════════════
 //  Inline CSS
 // ════════════════════════════════════════════════════════════
@@ -346,57 +349,68 @@ function renderResultsHtml({ compiled, meta }) {
   // ══════════════════════════════════════════════════════
   //  YOUR TASKS (current user)
   // ══════════════════════════════════════════════════════
-  if (currentUserCanonical && yourTasks) {
+  // Same source of truth as the Markdown report: the person's slice of every
+  // collection, not just whatever the model happened to put in `your_tasks`.
+  const personScope = currentUserCanonical
+    ? buildPersonScope({
+      person: currentUserCanonical,
+      matches: raw => nameMatch(raw, currentUserCanonical),
+      tickets: allTickets,
+      changeRequests: allCRs,
+      actionItems: allActions,
+      blockers: allBlockers,
+      scopeChanges: allScope,
+      fileReferences: allFiles,
+      yourTasks,
+    })
+    : null;
+
+  if (personScope && !personScope.isEmpty) {
+    const pc = personScope.counts;
     ln(`<h2>⭐ Your Tasks — ${e(currentUserCanonical)}</h2>`);
     ln('<div class="person-section star">');
 
-    if (yourTasks.summary) ln(`<blockquote>${e(yourTasks.summary)}</blockquote>`);
+    if (personScope.summary) ln(`<blockquote>${e(personScope.summary)}</blockquote>`);
 
-    // Owned tickets
-    const myTickets = dedupBy(
-      allTickets.filter(t => nameMatch(t.assignee, currentUserCanonical)),
-      t => t.ticket_id
-    );
-    if (myTickets.length > 0) {
-      ln(`<p><strong>🎫 Your Tickets:</strong> ${myTickets.map(t => `${e(t.ticket_id)} (${e((t.status || '?').replace(/_/g, ' '))})`).join(' · ')}</p>`);
+    const ledger = [];
+    if (pc.tickets) ledger.push(`${pc.tickets} ticket${pc.tickets > 1 ? 's' : ''}`);
+    if (pc.reviewing) ledger.push(`${pc.reviewing} to review`);
+    if (pc.todo) ledger.push(`${pc.todo} to do`);
+    if (pc.changeRequests) ledger.push(`${pc.changeRequests} change request${pc.changeRequests > 1 ? 's' : ''}`);
+    if (pc.blockers) ledger.push(`${pc.blockers} blocker${pc.blockers > 1 ? 's' : ''}`);
+    if (pc.blockingMe) ledger.push(`${pc.blockingMe} blocking you`);
+    if (pc.decisionsNeeded) ledger.push(`${pc.decisionsNeeded} decision${pc.decisionsNeeded > 1 ? 's' : ''} needed`);
+    if (pc.waitingOn) ledger.push(`${pc.waitingOn} waiting on others`);
+    if (pc.othersWaitingOnMe) ledger.push(`${pc.othersWaitingOnMe} others waiting on you`);
+    if (pc.mentions) ledger.push(`${pc.mentions} mention${pc.mentions > 1 ? 's' : ''}`);
+    if (ledger.length) ln(`<p><strong>On your plate:</strong> ${e(ledger.join(' · '))}</p>`);
+
+    if (personScope.ownedTickets.length > 0) {
+      ln(`<p><strong>🎫 Your Tickets:</strong> ${personScope.ownedTickets.map(t => `${e(t.ticket_id)} (${e((t.status || '?').replace(/_/g, ' '))})`).join(' · ')}</p>`);
     }
 
-    // Todo items
-    const todoItems = dedupByDesc(yourTasks.tasks_todo || []);
-    const myActions = allActions.filter(ai =>
-      nameMatch(ai.assigned_to, currentUserCanonical) &&
-      (ai.status === 'todo' || ai.status === 'in_progress')
-    );
-    const allTodos = [...todoItems];
-    // Actor-stripped match — "Clean up code" and "Youssef to clean up code"
-    // are the same task arriving from two sources.
-    const todoDescKeys = new Set(allTodos.map(t => normalizeTaskDesc(t.description)));
-    for (const ai of myActions) {
-      const dk = normalizeTaskDesc(ai.description);
-      if (!todoDescKeys.has(dk)) { allTodos.push(ai); todoDescKeys.add(dk); }
+    if (personScope.reviewingTickets.length > 0) {
+      ln(`<p><strong>👀 Awaiting Your Review:</strong> ${personScope.reviewingTickets.map(t => `${e(t.ticket_id)} (${e((t.status || '?').replace(/_/g, ' '))}${t.assignee ? ` — ${e(resolve(t.assignee, clusterMap))}` : ''})`).join(' · ')}</p>`);
     }
-    if (allTodos.length > 0) {
+
+    if (personScope.todo.length > 0) {
       ln('<h3>📌 To Do</h3><ul>');
-      for (const item of allTodos) {
+      for (const item of personScope.todo) {
         const pri = priBadgeHtml(item.priority);
         const conf = confBadgeHtml(item.confidence);
         const source = item.source ? ` <em>(${e(item.source)})</em>` : '';
         const ts = item.referenced_at ? ` @ ${tsHtml(item.referenced_at, item.source_segment, item.source_video)}` : '';
         const blocker = item.blocked_by ? `<br>&nbsp;&nbsp;⛔ <strong>Blocked by</strong>: ${e(item.blocked_by)}` : '';
         const effort = item.estimated_effort ? ` <code>⏱ ${e(item.estimated_effort)}</code>` : '';
-        ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${effort}${conf}${source}${ts}${blocker}</li>`);
+        const due = item.due ? ` <code>📅 ${e(item.due)}</code>` : '';
+        ln(`<li><input type="checkbox" class="checkbox" disabled> ${e(item.description)}${pri}${effort}${due}${conf}${source}${ts}${blocker}</li>`);
       }
       ln('</ul>');
     }
 
-    // CRs assigned to user
-    const myCRs = dedupBy(
-      allCRs.filter(cr => nameMatch(cr.assigned_to, currentUserCanonical) && cr.status !== 'completed'),
-      cr => cr.id
-    );
-    if (myCRs.length > 0) {
+    if (personScope.changeRequests.length > 0) {
       ln('<h3>🔧 Your Change Requests</h3><ul>');
-      for (const cr of myCRs) {
+      for (const cr of personScope.changeRequests) {
         const status = cr.status ? ` <code>${e(cr.status)}</code>` : '';
         const pri = priBadgeHtml(cr.priority);
         const where = cr.where?.file_path ? ` → <code>${e(cr.where.file_path)}</code>` : '';
@@ -410,11 +424,9 @@ function renderResultsHtml({ compiled, meta }) {
       ln('</ul>');
     }
 
-    // Waiting on others
-    const waitingItems = dedupByDesc(yourTasks.tasks_waiting_on_others || []);
-    if (waitingItems.length > 0) {
+    if (personScope.waitingOn.length > 0) {
       ln('<h3>⏳ Waiting On Others</h3><ul>');
-      for (const w of waitingItems) {
+      for (const w of personScope.waitingOn) {
         const resolvedWho = w.waiting_on ? resolve(w.waiting_on, clusterMap) : 'someone';
         const ts = w.referenced_at ? ` @ ${tsHtml(w.referenced_at, w.source_segment, w.source_video)}` : '';
         ln(`<li>⏳ ${e(w.description)} → waiting on <strong>${e(resolvedWho)}</strong>${ts}</li>`);
@@ -422,11 +434,19 @@ function renderResultsHtml({ compiled, meta }) {
       ln('</ul>');
     }
 
-    // Decisions needed
-    const decisionItems = dedupByDesc(yourTasks.decisions_needed || []);
-    if (decisionItems.length > 0) {
+    if (personScope.othersWaitingOnMe.length > 0) {
+      ln('<h3>📣 Others Waiting On You</h3><ul>');
+      for (const a of personScope.othersWaitingOnMe) {
+        const owner = a.assigned_to ? resolve(a.assigned_to, clusterMap) : 'someone';
+        const ts = a.referenced_at ? ` @ ${tsHtml(a.referenced_at, a.source_segment, a.source_video)}` : '';
+        ln(`<li><strong>${e(owner)}</strong> is blocked on you: ${e(a.description)}${priBadgeHtml(a.priority)}${ts}</li>`);
+      }
+      ln('</ul>');
+    }
+
+    if (personScope.decisionsNeeded.length > 0) {
       ln('<h3>❓ Decisions Needed</h3><ul>');
-      for (const d of decisionItems) {
+      for (const d of personScope.decisionsNeeded) {
         const resolvedWho = d.from_whom ? resolve(d.from_whom, clusterMap) : 'someone';
         const ts = d.referenced_at ? ` @ ${tsHtml(d.referenced_at, d.source_segment, d.source_video)}` : '';
         ln(`<li>${e(d.description)} → from <strong>${e(resolvedWho)}</strong>${ts}</li>`);
@@ -434,14 +454,9 @@ function renderResultsHtml({ compiled, meta }) {
       ln('</ul>');
     }
 
-    // User's blockers
-    const myBlockers = dedupBy(
-      allBlockers.filter(b => nameMatch(b.owner, currentUserCanonical)),
-      b => b.id
-    );
-    if (myBlockers.length > 0) {
+    if (personScope.blockers.length > 0) {
       ln('<h3>🚫 Your Blockers</h3><ul>');
-      for (const b of myBlockers) {
+      for (const b of personScope.blockers) {
         const env = (b.environments || []).length > 0 ? ` [${b.environments.join(', ')}]` : '';
         const status = b.status ? ` (${e(b.status)})` : '';
         const bConf = confBadgeHtml(b.confidence);
@@ -451,6 +466,56 @@ function renderResultsHtml({ compiled, meta }) {
       ln('</ul>');
     }
 
+    if (personScope.blockingMe.length > 0) {
+      ln('<h3>⛔ Blocking Your Work</h3><ul>');
+      for (const b of personScope.blockingMe) {
+        const owner = b.owner ? resolve(b.owner, clusterMap) : 'unowned';
+        const ts = b.referenced_at ? ` @ ${tsHtml(b.referenced_at, b.source_segment, b.source_video)}` : '';
+        ln(`<li><strong>${e(b.id)}</strong>: ${e(b.description)} — owned by <strong>${e(owner)}</strong>${ts}</li>`);
+      }
+      ln('</ul>');
+    }
+
+    if (personScope.scopeChanges.length > 0) {
+      ln('<h3>🔀 Scope Changes You Decided</h3><ul>');
+      for (const sc of personScope.scopeChanges) {
+        const ts = sc.referenced_at ? ` @ ${tsHtml(sc.referenced_at, sc.source_segment, sc.source_video)}` : '';
+        ln(`<li><strong>${e(sc.id || '—')}</strong> <em>${e((sc.change_type || 'change').replace(/_/g, ' '))}</em>: ${e(sc.description || sc.new_scope || '')}${ts}</li>`);
+      }
+      ln('</ul>');
+    }
+
+    if (personScope.files.length > 0) {
+      ln('<h3>📂 Files You Will Touch</h3><ul>');
+      for (const f of personScope.files) {
+        const role = f.role ? ` <em>(${e(String(f.role).replace(/_/g, ' '))})</em>` : '';
+        ln(`<li><code>${e(f.resolved_path || f.file_name)}</code>${role}</li>`);
+      }
+      ln('</ul>');
+    }
+
+    if (personScope.mentions.length > 0) {
+      ln(`<details><summary>💬 Mentioned You (${personScope.mentions.length}) — not assigned to you, but you were named</summary><ul>`);
+      for (const m of personScope.mentions) {
+        const owner = m.owner ? resolve(m.owner, clusterMap) : 'unassigned';
+        const ts = m.referenced_at ? ` @ ${tsHtml(m.referenced_at, m.source_segment, m.source_video)}` : '';
+        ln(`<li><em>${e(m.kind.replace(/_/g, ' '))}</em> ${m.id ? `<strong>${e(m.id)}</strong> ` : ''}${e(m.label)} — ${e(owner)}${ts}</li>`);
+      }
+      ln('</ul></details>');
+    }
+
+    if (personScope.completedChangeRequests.length > 0) {
+      ln(`<p><strong>✅ Your completed change requests:</strong> ${e(personScope.completedChangeRequests.map(cr => cr.id).join(', '))}</p>`);
+    }
+
+    ln('</div>');
+    ln('<hr>');
+  } else if (meta.userName) {
+    // The name was given but nothing is attributed to it — say so rather than
+    // silently dropping the section the reader came for.
+    ln(`<h2>⭐ Your Tasks — ${e(meta.userName)}</h2>`);
+    ln('<div class="person-section star">');
+    ln(`<p>⚠️ No work in this call is attributed to <strong>${e(meta.userName)}</strong>. Participants found: ${e(people.join(', ') || 'none')}. Check the spelling passed to <code>--name</code>.</p>`);
     ln('</div>');
     ln('<hr>');
   }

@@ -458,8 +458,32 @@ async function phaseAnalyzeMedia(ctx, prep) {
       console.log('');
       batchedSuccessfully = true; // will be set false if we need to fall back
 
-      for (let bIdx = 0; bIdx < batches.length; bIdx++) {
-        if (isShuttingDown()) break;
+      // Batches are independent requests, so they run concurrently, each dealt
+      // its own model — the same trade parallel segments make. What a concurrent
+      // batch gives up is the progressive context of the batches still in flight;
+      // compilation, backfill and the focused pass reconcile that afterwards.
+      // Sequential batching (concurrency 1) keeps the full progressive context.
+      const batchConcurrency = Math.max(1, Math.min(
+        opts.batchConcurrency > 0
+          ? opts.batchConcurrency
+          : (opts.parallelSegments ? (opts.modelPool?.length || defaultPoolSize()) : 1),
+        batches.length
+      ));
+      const batchModels = assignSegmentModels(batches.length, {
+        primary: config.GEMINI_MODEL,
+        poolSize: batchConcurrency,
+        models: opts.modelPool,
+      });
+      if (batchConcurrency > 1) {
+        const distinctBatchModels = [...new Set(batchModels)];
+        console.log(`  ${c.cyan('⚡ Parallel batches:')} ${batchConcurrency} at a time across ${distinctBatchModels.length} model(s)`);
+        console.log(`  ${c.dim('Cross-batch context is reduced in this mode — compilation still deduplicates.')}`);
+        console.log('');
+      }
+
+      const runBatch = async (bIdx) => {
+        if (isShuttingDown()) return;
+        const batchModel = batchModels[bIdx] || config.GEMINI_MODEL;
         let batchIndices = batches[bIdx];
         let batchSegs = batchIndices.map(i => ({
           segPath: segmentMeta[i].segPath,
@@ -542,7 +566,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
 
           if (uncachedSegs.length === 0) {
             console.log('');
-            continue; // All segments in batch cached — skip
+            return; // All segments in batch cached — skip
           }
 
           // Trim batch to only uncached segments
@@ -567,7 +591,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
         if (invalidInBatch.length > 0) {
           console.warn(`    ${c.warn(`${invalidInBatch.length} corrupt segment(s) in batch — falling back to single-segment mode`)}`);
           batchedSuccessfully = false;
-          break;
+          return;
         }
 
         try {
@@ -583,6 +607,8 @@ async function phaseAnalyzeMedia(ctx, prep) {
                 segmentTimes: batchTimes,
                 thinkingBudget: opts.thinkingBudget || 24576,
                 noStorageUrl: !!opts.noStorageUrl,
+                modelId: batchModel,
+                modelFallback: !opts.noModelFallback,
               }
             );
           } catch (batchErr) {
@@ -601,6 +627,8 @@ async function phaseAnalyzeMedia(ctx, prep) {
                   segmentTimes: batchTimes,
                   thinkingBudget: opts.thinkingBudget || 24576,
                   noStorageUrl: true,
+                  modelId: batchModel,
+                  modelFallback: !opts.noModelFallback,
                 }
               );
               console.log(`    ${c.success('File API batch retry succeeded')}`);
@@ -622,7 +650,7 @@ async function phaseAnalyzeMedia(ctx, prep) {
             log.warn(`Batch ${bIdx} thinking drain (${batchTU.thoughtTokens} thinking, 0 output) — falling back to single-segment`);
             costTracker.addSegment(`batch_${bIdx}_drain`, batchTU, batchRun.run.durationMs, false);
             batchedSuccessfully = false;
-            break;
+            return;
           }
 
           let analysis = normalizeAnalysis(batchRun.output.parsed || { rawResponse: batchRun.output.raw });
@@ -685,6 +713,8 @@ async function phaseAnalyzeMedia(ctx, prep) {
                     thinkingBudget: retryBudget,
                     noStorageUrl: !!opts.noStorageUrl,
                     retryHints: qualityReport.retryHints,
+                    modelId: batchModel,
+                    modelFallback: !opts.noModelFallback,
                   }
                 );
               } catch (retryBatchErr) {
@@ -701,6 +731,8 @@ async function phaseAnalyzeMedia(ctx, prep) {
                       thinkingBudget: retryBudget,
                       noStorageUrl: true,
                       retryHints: qualityReport.retryHints,
+                      modelId: batchModel,
+                      modelFallback: !opts.noModelFallback,
                     }
                   );
                 } else {
@@ -796,9 +828,42 @@ async function phaseAnalyzeMedia(ctx, prep) {
           console.warn(`    ${c.dim('Tip: use --no-batch to disable batching if this persists.')}`);
           log.error(`Batch ${bIdx} failed — ${err.message}`);
           batchedSuccessfully = false;
-          break;
+          return;
         }
         console.log('');
+      };
+
+      const batchQueue = batches.map((_, i) => i);
+      if (batchConcurrency > 1) {
+        // Concurrent batches write to one console, so each line is tagged with
+        // the batch it belongs to — otherwise a failure cannot be traced back.
+        await parallelMap(
+          batchQueue,
+          (b) => withLogPrefix(c.dim(`[batch ${b + 1}] `), () => runBatch(b)),
+          batchConcurrency
+        );
+
+        // Batches finish out of order. Re-sort the per-file record into segment
+        // order, then rebuild the compilation input from it — a later batch that
+        // finished first must not be compiled as if it came earlier. One batch
+        // analysis covers several segments and is the SAME object on each of
+        // them, so identity dedup keeps it to a single entry.
+        fileResult.segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
+        const seenAnalyses = new Set();
+        segmentAnalyses.length = 0;
+        previousAnalyses.length = 0;
+        for (const seg of fileResult.segments) {
+          const a = seg.analysis;
+          if (!a || a.error || seenAnalyses.has(a)) continue;
+          seenAnalyses.add(a);
+          segmentAnalyses.push(a);
+          previousAnalyses.push(a);
+        }
+      } else {
+        for (const b of batchQueue) {
+          if (isShuttingDown()) break;
+          await runBatch(b);
+        }
       }
 
       if (batchedSuccessfully) {
@@ -1301,8 +1366,16 @@ async function phaseAnalyzeMedia(ctx, prep) {
     // that finished first must not be compiled as if it came earlier.
     fileResult.segments.sort((a, b) => a.segmentIndex - b.segmentIndex);
     segmentAnalyses.length = 0;
+    // Identity dedup: when a batch succeeded before a later one failed and sent
+    // the rest here, that batch's ONE analysis object sits on each of its
+    // segments. Pushing it per segment would hand compilation the same tickets
+    // three times over.
+    const seenHere = new Set();
     for (const seg of fileResult.segments) {
-      if (seg.analysis && !seg.analysis.error) segmentAnalyses.push(seg.analysis);
+      const a = seg.analysis;
+      if (!a || a.error || seenHere.has(a)) continue;
+      seenHere.add(a);
+      segmentAnalyses.push(a);
     }
     // previousAnalyses feeds the rescue pass below; give it the same order.
     const ordered = [];

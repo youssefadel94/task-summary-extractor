@@ -143,6 +143,18 @@ const GEMINI_MODELS = {
   },
 };
 
+/**
+ * Who the report is written for when nobody said.
+ *
+ * `--name` drives the whole personal half of the report — owned tickets, the
+ * to-do list, who is waiting on you. A run with no name produced none of it,
+ * which is the wrong default for an unattended run: the work is still there,
+ * it just had nobody to attribute it to. Falling back to a fixed identity means
+ * the personal section always renders, and `--name` overrides it whenever the
+ * real name is known. Set DEFAULT_USER_NAME to change it.
+ */
+const DEFAULT_USER_NAME = env('DEFAULT_USER_NAME', 'Agent 1');
+
 // Active model — defaults from env or 'gemini-3-flash-preview'.
 // (The gemini-2.5-* line now returns 404 "no longer available to new users".)
 let GEMINI_MODEL = env('GEMINI_MODEL', 'gemini-3-flash-preview');
@@ -514,6 +526,7 @@ module.exports = {
   MIME_MAP,
   LOG_LEVEL,
   MAX_PARALLEL_UPLOADS,
+  DEFAULT_USER_NAME,
   MAX_RETRIES,
   RETRY_BASE_DELAY_MS,
   THINKING_BUDGET,

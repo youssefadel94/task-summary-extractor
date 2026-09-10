@@ -362,19 +362,21 @@ describe('FEATURE_FLAGS', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it('inverted flags are on by default, except batching', () => {
-    // Batching merges several segments into one analysis, so per-segment detail
-    // is lost before compilation — it is opt-in via --batch, not the default.
+  it('every inverted flag is on by default', () => {
+    // An inverted flag names the thing you turn OFF, so its feature is on until
+    // someone passes the flag — batching included, since batches now run
+    // concurrently and cost a fraction of one request per segment.
     for (const f of FEATURE_FLAGS) {
       if (!f.inverted) continue;
-      expect(f.default).toBe(f.key === 'noBatch' ? false : true);
+      expect(f.default).toBe(true);
     }
   });
 
-  it('batching is opt-in through --batch', () => {
+  it('batching is on by default and opts out through --no-batch', () => {
     const batchFlag = FEATURE_FLAGS.find(f => f.key === 'noBatch');
-    expect(batchFlag.flag).toBe('--batch');
-    expect(batchFlag.default).toBe(false);
+    expect(batchFlag.flag).toBe('--no-batch');
+    expect(batchFlag.default).toBe(true);
+    expect(batchFlag.inverted).toBe(true);
   });
 
   it('includes disableProgress flag', () => {

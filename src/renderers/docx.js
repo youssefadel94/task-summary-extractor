@@ -20,6 +20,9 @@ const {
 // Same merge-and-sort as the Markdown report: one CR per change, urgent first.
 const { packChangeRequests } = require('../utils/cr-pack');
 
+// Everything a single --name is on the hook for, gathered from every collection.
+const { buildPersonScope } = require('../utils/person-scope');
+
 // ════════════════════════════════════════════════════════════
 //  Lazy-load docx package
 // ════════════════════════════════════════════════════════════
@@ -167,65 +170,161 @@ function buildTable(headers, rows) {
 //  Section renderers
 // ════════════════════════════════════════════════════════════
 
-function renderYourTasks(yourTasks, clusterMap, allTickets) {
-  if (!yourTasks) return [];
+/**
+ * The named person's section.
+ *
+ * Reads from a person scope rather than straight off `your_tasks`: the old
+ * version rendered nothing at all when the model returned no `your_tasks`, and
+ * even when it did it never showed the person's change requests, blockers,
+ * reviews or scope decisions — those live in the other collections.
+ *
+ * @param {object|null} scope - buildPersonScope() output
+ * @param {Map} clusterMap - Name cluster map, to resolve spellings
+ * @param {string} [fallbackName] - The --name that matched nobody, if that is the case
+ * @returns {object[]} docx elements
+ */
+function renderYourTasks(scope, clusterMap, fallbackName = null) {
   const elements = [];
-  elements.push(heading('⭐ Your Tasks', 2));
-  if (yourTasks.user_name) {
-    elements.push(para(`Assigned to: ${resolve(yourTasks.user_name, clusterMap)}`, { bold: true, color: BRAND_BLUE }));
+
+  if (!scope || scope.isEmpty) {
+    if (!fallbackName) return [];
+    elements.push(heading(`⭐ Your Tasks — ${fallbackName}`, 2));
+    elements.push(para(
+      `No work in this call is attributed to ${fallbackName}. Check the spelling passed to --name.`,
+      { italic: true, color: MUTED_GRAY }
+    ));
+    return elements;
   }
-  // owned_tickets are plain ticket-ID strings (e.g. ["CR31296872"])
-  if (yourTasks.owned_tickets?.length) {
+
+  const pc = scope.counts;
+  elements.push(heading(`⭐ Your Tasks — ${scope.person}`, 2));
+
+  const ledger = [];
+  if (pc.tickets) ledger.push(`${pc.tickets} ticket(s)`);
+  if (pc.reviewing) ledger.push(`${pc.reviewing} to review`);
+  if (pc.todo) ledger.push(`${pc.todo} to do`);
+  if (pc.changeRequests) ledger.push(`${pc.changeRequests} change request(s)`);
+  if (pc.blockers) ledger.push(`${pc.blockers} blocker(s)`);
+  if (pc.blockingMe) ledger.push(`${pc.blockingMe} blocking you`);
+  if (pc.decisionsNeeded) ledger.push(`${pc.decisionsNeeded} decision(s) needed`);
+  if (pc.waitingOn) ledger.push(`${pc.waitingOn} waiting on others`);
+  if (pc.othersWaitingOnMe) ledger.push(`${pc.othersWaitingOnMe} others waiting on you`);
+  if (ledger.length) {
+    elements.push(para(`On your plate: ${ledger.join(' · ')}`, { bold: true, color: BRAND_BLUE }));
+  }
+
+  if (scope.summary) {
+    elements.push(para(scope.summary, { italic: true, color: MUTED_GRAY }));
+  }
+
+  if (scope.ownedTickets.length) {
     elements.push(heading('Owned Tickets', 3));
-    const ticketMap = new Map((allTickets || []).map(t => [t.ticket_id, t]));
-    for (const ticketId of yourTasks.owned_tickets) {
-      const t = ticketMap.get(ticketId);
-      const title = t?.title || t?.summary || '';
-      const status = t?.status ? ` [${t.status.replace(/_/g, ' ')}]` : '';
-      elements.push(bulletItem(`${ticketId}${title ? ` — ${title}` : ''}${status}`));
+    for (const t of scope.ownedTickets) {
+      const status = t.status ? ` [${String(t.status).replace(/_/g, ' ')}]` : '';
+      elements.push(bulletItem(`${t.ticket_id}${t.title ? ` — ${t.title}` : ''}${status}`));
     }
   }
-  // tasks_todo — the main todo list
-  if (yourTasks.tasks_todo?.length) {
+
+  if (scope.reviewingTickets.length) {
+    elements.push(heading('Awaiting Your Review', 3));
+    for (const t of scope.reviewingTickets) {
+      const who = t.assignee ? ` — ${resolve(t.assignee, clusterMap)}` : '';
+      elements.push(bulletItem(`${t.ticket_id}${t.title ? ` — ${t.title}` : ''}${who}`));
+    }
+  }
+
+  if (scope.todo.length) {
     elements.push(heading('Tasks To-Do', 3));
-    for (const task of yourTasks.tasks_todo) {
+    for (const task of scope.todo) {
       const pri = task.priority ? ` [${task.priority}]` : '';
       const src = task.source ? ` (from ${task.source})` : '';
-      elements.push(bulletItem(`${task.description || ''}${pri}${src}`));
+      const due = task.due ? ` (by ${task.due})` : '';
+      elements.push(bulletItem(`${task.description || ''}${pri}${due}${src}`));
     }
   }
-  if (yourTasks.action_items?.length) {
-    elements.push(heading('Action Items', 3));
-    for (const ai of yourTasks.action_items) {
-      elements.push(bulletItem(`${ai.description || ai.action || ''}${ai.deadline ? ` (by ${ai.deadline})` : ''}`));
+
+  if (scope.changeRequests.length) {
+    elements.push(heading('Your Change Requests', 3));
+    for (const cr of scope.changeRequests) {
+      const pri = cr.priority ? ` [${cr.priority}]` : '';
+      const where = cr.where?.file_path ? ` → ${cr.where.file_path}` : '';
+      elements.push(bulletItem(`${cr.id}: ${cr.title || cr.what || ''}${pri}${where}`));
     }
   }
-  // decisions_needed — decisions awaiting the user
-  if (yourTasks.decisions_needed?.length) {
+
+  if (scope.decisionsNeeded.length) {
     elements.push(heading('Decisions Needed', 3));
-    for (const d of yourTasks.decisions_needed) {
+    for (const d of scope.decisionsNeeded) {
       const opts = (d.options || []).length ? ` — Options: ${d.options.join(', ')}` : '';
-      elements.push(bulletItem(`${d.description || d.question || ''}${opts}`));
+      const who = d.from_whom ? ` (from ${resolve(d.from_whom, clusterMap)})` : '';
+      elements.push(bulletItem(`${d.description || d.question || ''}${who}${opts}`));
     }
   }
-  // completed_in_call — items finished during this call
-  if (yourTasks.completed_in_call?.length) {
-    elements.push(heading('Completed In Call', 3));
-    for (const c of yourTasks.completed_in_call) {
-      elements.push(bulletItem(typeof c === 'string' ? c : (c.description || c.action || String(c))));
+
+  if (scope.blockers.length) {
+    elements.push(heading('Your Blockers', 3));
+    for (const b of scope.blockers) {
+      const status = b.status ? ` (${b.status})` : '';
+      elements.push(bulletItem(`${b.id}: ${b.description || ''}${status}`));
     }
   }
-  if (yourTasks.tasks_waiting_on_others?.length) {
+
+  if (scope.blockingMe.length) {
+    elements.push(heading('Blocking Your Work', 3));
+    for (const b of scope.blockingMe) {
+      const owner = b.owner ? resolve(b.owner, clusterMap) : 'unowned';
+      elements.push(bulletItem(`${b.id}: ${b.description || ''} — owned by ${owner}`));
+    }
+  }
+
+  if (scope.waitingOn.length) {
     elements.push(heading('Waiting On Others', 3));
-    for (const w of yourTasks.tasks_waiting_on_others) {
+    for (const w of scope.waitingOn) {
       const who = w.waiting_on ? resolve(w.waiting_on, clusterMap) : 'Unknown';
       elements.push(bulletItem(`${w.description || ''} — waiting on ${who}`));
     }
   }
-  // summary
-  if (yourTasks.summary) {
-    elements.push(para(yourTasks.summary, { italic: true, color: MUTED_GRAY }));
+
+  if (scope.othersWaitingOnMe.length) {
+    elements.push(heading('Others Waiting On You', 3));
+    for (const a of scope.othersWaitingOnMe) {
+      const owner = a.assigned_to ? resolve(a.assigned_to, clusterMap) : 'someone';
+      elements.push(bulletItem(`${owner} is blocked on you: ${a.description || ''}`));
+    }
   }
+
+  if (scope.scopeChanges.length) {
+    elements.push(heading('Scope Changes You Decided', 3));
+    for (const sc of scope.scopeChanges) {
+      elements.push(bulletItem(`${sc.id || '—'}: ${sc.description || sc.new_scope || ''}`));
+    }
+  }
+
+  if (scope.files.length) {
+    elements.push(heading('Files You Will Touch', 3));
+    for (const f of scope.files) {
+      elements.push(bulletItem(f.resolved_path || f.file_name));
+    }
+  }
+
+  if (scope.completedInCall.length || scope.completedChangeRequests.length) {
+    elements.push(heading('Completed In Call', 3));
+    for (const item of scope.completedInCall) {
+      elements.push(bulletItem(typeof item === 'string' ? item : (item.description || item.action || String(item))));
+    }
+    for (const cr of scope.completedChangeRequests) {
+      elements.push(bulletItem(`${cr.id}: ${cr.title || cr.what || ''}`));
+    }
+  }
+
+  if (scope.mentions.length) {
+    elements.push(heading('Mentioned You', 3));
+    for (const m of scope.mentions) {
+      const owner = m.owner ? resolve(m.owner, clusterMap) : 'unassigned';
+      elements.push(bulletItem(`[${m.kind.replace(/_/g, ' ')}] ${m.id ? `${m.id}: ` : ''}${m.label} — ${owner}`));
+    }
+  }
+
   return elements;
 }
 
@@ -467,8 +566,23 @@ async function renderResultsDocx({ compiled, meta }) {
     ));
   }
 
-  // Your Tasks
-  children.push(...renderYourTasks(yourTasks, clusterMap, allTickets));
+  // Your Tasks — the named person's slice of every collection, not just the
+  // model's your_tasks object (which is often absent entirely).
+  const currentUserCanonical = meta.userName ? resolve(meta.userName, clusterMap) : null;
+  const personScope = currentUserCanonical
+    ? buildPersonScope({
+      person: currentUserCanonical,
+      matches: raw => !!raw && resolve(raw, clusterMap) === currentUserCanonical,
+      tickets: allTickets,
+      changeRequests: allCRs,
+      actionItems: allActions,
+      blockers: allBlockers,
+      scopeChanges: allScope,
+      fileReferences: allFiles,
+      yourTasks,
+    })
+    : null;
+  children.push(...renderYourTasks(personScope, clusterMap, meta.userName || null));
 
   // Tickets
   children.push(...renderTickets(allTickets, clusterMap));
