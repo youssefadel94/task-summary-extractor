@@ -144,7 +144,7 @@ New modules, all covered on arrival:
 | `src/utils/coverage-audit.js` | End-to-end accounting: segments → compilation → backfill → confidence filter → rendered document, plus which models answered | 96% |
 | `src/renderers/change-requests.js` | The standalone `change-requests.md` / `.csv` handoff for the team implementing the changes | 96% |
 
-Coverage after round 3: **63.6%** statements, **955 tests + 3 gated live**.
+Coverage after round 3: **63.6%** statements, **958 tests + 3 gated live**.
 Also improved: `model-pool.js` 97%, `mermaid.js` 98%, `diff-engine.js` 90%,
 `compilation-backfill.js` 100%.
 

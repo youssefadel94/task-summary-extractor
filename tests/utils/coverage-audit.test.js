@@ -281,3 +281,15 @@ describe('the confidence filter is reported, not mistaken for lost work', () => 
     expect(auditWithheld({ tickets: [{ ticket_id: 'T-1', confidence: 'LOW' }] }, unfiltered)).toBe(null);
   });
 });
+
+describe('an id a change request absorbed still counts as present', () => {
+  it('does not report a merged id as missing from the report', () => {
+    const report = auditRun({
+      results: { files: [{ originalFile: 'call.mp4', segments: [{ segmentFile: 's1', analysis: { change_requests: [{ id: 'NEW-CR-1', title: 'Move Capacity Check to Start of Workflow' }] } }] }] },
+      compiled: { change_requests: [{ id: 'CR-CAPACITY', title: 'Move Capacity Check to Start of Workflow', assigned_to: 'Jane', source_segment: 1, merged_ids: ['NEW-CR-1'] }] },
+      renderedText: 'CR-CAPACITY',
+    });
+    expect(report.totals.missing).toBe(0);
+    expect(report.issues.join(' ')).not.toMatch(/absent from the compiled result/);
+  });
+});

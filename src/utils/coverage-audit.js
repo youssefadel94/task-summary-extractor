@@ -89,6 +89,13 @@ function auditCollections(compiled, segmentAnalyses) {
     const compiledItems = Array.isArray(compiled?.[col.field]) ? compiled[col.field] : [];
 
     const present = new Set(compiledItems.map(i => key ? key(i) : null).filter(Boolean));
+    // An id a surviving item absorbed still counts as present: the work is in
+    // the report, under the id the merge kept.
+    for (const item of compiledItems) {
+      for (const absorbed of (item?.merged_ids || [])) {
+        if (absorbed) present.add(String(absorbed).toLowerCase());
+      }
+    }
     const presentSets = fuzzy ? [...present].map(wordSet) : [];
 
     let rawCount = 0;

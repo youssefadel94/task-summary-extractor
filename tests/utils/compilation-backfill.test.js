@@ -116,3 +116,27 @@ describe('backfillCompiledItems', () => {
     expect(backfillCompiledItems(null, [{ action_items: [{ description: 'x' }] }]).totalRecovered).toBe(0);
   });
 });
+
+describe('change requests are reconciled on content, not on ids', () => {
+  it('does not recover a change request that is already there under another id', () => {
+    // Each segment numbers its own CRs and compilation renames them; an
+    // id-first key made a live run recover six that were already in the report.
+    const compiled = {
+      change_requests: [{ id: 'CR-CAPACITY-FAILFAST', title: 'Move Capacity Check to Start of Workflow', where: { file_path: 'src/Workflow.cs' } }],
+    };
+    const segments = [{
+      change_requests: [{ id: 'NEW-CR-1', title: 'Move Capacity Check to Start of Workflow', where: { file_path: 'src/Workflow.cs' } }],
+    }];
+    const { totalRecovered } = backfillCompiledItems(compiled, segments);
+    expect(totalRecovered).toBe(0);
+    expect(compiled.change_requests).toHaveLength(1);
+  });
+
+  it('still recovers a change request the merge genuinely dropped', () => {
+    const compiled = { change_requests: [{ id: 'CR-1', title: 'Move Capacity Check to Start of Workflow' }] };
+    const segments = [{ change_requests: [{ id: 'NEW-CR-9', title: 'Restrict registration document types to PDF and images' }] }];
+    const { totalRecovered } = backfillCompiledItems(compiled, segments);
+    expect(totalRecovered).toBe(1);
+    expect(compiled.change_requests).toHaveLength(2);
+  });
+});

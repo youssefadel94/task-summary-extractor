@@ -15,6 +15,7 @@
 'use strict';
 
 const { normalizeDesc, normalizeTaskDesc } = require('../renderers/shared');
+const { crSignature } = require('./cr-pack');
 
 /**
  * Fields to reconcile, with the key used to decide "is this the same item".
@@ -25,7 +26,13 @@ const RECONCILED_FIELDS = [
   { field: 'tickets', key: ticketKey, idPrefix: null, fuzzy: false },
   { field: 'action_items', key: item => normalizeTaskDesc(item.description), idPrefix: 'AI', fuzzy: true },
   { field: 'blockers', key: item => normalizeDesc(item.description), idPrefix: 'BLK', fuzzy: true },
-  { field: 'change_requests', key: item => (item.id || '').toLowerCase() || normalizeDesc(item.description || item.what), idPrefix: 'CR', fuzzy: true },
+  // Content first, id only as a last resort. Change-request ids are not stable
+  // identity: each segment numbers its own ("NEW-CR-1"), compilation renames
+  // them ("CR-CAPACITY-FAILFAST"), and packing merges duplicates afterwards. An
+  // id-first key made a live run recover six change requests that were already
+  // in the report under different ids — and then report them as missing once
+  // packing merged them back.
+  { field: 'change_requests', key: item => crSignature(item) || normalizeDesc(item.description || item.what) || (item.id || '').toLowerCase(), idPrefix: 'CR', fuzzy: true },
   // Scope changes carry `new_scope`, not `description` — keying on the latter
   // alone returned '' for every real item, so none could ever be recovered.
   { field: 'scope_changes', key: item => normalizeDesc(item.description || item.new_scope || item.reason), idPrefix: 'SC', fuzzy: true },
