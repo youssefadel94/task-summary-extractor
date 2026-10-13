@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const config = require('../config');
 const {
   GEMINI_API_KEY,
@@ -125,6 +126,28 @@ function asciiDisplayName(name) {
 }
 
 /**
+ * Upload a file whose on-disk name may not be ASCII.
+ *
+ * Cleaning the display name is not enough: the SDK also sends the path's
+ * basename in the X-Goog-Upload-File-Name header, so "اصدار كشف الراتب.pdf"
+ * fails with the same ByteString error before any byte is sent. A file with a
+ * non-ASCII name is uploaded from a temporary ASCII-named copy instead.
+ */
+async function uploadFile(ai, filePath, uploadConfig) {
+  const base = path.basename(filePath);
+  if (/^[\x20-\x7E]*$/.test(base)) return ai.files.upload({ file: filePath, config: uploadConfig });
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskex-upload-'));
+  const tmp = path.join(dir, asciiDisplayName(base).replace(/[\\/:*?"<>|]/g, '_'));
+  try {
+    fs.copyFileSync(filePath, tmp);
+    return await ai.files.upload({ file: tmp, config: uploadConfig });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Prepare documents for Gemini context — inline text files, upload PDFs via File API, skip unsupported.
  * Accepts array of { absPath, relPath } from findDocsRecursive.
  */
@@ -176,10 +199,7 @@ async function prepareDocsForGemini(ai, docFileList) {
 
         console.log(`    ${c.dim('Uploading')} ${name} ${c.dim('to File API...')}`);
         let file = await withRetry(
-          () => ai.files.upload({
-            file: docPath,
-            config: { mimeType: mime, displayName: asciiDisplayName(name) },
-          }),
+          () => uploadFile(ai, docPath, { mimeType: mime, displayName: asciiDisplayName(name) }),
           { label: `Gemini doc upload (${name})`, maxRetries: 3 }
         );
 
@@ -536,7 +556,7 @@ async function uploadAndAwaitFile(ai, { filePath, displayName, label, progressLa
 
   for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt++) {
     let uploaded = await withRetry(
-      () => ai.files.upload({ file: filePath, config: { mimeType, displayName: asciiDisplayName(displayName) } }),
+      () => uploadFile(ai, filePath, { mimeType, displayName: asciiDisplayName(displayName) }),
       { label: attempt === 1 ? label : `${label} [attempt ${attempt}]`, maxRetries: 5, baseDelay: 3000 }
     );
 
@@ -1597,10 +1617,7 @@ async function analyzeVideoForContext(ai, filePath, displayName, opts = {}) {
   // 1. Upload video to Gemini File API
   console.log(`    Uploading ${displayName} to Gemini File API...`);
   let file = await withRetry(
-    () => ai.files.upload({
-      file: filePath,
-      config: { mimeType: 'video/mp4', displayName },
-    }),
+    () => uploadFile(ai, filePath, { mimeType: 'video/mp4', displayName: asciiDisplayName(displayName) }),
     { label: `Gemini video upload (${displayName})`, maxRetries: 5, baseDelay: 3000 }
   );
 
@@ -1748,6 +1765,7 @@ async function cleanupGeminiFiles(ai, geminiFileName, contextDocs = []) {
 module.exports = {
   initGemini,
   asciiDisplayName,
+  uploadFile,
   uploadAndAwaitFile,
   prepareDocsForGemini,
   analyzeImageBatches,

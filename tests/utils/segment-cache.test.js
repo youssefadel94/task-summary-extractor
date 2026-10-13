@@ -6,7 +6,7 @@ const path = require('path');
 
 const { segmentCacheStaleReason, writeSegmentManifest, segmentParams } =
   require('../../src/phases/process-media');
-const { asciiDisplayName } = require('../../src/services/gemini');
+const { asciiDisplayName, uploadFile } = require('../../src/services/gemini');
 
 function tmpSegmentDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'segcache-'));
@@ -97,5 +97,31 @@ describe('asciiDisplayName', () => {
 
   it('never returns an over-long label', () => {
     expect(asciiDisplayName('a'.repeat(500)).length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('uploadFile', () => {
+  // The SDK sends the path's basename as X-Goog-Upload-File-Name, so an Arabic
+  // filename failed the upload even with a clean displayName.
+  it('uploads a non-ASCII-named file from an ASCII-named copy, then removes it', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upl-'));
+    const src = path.join(dir, 'اصدار كشف الراتب salary slip.pdf');
+    fs.writeFileSync(src, 'pdf-bytes');
+    let seen;
+    const ai = { files: { upload: async ({ file }) => { seen = { file, body: fs.readFileSync(file, 'utf8') }; return { name: 'files/x' }; } } };
+
+    await uploadFile(ai, src, { mimeType: 'application/pdf', displayName: 'x' });
+
+    expect(path.basename(seen.file)).toMatch(/^[\x20-\x7E]+$/);
+    expect(seen.body).toBe('pdf-bytes');
+    expect(fs.existsSync(seen.file)).toBe(false);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('passes an ASCII path straight through', async () => {
+    let seen;
+    const ai = { files: { upload: async ({ file }) => { seen = file; return {}; } } };
+    await uploadFile(ai, 'D:/calls/seg_00.mp4', {});
+    expect(seen).toBe('D:/calls/seg_00.mp4');
   });
 });
