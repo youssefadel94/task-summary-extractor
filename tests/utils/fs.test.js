@@ -31,6 +31,13 @@ describe('findDocsRecursive', () => {
     expect(rels).toEqual(['a.md', 'b.txt', 'sub/c.md']);
   });
 
+  it('never returns the resume checkpoint as a context doc', () => {
+    fs.writeFileSync(path.join(root, '.pipeline-state.json'), '{}');
+    fs.writeFileSync(path.join(root, 'notes.json'), '{}');
+    const rels = findDocsRecursive(root, ['.json']).map(f => f.relPath);
+    expect(rels).toEqual(['notes.json']);
+  });
+
   it('matches extensions case-insensitively and returns absolute paths', () => {
     fs.writeFileSync(path.join(root, 'UPPER.MD'), 'u');
     const found = findDocsRecursive(root, ['.md']);

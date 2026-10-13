@@ -10,6 +10,9 @@ const path = require('path');
 /** Directories to always skip when scanning recursively */
 const SKIP_DIRS = new Set(['node_modules', '.git', 'compressed', 'logs', 'gemini_runs', 'runs']);
 
+/** The tool's own bookkeeping — a resumed run must not feed its checkpoint to Gemini as a meeting doc. */
+const SKIP_FILES = new Set(['.pipeline-state.json']);
+
 /**
  * Recursively find all files matching given extensions under a directory.
  * Returns array of { absPath, relPath } where relPath is relative to baseDir.
@@ -29,7 +32,7 @@ function findDocsRecursive(baseDir, exts, _relBase = '') {
       if (!SKIP_DIRS.has(entry.name)) {
         results.push(...findDocsRecursive(baseDir, exts, rel));
       }
-    } else if (exts.includes(path.extname(entry.name).toLowerCase())) {
+    } else if (!SKIP_FILES.has(entry.name) && exts.includes(path.extname(entry.name).toLowerCase())) {
       results.push({ absPath: path.join(baseDir, rel), relPath: rel.replace(/\\/g, '/') });
     }
   }
