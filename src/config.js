@@ -77,14 +77,17 @@ const GEMINI_API_KEY = env('GEMINI_API_KEY');
  * Complete Gemini model registry — specs, context windows, pricing, and descriptions.
  *
  * Pricing source: Google AI for Developers — https://ai.google.dev/gemini-api/docs/pricing
- * Last verified: April 2026
+ * Last verified: October 2026 (3.1 Flash-Lite moved from preview to GA at the
+ * same price; the preview id is past its shutdown date. Newer Flash models —
+ * 3.6/3.8 — cost $0.75/$3.75 now and double in 2027, so 3 Flash stays the
+ * balanced default.)
  *
  * Rates are per 1 million tokens. Output pricing INCLUDES thinking tokens
  * (unified rate). Some models have tiered pricing based on context length
  * (short = under threshold, long = over threshold).
  *
  * NOTE: gemini-2.0-flash, gemini-2.0-flash-lite, and all gemini-1.5-* models
- * are deprecated/removed. Use 2.5+ models only.
+ * are deprecated/removed, and gemini-2.5-* is closed to new keys. Use 3+ models only.
  */
 const GEMINI_MODELS = {
   'gemini-3.1-pro-preview': {
@@ -123,8 +126,8 @@ const GEMINI_MODELS = {
     },
     costEstimate: '~$0.07/segment',
   },
-  'gemini-3.1-flash-lite-preview': {
-    name: 'Gemini 3.1 Flash-Lite Preview',
+  'gemini-3.1-flash-lite': {
+    name: 'Gemini 3.1 Flash-Lite',
     description: 'Most cost-efficient Gemini 3 — optimized for high-volume agentic tasks, translation, and simple data processing',
     contextWindow: 1_048_576,
     maxOutput: 65536,

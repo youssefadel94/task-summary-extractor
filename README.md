@@ -317,7 +317,7 @@ Use `--model <id>` or run without it for an interactive picker:
 | Model ID | Speed | Cost | Best For |
 |----------|-------|------|----------|
 | `gemini-3-flash-preview` | ⚡ Fast | $ | **Default** — best price-performance |
-| `gemini-3.1-flash-lite-preview` | ⚡⚡ Fastest | ¢ | High volume, budget runs |
+| `gemini-3.1-flash-lite` | ⚡⚡ Fastest | ¢ | High volume, budget runs (GA; replaces the retired `-preview` id) |
 | `gemini-3.1-pro-preview` | 🧠 Slower | $$$ | Deep reasoning, complex meetings |
 
 ### Cheat Sheet

@@ -15,7 +15,7 @@ const {
 
 const PRO = 'gemini-3.1-pro-preview';
 const FLASH = 'gemini-3-flash-preview';
-const LITE = 'gemini-3.1-flash-lite-preview';
+const LITE = 'gemini-3.1-flash-lite';
 
 /** The 503 the Gemini API returns during a demand spike. */
 const overload = () => new Error(
